@@ -1,7 +1,5 @@
 {-# LANGUAGE MultilineStrings #-}
 
-import Data.Char (isAlphaNum)
-import Data.Function (fix)
 import Data.IORef
 import Debug.Trace
 import System.IO.Unsafe
@@ -50,7 +48,6 @@ instance Show Term where
 
 -- Environment
 -- ===========
-
 data Env = Env
   { inters  :: Int
   , var_new :: Int
@@ -61,14 +58,19 @@ data Env = Env
   , dup_map :: Map (Lab,Term)
   } deriving Show
 
-names :: String -> [String]
-names abc = fix $ \x -> [""] ++ concatMap (\s -> Prelude.map (:s) abc) x
-
 env :: Env
 env = Env 0 0 0 M.empty M.empty M.empty M.empty
 
+nameFrom :: String -> Int -> String
+nameFrom chars n = build n "" where
+  base = length chars
+  build k acc | k <= 0    = acc
+              | otherwise = let (q,r) = (k - 1) `divMod` base in build q (chars !! r : acc)
+
 fresh :: (Env -> Int) -> (Env -> Int -> Env) -> String -> Env -> (Env, String)
-fresh get set chars s = (set s (get s + 1), "$" ++ (names chars) !! (get s + 1))
+fresh get set chars s =
+  let next = get s + 1
+  in (set s next, "$" ++ nameFrom chars next)
 
 fresh_var = fresh var_new (\s n -> s { var_new = n }) ['a'..'z']
 fresh_dup = fresh dup_new (\s n -> s { dup_new = n }) ['A'..'Z']
@@ -203,7 +205,6 @@ dup s k l v              t = (s , Dup k l v t)
 
 -- Interactions
 -- ============
-
 -- (λx.f v)
 -- ---------- app-lam
 -- x ← v
@@ -356,117 +357,6 @@ nf s x = let (s0,x0) = wnf s x in go s0 x0 where
 -- Main
 -- ====
 
-
-
--- f04 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- λx03.(F03₀ (F03₁ x03))
--- """
-
--- f08 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
-    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
-    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
-    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
-    -- λx07.(F07₀ (F07₁ x07))
--- """
-
--- f12 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
-    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
-    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
-    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
-    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
-    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
-    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
-    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
-    -- λx11.(F11₀ (F11₁ x11))
--- """
-
--- f16 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
-    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
-    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
-    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
-    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
-    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
-    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
-    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
-    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
-    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
-    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
-    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
-    -- λx15.(F15₀ (F15₁ x15))
--- """
-
--- f20 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
-    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
-    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
-    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
-    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
-    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
-    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
-    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
-    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
-    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
-    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
-    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
-    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
-    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
-    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
-    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
-    -- λx19.(F19₀ (F19₁ x19))
--- """
-
--- f24 = """
--- λf. !F00 &A = f;
-    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
-    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
-    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
-    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
-    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
-    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
-    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
-    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
-    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
-    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
-    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
-    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
-    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
-    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
-    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
-    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
-    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
-    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
-    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
-    -- !F20 &A = λx19.(F19₀ (F19₁ x19));
-    -- !F21 &A = λx20.(F20₀ (F20₁ x20));
-    -- !F22 &A = λx21.(F21₀ (F21₁ x21));
-    -- !F23 &A = λx22.(F22₀ (F22₁ x22));
-    -- λx23.(F23₀ (F23₁ x23))
--- """
-
--- TODO: implement a generic function 'f :: Int -> String' that returns the equivalent of f_n
 f :: Int -> String
 f n = "λf. " ++ dups ++ final where
   dups  = concat [dup i | i <- [0..n-1]]
@@ -475,35 +365,10 @@ f n = "λf. " ++ dups ++ final where
   final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
   pad x = if x < 10 then "0" ++ show x else show x
 
-term = read_term $ "((" ++ f 4 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+term = read_term $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
 
 main :: IO ()
 main = do
   let res = nf env term
   print $          snd $ res
   print $ inters $ fst $ res
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
