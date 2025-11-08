@@ -1,75 +1,16 @@
--- The Interaction Calculus
--- ========================
--- A term rewrite system for the following language:
--- 
--- Term ::=
--- | Var ::= Name
--- | Dp0 ::= Name "₀"
--- | Dp1 ::= Name "₁"
--- | Era ::= "&{}"
--- | Sup ::= "&" Name "{" Term "," Term "}"
--- | Dup ::= "!" Name "&" Name "=" Term ";" Term
--- | Lam ::= "λ" Name "." Term
--- | App ::= "(" Term " " Term ")"
---
--- Where:
--- - Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
--- 
--- In it, variables are affine (they must occur at most once), and range
--- globally (they can occur "outside" of their binder's "body"). Example:
--- 
---   (Af. !F0 &A = f; !F1 &A = λx0. (F0₀ (F0₁ x0)); λx1.(F1₀ (F1₁ x1)))
--- 
--- Is a valid term, representing 'λf.λx.(f (f x))'.
--- 
--- Terms are rewritten via the following interaction rules:
--- 
--- (λx.f a)
--- -------- app-lam
--- x ← a
--- f
--- 
--- (&L{f,g} a)
--- ----------------- app-sup
--- ! A &L = a
--- &L{(f A₀),(g A₁)}
--- 
--- ! F &L = λx.f
--- ------------- dup-lam
--- F₀ ← λ$x0.G₀
--- F₁ ← λ$x1.G₁
--- x  ← &L{$x0,$x1}
--- ! G &L = f
--- 
--- ! X &L = &R{a,b}
--- ---------------- dup-sup
--- if L == R:
---   X₀ ← a
---   X₁ ← b
--- else:
---   ! A &L = a
---   ! B &L = b
---   X₀ ← &R{A₀,B₀}
---   X₁ ← &R{A₁,B₁}
-
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MagicHash #-}
 {-# OPTIONS_GHC -O2 #-}
 
-import Control.Monad (replicateM, when)
-import Control.Monad.Primitive (RealWorld)
+import Control.Monad (replicateM)
 import Data.Bits (shiftL)
 import Data.Char (chr, ord)
 import Data.IORef
 import Data.List (foldl')
-import GHC.Prim (reallyUnsafePtrEquality#)
-import GHC.Types (isTrue#)
 import System.CPUTime
 import Text.ParserCombinators.ReadP
 import Text.Printf
-import Unsafe.Coerce (unsafeCoerce)
+import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
-import qualified Data.Vector.Mutable as MV
 
 -- Types
 -- =====
@@ -86,19 +27,6 @@ data Term
   | Dup !Name !Lab !Term !Term
   | Lam !Name !Term
   | App !Term !Term
-
--- Showing
--- =======
-
-instance Show Term where
-  show (Var k)       = int_to_name (k+1)
-  show (Dp0 k)       = int_to_name (k+1) ++ "₀"
-  show (Dp1 k)       = int_to_name (k+1) ++ "₁"
-  show Era           = "&{}"
-  show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
-  show (Dup k l v t) = "!" ++ int_to_name (k+1) ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
-  show (Lam k f)     = "λ" ++ int_to_name (k+1) ++ "." ++ show f
-  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
 
 -- Name Encoding/Decoding
 -- ======================
@@ -189,152 +117,71 @@ read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
   [(t, "")] -> t
   _         -> error "bad-parse"
 
--- Dynamic Vector
--- ==============
-
--- Sentinel mechanism for performance
-data Sentinel = Sentinel
-sentinelObj :: Sentinel
-sentinelObj = Sentinel
-{-# NOINLINE sentinelObj #-}
-
-sentinelVal :: Term
-sentinelVal = unsafeCoerce sentinelObj
-{-# NOINLINE sentinelVal #-}
-
-isSentinel :: Term -> Bool
-isSentinel !p = isTrue# (reallyUnsafePtrEquality# p sentinelVal)
-{-# INLINE isSentinel #-}
-
--- Growable vector
-data GrowVec a = GrowVec
-  { gvVec  :: !(IORef (MV.MVector RealWorld a))
-  , gvSize :: !(IORef Int)
-  }
-
-newGrowVec :: Int -> a -> IO (GrowVec a)
-newGrowVec size sentinel = do
-  vec <- MV.replicate size sentinel
-  vecRef <- newIORef vec
-  sizeRef <- newIORef size
-  return $ GrowVec vecRef sizeRef
-
--- Ensure vector is large enough, growing if necessary
-ensureSize :: GrowVec a -> Int -> a -> IO ()
-ensureSize gv idx sentinel = do
-  currentSize <- readIORef (gvSize gv)
-  when (idx >= currentSize) $ do
-    let newSize = max (idx + 1) (currentSize * 2)
-    vec <- readIORef (gvVec gv)
-    newVec <- MV.grow vec (newSize - currentSize)
-    -- Fill new slots with sentinel using set (much faster than mapM_)
-    let newSlice = MV.unsafeSlice currentSize (newSize - currentSize) newVec
-    MV.set newSlice sentinel
-    writeIORef (gvVec gv) newVec
-    writeIORef (gvSize gv) newSize
-{-# INLINE ensureSize #-}
-
-gvRead :: GrowVec a -> Int -> a -> IO a
-gvRead gv idx sentinel = do
-  ensureSize gv idx sentinel
-  vec <- readIORef (gvVec gv)
-  MV.read vec idx
-{-# INLINE gvRead #-}
-
-gvWrite :: GrowVec a -> Int -> a -> a -> IO ()
-gvWrite gv idx val sentinel = do
-  ensureSize gv idx sentinel
-  vec <- readIORef (gvVec gv)
-  MV.write vec idx val
-{-# INLINE gvWrite #-}
-
 -- Environment
 -- ===========
 
 data Env = Env
-  { inters       :: !(IORef Int)
-  , new_id       :: !(IORef Int)
-  , var_map      :: !(GrowVec Term)
-  , dp0_map      :: !(GrowVec Term)
-  , dp1_map      :: !(GrowVec Term)
-  , dup_map_term :: !(GrowVec Term)
-  , dup_map_lab  :: !(GrowVec Lab)
+  { inters  :: !(IORef Int)
+  , id_new  :: !(IORef Int)
+  , var_map :: !(IORef (IM.IntMap Term))
+  , dp0_map :: !(IORef (IM.IntMap Term))
+  , dp1_map :: !(IORef (IM.IntMap Term))
+  , dup_map :: !(IORef (IM.IntMap (Lab, Term)))
   }
 
 new_env :: IO Env
 new_env = do
   itr <- newIORef 0
-  ids <- newIORef 16777216  -- Start after all possible parsed IDs (64^4)
-  vm  <- newGrowVec 1024 sentinelVal
-  d0m <- newGrowVec 1024 sentinelVal
-  d1m <- newGrowVec 1024 sentinelVal
-  dmt <- newGrowVec 1024 sentinelVal
-  dml <- newGrowVec 1024 0
-  return $ Env itr ids vm d0m d1m dmt dml
+  ids <- newIORef 0
+  vm  <- newIORef IM.empty
+  d0m <- newIORef IM.empty
+  d1m <- newIORef IM.empty
+  dm  <- newIORef IM.empty
+  return $ Env itr ids vm d0m d1m dm
 
 inc_inters :: Env -> IO ()
 inc_inters e = do
   !n <- readIORef (inters e)
   writeIORef (inters e) (n + 1)
-{-# INLINE inc_inters #-}
 
 fresh :: Env -> IO Name
 fresh e = do
-  !n <- readIORef (new_id e)
-  writeIORef (new_id e) (n + 1)
-  return n
-{-# INLINE fresh #-}
+  !n <- readIORef (id_new e)
+  writeIORef (id_new e) (n + 1)
+  return ((n `shiftL` 6) + 63)
 
 subst_var :: Env -> Name -> Term -> IO ()
-subst_var e k v = gvWrite (var_map e) k v sentinelVal
-{-# INLINE subst_var #-}
+subst_var e k v = modifyIORef' (var_map e) (IM.insert k v)
 
 subst_dp0 :: Env -> Name -> Term -> IO ()
-subst_dp0 e k v = gvWrite (dp0_map e) k v sentinelVal
-{-# INLINE subst_dp0 #-}
+subst_dp0 e k v = modifyIORef' (dp0_map e) (IM.insert k v)
 
 subst_dp1 :: Env -> Name -> Term -> IO ()
-subst_dp1 e k v = gvWrite (dp1_map e) k v sentinelVal
-{-# INLINE subst_dp1 #-}
+subst_dp1 e k v = modifyIORef' (dp1_map e) (IM.insert k v)
 
 delay_dup :: Env -> Name -> Lab -> Term -> IO ()
-delay_dup e k l v = do
-  gvWrite (dup_map_term e) k v sentinelVal
-  gvWrite (dup_map_lab e) k l 0
-{-# INLINE delay_dup #-}
+delay_dup e k l v = modifyIORef' (dup_map e) (IM.insert k (l, v))
 
-taker_term :: GrowVec Term -> Name -> IO (Maybe Term)
-taker_term gv k = do
-  !v <- gvRead gv k sentinelVal
-  if isSentinel v
-    then return Nothing
-    else do
-      gvWrite gv k sentinelVal sentinelVal
+taker :: IORef (IM.IntMap a) -> Name -> IO (Maybe a)
+taker ref k = do
+  !m <- readIORef ref
+  case IM.lookup k m of
+    Nothing -> return Nothing
+    Just v  -> do
+      writeIORef ref (IM.delete k m)
       return (Just v)
-{-# INLINE taker_term #-}
 
 take_var :: Env -> Name -> IO (Maybe Term)
-take_var e k = taker_term (var_map e) k
-{-# INLINE take_var #-}
+take_var e = taker (var_map e)
 
 take_dp0 :: Env -> Name -> IO (Maybe Term)
-take_dp0 e k = taker_term (dp0_map e) k
-{-# INLINE take_dp0 #-}
+take_dp0 e = taker (dp0_map e)
 
 take_dp1 :: Env -> Name -> IO (Maybe Term)
-take_dp1 e k = taker_term (dp1_map e) k
-{-# INLINE take_dp1 #-}
+take_dp1 e = taker (dp1_map e)
 
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e k = do
-  !v <- gvRead (dup_map_term e) k sentinelVal
-  if isSentinel v
-    then return Nothing
-    else do
-      !l <- gvRead (dup_map_lab e) k 0
-      gvWrite (dup_map_term e) k sentinelVal sentinelVal
-      return (Just (l, v))
-{-# INLINE take_dup #-}
+take_dup e = taker (dup_map e)
 
 -- Evaluation (Weak Head Normal Form)
 -- ==================================
@@ -361,11 +208,21 @@ dup e k l (Lam vk vf)    t = dup_lam e k l vk vf t
 dup e k l (Sup vl va vb) t = dup_sup e k l vl va vb t
 dup e k l v              t = return $ Dup k l v t
 
+-- (λx.f a)
+-- -------- app-lam
+-- x ← a
+-- f
+
 app_lam :: Env -> Name -> Term -> Term -> IO Term
 app_lam e fx ff v = do
   inc_inters e
   subst_var e fx v
   wnf e ff
+
+-- (&L{f,g} a)
+-- ----------------- app-sup
+-- ! A &L = a
+-- &L{(f A₀),(g A₁)}
 
 app_sup :: Env -> Lab -> Term -> Term -> Term -> IO Term
 app_sup e fL fa fb v = do
@@ -373,6 +230,14 @@ app_sup e fL fa fb v = do
   x <- fresh e
   delay_dup e x fL v
   wnf e (Sup fL (App fa (Dp0 x)) (App fb (Dp1 x)))
+
+
+-- ! F &L = λx.f
+-- ---------------- dup-lam
+-- F₀ ← λ$x0.G₀
+-- F₁ ← λ$x1.G₁
+-- x  ← &L{$x0,$x1}
+-- ! G &L = f
 
 dup_lam :: Env -> Name -> Lab -> Name -> Term -> Term -> IO Term
 dup_lam e k l vk vf t = do
@@ -385,6 +250,17 @@ dup_lam e k l vk vf t = do
   subst_var e vk (Sup l (Var x0) (Var x1))
   delay_dup e g l vf
   wnf e t
+
+-- ! X &L = &R{a,b}
+-- ---------------- dup-sup
+-- if L == R:
+--   X₀ ← a
+--   X₁ ← b
+-- else:
+--   ! A &L = a
+--   ! B &L = b
+--   X₀ ← &R{A₀,B₀}
+--   X₁ ← &R{A₁,B₁}
 
 dup_sup :: Env -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
 dup_sup e k l vl va vb t
@@ -462,6 +338,19 @@ nf e d x = do { !x0 <- wnf e x ; go e d x0 } where
     !t0 <- nf e (d + 1) t
     return $ Dup d l v0 t0
 
+-- Showing
+-- =======
+
+instance Show Term where
+  show (Var k)       = int_to_name (k+1)
+  show (Dp0 k)       = int_to_name (k+1) ++ "₀"
+  show (Dp1 k)       = int_to_name (k+1) ++ "₁"
+  show Era           = "&{}"
+  show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
+  show (Dup k l v t) = "!" ++ int_to_name (k+1) ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
+  show (Lam k f)     = "λ" ++ int_to_name (k+1) ++ "." ++ show f
+  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
+
 -- Benchmark term generator
 -- =========================
 
@@ -497,7 +386,6 @@ main = do
 
   -- Output
   interactions <- readIORef (inters env)
-  fresh_count <- readIORef (new_id env)
   let diff = fromIntegral (end - start) / (10^12)
   let rate = fromIntegral interactions / diff
 
