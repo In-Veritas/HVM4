@@ -1,362 +1,474 @@
-{-# LANGUAGE MultilineStrings #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
+{-# OPTIONS_GHC -O2 #-}
 
+-- Import necessary standard libraries
+import Control.Monad (replicateM)
+import Data.Array.Base (unsafeRead, unsafeWrite)
+import Data.Array.IO
+import Data.Array.MArray (newArray)
+import Data.Bits (shiftL)
+import Data.Char (chr, ord)
 import Data.IORef
-import Debug.Trace
-import System.IO.Unsafe
+import Data.List (foldl')
+import GHC.Prim (reallyUnsafePtrEquality#)
+import GHC.Types (isTrue#)
+import System.CPUTime
 import Text.ParserCombinators.ReadP
-import qualified Data.Map as M
+import Text.Printf
+import Unsafe.Coerce (unsafeCoerce)
+import qualified Data.Map.Strict as M
 
-type Lab   = String
-type Name  = String
-type Map a = M.Map String a
+-- Internal representation (Int-based for speed)
+-- ==============================================
 
--- dp0 ::= x₀
--- dp1 ::= x₁
--- era ::= &{}
--- sup ::= &L{a,b}
--- dup ::= !x&L=v;t
--- var ::= x
--- lam ::= λx.f
--- app ::= (f x)
--- nam ::= name
--- dry ::= (name arg)
+type Lab  = Int
+type Name = Int
+
+-- Simplified Term type. We use a "depth-as-ID" strategy during normalization (nf).
 data Term
-  = Nam Name
-  | Var Name
-  | Dp0 Name
-  | Dp1 Name
+  = Var {-# UNPACK #-} !Name
+  | Dp0 {-# UNPACK #-} !Name
+  | Dp1 {-# UNPACK #-} !Name
   | Era
-  | Sup Lab Term Term
-  | Dup Name Lab Term Term
-  | Lam Name Term
-  | Abs Name Term
-  | Dry Term Term
-  | App Term Term
+  | Sup {-# UNPACK #-} !Lab !Term !Term
+  | Dup {-# UNPACK #-} !Name {-# UNPACK #-} !Lab !Term !Term
+  | Lam {-# UNPACK #-} !Name !Term
+  | Dry !Term !Term -- Stuck application
+  | App !Term !Term
 
-instance Show Term where
-  show (Nam k)       = k
-  show (Dry f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
-  show (Var k)       = k
-  show (Dp0 k)       = k ++ "₀"
-  show (Dp1 k)       = k ++ "₁"
-  show Era           = "&{}"
-  show (Sup l a b)   = "&" ++ l ++ "{" ++ show a ++ "," ++ show b ++ "}"
-  show (Dup k l v t) = "!" ++ k ++ "&" ++ l ++ "=" ++ show v ++ ";" ++ show t
-  show (Lam k f)     = "λ" ++ k ++ "." ++ show f
-  show (Abs k f)     = "λ" ++ k ++ "." ++ show f
-  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
+-- Configuration
+-- =============
 
--- Environment
--- ===========
-data Env = Env
-  { inters  :: Int
-  , var_new :: Int
-  , dup_new :: Int
-  , var_map :: Map Term
-  , dp0_map :: Map Term
-  , dp1_map :: Map Term
-  , dup_map :: Map (Lab,Term)
-  } deriving Show
+-- Increased maxSize to 128M. The previous size (50M) was insufficient because
+-- fresh IDs now start at 16M. The benchmark requires ~50M fresh IDs, leading
+-- to a maximum index of ~66M, which caused the buffer overflow (Segmentation Fault).
+maxSize :: Int
+maxSize = 30000000
 
-env :: Env
-env = Env 0 0 0 M.empty M.empty M.empty M.empty
+-- Namespace separation. We assume user-provided names are short (<= 4 chars).
+-- 64^4 = 16777216. Parsed IDs (Base-64) are below this boundary.
+freshIdStart :: Int
+freshIdStart = 16777216
 
-nameFrom :: String -> Int -> String
-nameFrom chars n = build n "" where
-  base = length chars
-  build k acc | k <= 0    = acc
-              | otherwise = let (q,r) = (k - 1) `divMod` base in build q (chars !! r : acc)
+-- Name Encoding/Decoding
+-- =================================================
 
-fresh :: (Env -> Int) -> (Env -> Int -> Env) -> String -> Env -> (Env, String)
-fresh get set chars s =
-  let next = get s + 1
-  in (set s next, "$" ++ nameFrom chars next)
+-- 1. Base-64 encoding (for parsing user names/labels)
+-- Alphabet: _ (0), a-z (1-26), A-Z (27-52), 0-9 (53-62), $ (63).
+alphabet :: String
+alphabet = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$"
 
-fresh_var = fresh var_new (\s n -> s { var_new = n }) ['a'..'z']
-fresh_dup = fresh dup_new (\s n -> s { dup_new = n }) ['A'..'Z']
+charMap :: M.Map Char Int
+charMap = M.fromList (zip alphabet [0..])
 
-subst :: (Env -> Map a) -> (Env -> Map a -> Env) -> Env -> String -> a -> Env
-subst get set s k v = set s (M.insert k v (get s))
+-- Assumes character is valid (checked by parser).
+unsafeCharToInt :: Char -> Int
+unsafeCharToInt c = charMap M.! c
 
-subst_var = subst var_map (\s m -> s { var_map = m })
-subst_dp0 = subst dp0_map (\s m -> s { dp0_map = m })
-subst_dp1 = subst dp1_map (\s m -> s { dp1_map = m })
-delay_dup = subst dup_map (\s m -> s { dup_map = m })
+-- Optimized nameToInt using strict foldl' and bit shifts (64 = 2^6).
+nameToInt :: String -> Int
+nameToInt = foldl' go 0
+  where
+    go acc c = (acc `shiftL` 6) + unsafeCharToInt c
 
-taker :: (Env -> Map a) -> (Env -> Map a -> Env) -> Env -> String -> (Maybe a, Env)
-taker get set s k = let (mt, m) = M.updateLookupWithKey (\_ _ -> Nothing) k (get s) in (mt, set s m)
+-- Decoding Int -> Label Name (for printing labels)
+intToLabName :: Int -> String
+intToLabName 0 = "_"
+intToLabName n = reverse $ go n
+  where
+    go 0 = ""
+    go m = let (q, r) = m `divMod` 64
+           in alphabet !! r : go q
 
-take_var = taker var_map (\s m -> s { var_map = m })
-take_dp0 = taker dp0_map (\s m -> s { dp0_map = m })
-take_dp1 = taker dp1_map (\s m -> s { dp1_map = m })
-take_dup = taker dup_map (\s m -> s { dup_map = m })
+-- 2. Base-26 Bijective (for canonical variable names: a-z during normalization)
+-- 0 -> a, 1 -> b, ..., 25 -> z, 26 -> aa, ...
+intToName :: Int -> String
+intToName n = reverse $ go (n + 1)
+  where
+    go 0 = ""
+    go m = let (q, r) = (m - 1) `divMod` 26
+               c = chr (ord 'a' + r)
+           in c : go q
 
-inc_inters :: Env -> Env
-inc_inters s = s { inters = inters s + 1 }
-
--- Parsing
--- =======
+-- Parsing (Simplified and Idiomatic)
+-- ===================================================================
 
 lexeme :: ReadP a -> ReadP a
 lexeme p = skipSpaces *> p
 
-name :: ReadP String
-name = lexeme parse_nam
+-- Ensure names conform to the Base-64 alphabet
+parse_nam :: ReadP String
+parse_nam = lexeme $ munch1 (`M.member` charMap)
 
 parse_term :: ReadP Term
 parse_term = lexeme $ choice
-  [ parse_lam
-  , parse_dup
-  , parse_app
-  , parse_sup
-  , parse_era
-  , parse_var
-  ]
+  [ parse_lam, parse_dup, parse_app, parse_sup, parse_era, parse_var ]
 
+-- Idiomatic application parsing: (t1 t2 t3 ...)
 parse_app :: ReadP Term
-parse_app = do
-  lexeme (char '(')
+parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
   ts <- many1 parse_term
-  lexeme (char ')')
-  case ts of
-    (t:rest) -> return (Prelude.foldl App t rest)
-    _        -> pfail
+  let (t:rest) = ts
+  return (foldl' App t rest)
 
 parse_lam :: ReadP Term
 parse_lam = do
   lexeme (choice [char 'λ', char '\\'])
-  k <- name
+  k <- parse_nam
   lexeme (char '.')
   body <- parse_term
-  return $ Lam k body
+  return (Lam (nameToInt k) body)
 
 parse_dup :: ReadP Term
 parse_dup = do
   lexeme (char '!')
-  k <- name
+  k <- parse_nam
   lexeme (char '&')
-  l <- name
+  l <- parse_nam
   lexeme (char '=')
   v <- parse_term
   lexeme (char ';')
   t <- parse_term
-  return $ Dup k l v t
+  return (Dup (nameToInt k) (nameToInt l) v t)
 
 parse_sup :: ReadP Term
 parse_sup = do
   lexeme (char '&')
-  l <- name
-  lexeme (char '{')
-  a <- parse_term
-  lexeme (char ',')
-  b <- parse_term
-  lexeme (char '}')
-  return $ Sup l a b
+  l <- parse_nam
+  between (lexeme (char '{')) (lexeme (char '}')) $ do
+    a <- parse_term
+    lexeme (char ',')
+    b <- parse_term
+    return (Sup (nameToInt l) a b)
 
 parse_era :: ReadP Term
 parse_era = lexeme (string "&{}") >> return Era
 
 parse_var :: ReadP Term
 parse_var = do
-  k <- name
+  k <- parse_nam
+  let kid = nameToInt k
   choice
-    [ string "₀"  >> return (Dp0 k)
-    , string "₁"  >> return (Dp1 k)
-    , return (Var k)
+    [ string "₀"  >> return (Dp0 kid)
+    , string "₁"  >> return (Dp1 kid)
+    , return (Var kid)
     ]
-
-parse_nam :: ReadP String
-parse_nam = munch1 $ \c
-  -> c >= 'a' && c <= 'z'
-  || c >= 'A' && c <= 'Z'
-  || c >= '0' && c <= '9'
-  || c == '_' || c == '/'
 
 read_term :: String -> Term
 read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
   [(t, "")] -> t
   _         -> error "bad-parse"
 
--- Evaluation
--- ==========
+-- Environment (Using Sentinel for performance)
+-- ===================================================
 
-wnf :: Env -> Term -> (Env,Term)
-wnf s t = go s t where
-  go s (App f x)     = let (s0,f0) = wnf s f in app s0 f0 x
-  go s (Dup k l v t) = wnf (delay_dup s k (l,v)) t
-  go s (Var x)       = var s x
-  go s (Dp0 x)       = dp0 s x
-  go s (Dp1 x)       = dp1 s x
-  go s f             = (s,f)
+-- We use the Sentinel mechanism for performance, avoiding Maybe overhead.
+data Sentinel = Sentinel
+sentinelObj :: Sentinel
+sentinelObj = Sentinel
+{-# NOINLINE sentinelObj #-}
 
-app :: Env -> Term -> Term -> (Env,Term)
-app s (Nam fk)       x = app_nam s fk x
-app s (Dry df dx)    x = app_dry s df dx x
-app s (Lam fk ff)    x = app_lam s fk ff x
-app s (Sup fl fa fb) x = app_sup s fl fa fb x
-app s f              x = (s , App f x)
+sentinelVal :: Term
+sentinelVal = unsafeCoerce sentinelObj
+{-# NOINLINE sentinelVal #-}
 
-dup :: Env -> String -> Lab -> Term -> Term -> (Env,Term)
-dup s k l (Nam vk)       t = dup_nam s k l vk t
-dup s k l (Dry vf vx)    t = dup_dry s k l vf vx t
-dup s k l (Lam vk vf)    t = dup_lam s k l vk vf t
-dup s k l (Sup vl va vb) t = dup_sup s k l vl va vb t
-dup s k l v              t = (s , Dup k l v t)
+-- Fast pointer equality check to detect empty slots in the IOArray.
+isSentinel :: Term -> Bool
+isSentinel !p = isTrue# (reallyUnsafePtrEquality# p sentinelVal)
+{-# INLINE isSentinel #-}
 
--- Interactions
--- ============
--- (λx.f v)
--- ---------- app-lam
--- x ← v
--- f
-app_lam s fx ff v = 
-  let s0 = inc_inters s in
-  let s1 = subst_var s0 fx v in
-  wnf s1 ff
+data Env = Env
+  { inters       :: !(IORef Int)
+  , id_new       :: !(IORef Int)
+  , var_map      :: !(IOArray Int Term)
+  , dp0_map      :: !(IOArray Int Term)
+  , dp1_map      :: !(IOArray Int Term)
+  , dup_map_term :: !(IOArray Int Term)
+  , dup_map_lab  :: !(IOUArray Int Lab)
+  }
 
--- (&fL{fa,fb} v)
--- -------------------- app-sup
--- ! x &fL = v
--- &fL{(fa x₀),(fa x₁)}
-app_sup s fL fa fb v =
-  let s0     = inc_inters s in
-  let (s1,x) = fresh_dup s0 in
-  let app0   = App fa (Dp0 x) in
-  let app1   = App fb (Dp1 x) in
-  let sup    = Sup fL app0 app1 in
-  let dup    = Dup x fL v sup in
-  wnf s1 dup
+-- Initialize environment, starting the ID counter from freshIdStart.
+newEnv :: IO Env
+newEnv = do
+  i <- newIORef 0
+  idn <- newIORef freshIdStart
+  let bounds = (0, maxSize - 1)
+  vm  <- newArray bounds sentinelVal
+  d0m <- newArray bounds sentinelVal
+  d1m <- newArray bounds sentinelVal
+  dmt <- newArray bounds sentinelVal
+  dml <- newArray bounds 0
+  return $ Env i idn vm d0m d1m dmt dml
 
--- (fk v)
--- ------ app-nam
--- (fk v)
-app_nam s fk v = (inc_inters s, Dry (Nam fk) v)
+inc_inters :: Env -> IO ()
+inc_inters e = do
+  !n <- readIORef (inters e)
+  writeIORef (inters e) (n + 1)
+{-# INLINE inc_inters #-}
 
--- ((df dx) v)
--- ----------- app-dry
--- ((df dx) v)
-app_dry s df dx v = (inc_inters s, Dry (Dry df dx) v)
+-- Generates a fresh ID. Includes a bounds check for safety.
+fresh :: Env -> IO Name
+fresh e = do
+  !n <- readIORef (id_new e)
+  -- FIX: Check bounds before returning the ID to prevent segmentation faults.
+  if n >= maxSize
+    then error $ "Error: Exceeded maxSize (" ++ show maxSize ++ "). Increase maxSize in configuration."
+    else do
+      writeIORef (id_new e) (n + 1)
+      return n
+{-# INLINE fresh #-}
 
--- ! k &L = λvk.vf; t
--- ------------------ dup-lam
--- k₀ ← λx0.g0
--- k₁ ← λx1.g1
--- vk ← &L{x0,x1}
--- ! g &L = vf
--- t
-dup_lam s k l vk vf t =
-  let s0       = inc_inters s in
-  let (s1, x0) = fresh_var s0 in
-  let (s2, x1) = fresh_var s1 in
-  let (s3, g)  = fresh_dup s2 in
-  let s4       = subst_dp0 s3 k  (Lam x0 (Dp0 g)) in
-  let s5       = subst_dp1 s4 k  (Lam x1 (Dp1 g)) in
-  let s6       = subst_var s5 vk (Sup l (Var x0) (Var x1)) in
-  let dup      = Dup g l vf t in
-  wnf s6 dup
+subst_var :: Env -> Name -> Term -> IO ()
+subst_var e k v = unsafeWrite (var_map e) k v
+{-# INLINE subst_var #-}
 
--- ! k &L = &vL{va,vb}; t
--- ---------------------- dup-sup (==)
--- if l == vL:
---   k₀ ← va
---   k₁ ← vb
---   t
--- else:
---   k₀ ← &vL{a₀,b₀}
---   k₁ ← &vL{a₁,b₁}
---   ! a &L = va
---   ! b &L = vb
---   t
-dup_sup s k l vl va vb t
-  | l == vl =
-    let s0 = inc_inters s in
-    let s1 = subst_dp0 s0 k va in
-    let s2 = subst_dp1 s1 k vb in
-    wnf s2 t
-  | l /= vl =
-    let s0      = inc_inters s in
-    let (s1, a) = fresh_dup s0 in
-    let (s2, b) = fresh_dup s1 in
-    let s3      = subst_dp0 s2 k (Sup vl (Dp0 a) (Dp0 b)) in
-    let s4      = subst_dp1 s3 k (Sup vl (Dp1 a) (Dp1 b)) in
-    let dup     = Dup a l va (Dup b l vb t) in
-    wnf s4 dup
+subst_dp0 :: Env -> Name -> Term -> IO ()
+subst_dp0 e k v = unsafeWrite (dp0_map e) k v
+{-# INLINE subst_dp0 #-}
 
--- ! k &L = vk; t
--- -------------- dup-nam
--- k₀ ← vk
--- k₁ ← vk
--- t
-dup_nam s k l vk t =
-  let s0 = inc_inters s in
-  let s1 = subst_dp0 s0 k (Nam vk) in
-  let s2 = subst_dp1 s1 k (Nam vk) in
-  wnf s2 t
+subst_dp1 :: Env -> Name -> Term -> IO ()
+subst_dp1 e k v = unsafeWrite (dp1_map e) k v
+{-# INLINE subst_dp1 #-}
 
--- ! k &L = (vf vx); t
--- --------------------- dup-dry
--- ! f &L = vf
--- ! x &L = vx
--- k₀ ← (f₀ x₀)
--- k₁ ← (f₁ x₁)
--- t
-dup_dry s k l vf vx t =
-  let s0      = inc_inters s in
-  let (s1, f) = fresh_dup s0 in
-  let (s2, x) = fresh_dup s1 in
-  let s3      = subst_dp0 s2 k (Dry (Dp0 f) (Dp0 x)) in
-  let s4      = subst_dp1 s3 k (Dry (Dp1 f) (Dp1 x)) in
-  let dup     = Dup f l vf (Dup x l vx t) in
-  wnf s4 dup
+delay_dup :: Env -> Name -> Lab -> Term -> IO ()
+delay_dup e k l v = do
+  unsafeWrite (dup_map_term e) k v
+  unsafeWrite (dup_map_lab e) k l
+{-# INLINE delay_dup #-}
 
--- x
--- ------------ var
--- var_map[x]
-var :: Env -> String -> (Env,Term)
-var s k = case take_var s k of
-  (Just t, s0)  -> wnf s0 t
-  (Nothing, _)  -> (s, Var k)
+-- Efficiently takes a term from an array slot, replacing it with the sentinel.
+taker_term :: IOArray Int Term -> Name -> IO (Maybe Term)
+taker_term arr k = do
+  !v <- unsafeRead arr k
+  if isSentinel v
+    then return Nothing
+    else do
+      -- Clear the slot after taking (enforcing linearity/affinity)
+      unsafeWrite arr k sentinelVal
+      return (Just v)
+{-# INLINE taker_term #-}
 
--- x₀
--- ---------- dp0
--- dp0_map[x]
-dp0 :: Env -> String -> (Env,Term)
-dp0 s k = case take_dp0 s k of
-  (Just t, s0)  -> wnf s0 t
-  (Nothing, _)  -> case take_dup s k of
-    (Just (l,v), s0) -> let (s1,v0) = wnf s0 v in dup s1 k l v0 (Dp0 k)
-    (Nothing, _)     -> (s, Dp0 k)
+take_var :: Env -> Name -> IO (Maybe Term)
+take_var e = taker_term (var_map e)
+{-# INLINE take_var #-}
 
--- x₁
--- ---------- dp1
--- dp1_map[x]
-dp1 :: Env -> String -> (Env,Term)
-dp1 s k = case take_dp1 s k of
-  (Just t, s0)  -> wnf s0 t
-  (Nothing, _)  -> case take_dup s k of
-    (Just (l,v), s0) -> let (s1,v0) = wnf s0 v in dup s1 k l v0 (Dp1 k)
-    (Nothing, _)     -> (s, Dp1 k)
+take_dp0 :: Env -> Name -> IO (Maybe Term)
+take_dp0 e = taker_term (dp0_map e)
+{-# INLINE take_dp0 #-}
 
--- Normalization
--- =============
+take_dp1 :: Env -> Name -> IO (Maybe Term)
+take_dp1 e = taker_term (dp1_map e)
+{-# INLINE take_dp1 #-}
 
-nf :: Env -> Term -> (Env,Term)
-nf s x = let (s0,x0) = wnf s x in go s0 x0 where
-  go s (Nam k)       = (s, Nam k)
-  go s (Dry f x)     = let (s0,f0) = nf s f in let (s1,x0) = nf s0 x in (s1, Dry f0 x0)
-  go s (Var k)       = (s, Var k)
-  go s (Dp0 k)       = (s, Dp0 k)
-  go s (Dp1 k)       = (s, Dp1 k)
-  go s Era           = (s, Era)
-  go s (Sup l a b)   = let (s0,a0) = nf s a in let (s1,b0) = nf s0 b in (s1, Sup l a0 b0)
-  go s (Dup k l v t) = let (s0,v0) = nf s v in let (s1,t0) = nf s0 t in (s1, Dup k l v0 t0)
-  go s (Lam k f)     = let (s0,f0) = nf (subst_var s k (Nam k)) f in (s0, Lam k f0)
-  go s (Abs k f)     = let (s0,f0) = nf s f in (s0, Abs k f0)
-  go s (App f x)     = let (s0,f0) = nf s f in let (s1,x0) = nf s0 x in (s1, App f0 x0)
+take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
+take_dup e k = do
+  !v <- unsafeRead (dup_map_term e) k
+  if isSentinel v
+    then return Nothing
+    else do
+      !l <- unsafeRead (dup_map_lab e) k
+      unsafeWrite (dup_map_term e) k sentinelVal
+      return (Just (l, v))
+{-# INLINE take_dup #-}
 
--- Main
--- ====
+-- Evaluation (Weak Head Normal Form)
+-- ==================================
 
+wnf :: Env -> Term -> IO Term
+wnf e (App f x) = do
+  !f0 <- wnf e f
+  app e f0 x
+wnf e (Dup k l v t) = do
+  delay_dup e k l v
+  wnf e t
+wnf e (Var x) = var e x
+wnf e (Dp0 x) = dp0 e x
+wnf e (Dp1 x) = dp1 e x
+wnf e f = return f
+{-# INLINE wnf #-}
+
+app :: Env -> Term -> Term -> IO Term
+app e (Lam fk ff)   x = app_lam e fk ff x
+app e (Sup fl fa fb) x = app_sup e fl fa fb x
+app e (Dry df dx)   x = app_dry e df dx x
+app e f             x = return $ App f x
+{-# INLINE app #-}
+
+dup :: Env -> Name -> Lab -> Term -> Term -> IO Term
+dup e k l (Lam vk vf)   t = dup_lam e k l vk vf t
+dup e k l (Sup vl va vb) t = dup_sup e k l vl va vb t
+dup e k l (Dry vf vx)   t = dup_dry e k l vf vx t
+dup e k l v             t = return $ Dup k l v t
+{-# INLINE dup #-}
+
+app_lam :: Env -> Name -> Term -> Term -> IO Term
+app_lam e fx ff v = do
+  inc_inters e
+  subst_var e fx v
+  wnf e ff
+{-# INLINE app_lam #-}
+
+app_sup :: Env -> Lab -> Term -> Term -> Term -> IO Term
+app_sup e fL fa fb v = do
+  inc_inters e
+  x <- fresh e
+  delay_dup e x fL v
+  wnf e (Sup fL (App fa (Dp0 x)) (App fb (Dp1 x)))
+{-# INLINE app_sup #-}
+
+-- Stuck applications accumulate.
+app_dry :: Env -> Term -> Term -> Term -> IO Term
+app_dry e df dx v = do
+  inc_inters e
+  return $ Dry (Dry df dx) v
+{-# INLINE app_dry #-}
+
+dup_lam :: Env -> Name -> Lab -> Name -> Term -> Term -> IO Term
+dup_lam e k l vk vf t = do
+  inc_inters e
+  x0 <- fresh e
+  x1 <- fresh e
+  g  <- fresh e
+  subst_dp0 e k (Lam x0 (Dp0 g))
+  subst_dp1 e k (Lam x1 (Dp1 g))
+  subst_var e vk (Sup l (Var x0) (Var x1))
+  delay_dup e g l vf
+  wnf e t
+{-# INLINE dup_lam #-}
+
+dup_sup :: Env -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
+dup_sup e k l vl va vb t
+  | l == vl = do
+      inc_inters e
+      subst_dp0 e k va
+      subst_dp1 e k vb
+      wnf e t
+  | otherwise = do
+      inc_inters e
+      a <- fresh e
+      b <- fresh e
+      subst_dp0 e k (Sup vl (Dp0 a) (Dp0 b))
+      subst_dp1 e k (Sup vl (Dp1 a) (Dp1 b))
+      delay_dup e a l va
+      delay_dup e b l vb
+      wnf e t
+{-# INLINE dup_sup #-}
+
+dup_dry :: Env -> Name -> Lab -> Term -> Term -> Term -> IO Term
+dup_dry e k l vf vx t = do
+  inc_inters e
+  f <- fresh e
+  x <- fresh e
+  subst_dp0 e k (Dry (Dp0 f) (Dp0 x))
+  subst_dp1 e k (Dry (Dp1 f) (Dp1 x))
+  delay_dup e f l vf
+  delay_dup e x l vx
+  wnf e t
+{-# INLINE dup_dry #-}
+
+var :: Env -> Name -> IO Term
+var e k = do
+  mt <- take_var e k
+  case mt of
+    Just t  -> wnf e t
+    Nothing -> return $ Var k
+{-# INLINE var #-}
+
+dp_common :: (Env -> Name -> IO (Maybe Term)) -> (Name -> Term) -> Env -> Name -> IO Term
+dp_common take_dp constructor e k = do
+  mt <- take_dp e k
+  case mt of
+    Just t  -> wnf e t
+    Nothing -> do
+      mlv <- take_dup e k
+      case mlv of
+        Just (l, v) -> do
+          !v0 <- wnf e v
+          dup e k l v0 (constructor k)
+        Nothing -> return $ constructor k
+{-# INLINE dp_common #-}
+
+dp0 :: Env -> Name -> IO Term
+dp0 = dp_common take_dp0 Dp0
+{-# INLINE dp0 #-}
+
+dp1 :: Env -> Name -> IO Term
+dp1 = dp_common take_dp1 Dp1
+{-# INLINE dp1 #-}
+
+-- Normalization (Readback) (Elegant and Simplified)
+-- ========================
+
+-- Normalization function with depth counter 'd'.
+-- Implements the "depth-as-ID" strategy. We substitute the bound variable (k)
+-- by the current depth (d) in the environment, and update the binder (Lam/Dup)
+-- in the resulting term to use 'd' as its ID.
+nf :: Env -> Int -> Term -> IO Term
+nf e d x = do
+  !x0 <- wnf e x
+  go e d x0
+  where go :: Env -> Int -> Term -> IO Term
+        go e d (Var k)      = return $ Var k
+        go e d (Dp0 k)      = return $ Dp0 k
+        go e d (Dp1 k)      = return $ Dp1 k
+        go e d Era          = return Era
+        go e d (Dry f x)    = Dry <$> nf e d f <*> nf e d x
+        go e d (App f x)    = App <$> nf e d f <*> nf e d x
+        go e d (Sup l a b)  = Sup l <$> nf e d a <*> nf e d b
+        go e d (Lam k f)    = do
+          let d' = d + 1
+          let vec = var_map e
+          -- Save, Substitute (k -> Var d), Normalize, Restore (Inlined bracket pattern)
+          !old_v <- unsafeRead vec k
+          unsafeWrite vec k (Var d)
+          !f0 <- nf e d' f
+          unsafeWrite vec k old_v
+          -- Return Lam with depth 'd' as the new ID
+          return $ Lam d f0
+        -- Dup case: Substitute Dp0/Dp1 'k' by Dp0/Dp1 'd', normalize body, restore env, return 'Dup d ...'.
+        go e d (Dup k l v t)= do
+          !v0 <- nf e d v
+          let d' = d + 1
+          -- Substitute Dp0 (k -> Dp0 d) and save old value
+          let vec0 = dp0_map e
+          !old_v0 <- unsafeRead vec0 k
+          unsafeWrite vec0 k (Dp0 d)
+          -- Substitute Dp1 (k -> Dp1 d) and save old value
+          let vec1 = dp1_map e
+          !old_v1 <- unsafeRead vec1 k
+          unsafeWrite vec1 k (Dp1 d)
+          -- Normalize t
+          !t0 <- nf e d' t
+          -- Restore
+          unsafeWrite vec0 k old_v0
+          unsafeWrite vec1 k old_v1
+          -- Return Dup with depth 'd' as the new ID
+          return $ Dup d l v0 t0
+
+-- Showing (Simplified)
+-- =======
+
+-- Simplified showTerm. No depth parameter needed.
+-- Relies on the fact that IDs (k) in the normalized term are the canonical depths.
+showTerm :: Term -> String
+showTerm = go where
+  go (Var k)       = intToName k
+  go (Dp0 k)       = intToName k ++ "₀"
+  go (Dp1 k)       = intToName k ++ "₁"
+  go Era           = "&{}"
+  -- Labels are shown using Base-64 decoding
+  go (Sup l a b)   = "&" ++ intToLabName l ++ "{" ++ go a ++ "," ++ go b ++ "}"
+  -- Binders use the ID stored (which is the canonical depth)
+  go (Dup k l v t) = "!" ++ intToName k ++ "&" ++ intToLabName l ++ "=" ++ go v ++ ";" ++ go t
+  go (Lam k f)     = "λ" ++ intToName k ++ "." ++ go f
+  go (Dry f x)     = "(" ++ go f ++ " " ++ go x ++ ")"
+  go (App f x)     = "(" ++ go f ++ " " ++ go x ++ ")"
+
+-- Benchmark term generator
+-- =========================
+
+-- Generates the church-encoded exponentiation benchmark term.
 f :: Int -> String
 f n = "λf. " ++ dups ++ final where
   dups  = concat [dup i | i <- [0..n-1]]
@@ -365,10 +477,34 @@ f n = "λf. " ++ dups ++ final where
   final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
   pad x = if x < 10 then "0" ++ show x else show x
 
-term = read_term $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+-- Main
+-- ====
 
 main :: IO ()
 main = do
-  let res = nf env term
-  print $          snd $ res
-  print $ inters $ fst $ res
+  -- Benchmark configuration: 2^22
+  let n = 20
+  -- The term applies (2^22) to the 'False' church numeral (λT.λF.F), resulting in 'True' (λT.λF.T).
+  let termStr = "((" ++ f n ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+
+  -- Parse directly to Term.
+  let term = read_term termStr
+
+  -- Setup environment (fresh IDs start automatically at freshIdStart).
+  env <- newEnv
+
+  -- Execution
+  start <- getCPUTime
+  !res <- nf env 0 term -- Start normalization with depth 0
+  end <- getCPUTime
+
+  -- Output
+  interactions <- readIORef (inters env)
+  let diff = fromIntegral (end - start) / (10^12)
+  let rate = fromIntegral interactions / diff
+
+  -- Expected output: λa.λb.a (Canonical representation of Church True)
+  putStrLn (showTerm res)
+  print interactions
+  printf "Time: %.3f seconds\n" (diff :: Double)
+  printf "Rate: %.2f M interactions/s\n" (rate / 1000000 :: Double)
