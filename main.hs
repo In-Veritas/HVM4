@@ -55,6 +55,24 @@
 --   ! B &L = b
 --   X₀ ← &R{A₀,B₀}
 --   X₁ ← &R{A₁,B₁}
+--
+-- ! X &L = 0
+-- ---------- dup-zer
+-- X₀ ← 0
+-- X₁ ← 0
+-- 
+-- ! X &L = 1+n
+-- ------------ dup-suc
+-- ! N &L = n
+-- X₀ ← 1+N₀
+-- X₁ ← 1+N₁
+--
+-- ! X &L = Λ{0:z;1+:s}
+-- -------------------- dup-swi
+-- ! Z &L = z
+-- ! S &L = s
+-- X₀ ← Λ{0:Z₀;1+:S₀}
+-- X₁ ← Λ{0:Z₁;1+:S₁}
 -- 
 -- @foo
 -- ------------------ ref
@@ -132,7 +150,7 @@ data Book = Book (M.Map Name Term)
 -- =======
 
 instance Show Term where
-  show (Nam k)       = k
+  show (Nam k)       = "^" ++ k
   show (Var k)       = int_to_name k
   show (Dp0 k)       = int_to_name k ++ "₀"
   show (Dp1 k)       = int_to_name k ++ "₁"
@@ -425,17 +443,17 @@ wnf_enter e s (Ref k) = do
     Just f  -> do
       inc_inters e
       g <- wnf_alloc e f
-      putStrLn $ ">> alloc              : " ++ show g
+      putStrLn $ ">> alloc                : " ++ show g
       wnf_enter e s (Cal (Nam ("@" ++ int_to_name k)) g)
     Nothing -> do
       error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s (Cal f g) = do
-  putStrLn $ ">> wnf_enter_cal      : " ++ show f ++ "~>" ++ show g
+  putStrLn $ ">> wnf_enter_cal        : " ++ show f ++ "~>" ++ show g
   wnf_unwind e s (Cal f g)
 
 wnf_enter e s f = do
-  putStrLn $ ">> wnf_enter          : " ++ show f
+  putStrLn $ ">> wnf_enter            : " ++ show f
   wnf_unwind e s f
 
 -- WNF: Unwind
@@ -453,15 +471,21 @@ wnf_unwind e (frame:s) v = case frame of
     Cal f g      -> wnf_app_cal e s f g x
     f            -> wnf_unwind e s (App f x)
   FDp0 k l -> case v of
-    Lam vk vf    -> wnf_dpn_lam e s k l vk vf (Dp0 k)
+    Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp0 k)
     Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp0 k)
-    Cal f g      -> wnf_dpn_cal e s k l f g (Dp0 k)
-    val          -> wnf_unwind e s (Dup k l val (Dp0 k))
+    Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp0 k)
+    Suc vp       -> wnf_dpn_suc e s k l vp       (Dp0 k)
+    Zer          -> wnf_dpn_zer e s k l          (Dp0 k)
+    Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp0 k)
+    val          -> wnf_unwind  e s (Dup k l val (Dp0 k))
   FDp1 k l -> case v of
-    Lam vk vf    -> wnf_dpn_lam e s k l vk vf (Dp1 k)
+    Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp1 k)
     Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp1 k)
-    Cal f g      -> wnf_dpn_cal e s k l f g (Dp1 k)
-    val          -> wnf_unwind e s (Dup k l val (Dp1 k))
+    Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp1 k)
+    Suc vp       -> wnf_dpn_suc e s k l vp       (Dp1 k)
+    Zer          -> wnf_dpn_zer e s k l          (Dp1 k)
+    Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp1 k)
+    val          -> wnf_unwind  e s (Dup k l val (Dp1 k))
 
 -- WNF: Interactions
 -- -----------------
@@ -521,10 +545,40 @@ wnf_dpn_sup e s k l vl va vb t
       regis_dup e b l vb
       wnf e s t
 
+-- ! X &L = 0
+wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
+wnf_dpn_zer e s k l t = do
+  inc_inters e
+  subst_dp0 e k Zer
+  subst_dp1 e k Zer
+  wnf e s t
+
+-- ! X &L = 1+n
+wnf_dpn_suc :: Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
+wnf_dpn_suc e s k l p t = do
+  inc_inters e
+  n <- fresh e
+  regis_dup e n l p
+  subst_dp0 e k (Suc (Dp0 n))
+  subst_dp1 e k (Suc (Dp1 n))
+  wnf e s t
+
+-- ! X &L = Λ{0:z;1+:s}
+wnf_dpn_swi :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
+wnf_dpn_swi e s k l vz vs t = do
+  inc_inters e
+  z <- fresh e
+  sc <- fresh e
+  regis_dup e z l vz
+  regis_dup e sc l vs
+  subst_dp0 e k (Swi (Dp0 z) (Dp0 sc))
+  subst_dp1 e k (Swi (Dp1 z) (Dp1 sc))
+  wnf e s t
+
 -- ((f ~> g) a)
 wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal e s f g a = do
-  putStrLn $ ">> wnf_app_cal        : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
+  putStrLn $ ">> wnf_app_cal          : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
   !g_wnf <- wnf e [] g
   case g_wnf of
     Lam fx ff -> wnf_app_cal_lam e s f fx ff a
@@ -534,7 +588,7 @@ wnf_app_cal e s f g a = do
 -- ((f ~> λx.g) a)
 wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
 wnf_app_cal_lam e s f x g a = do
-  putStrLn $ ">> wnf_app_cal_lam    : " ++ show f ++ "~>λ" ++ int_to_name x ++ "." ++ show g ++ " " ++ show a
+  putStrLn $ ">> wnf_app_cal_lam      : " ++ show f ++ "~>λ" ++ int_to_name x ++ "." ++ show g ++ " " ++ show a
   inc_inters e
   subst_var e x a
   wnf_enter e s (Cal (App f (Var x)) g)
@@ -543,7 +597,7 @@ wnf_app_cal_lam e s f x g a = do
 wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi e s f z sc a = do
   !a_wnf <- wnf e [] a
-  putStrLn $ ">> wnf_app_cal_swi    : " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} " ++ show a ++ "→" ++ show a_wnf
+  putStrLn $ ">> wnf_app_cal_swi      : " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} " ++ show a ++ "→" ++ show a_wnf
   case a_wnf of
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
@@ -554,7 +608,7 @@ wnf_app_cal_swi e s f z sc a = do
 -- ((f ~> Λ{0:z;1+:s}) 0)
 wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_cal_swi_zer e s f z = do
-  putStrLn $ ">> wnf_app_cal_swi_zer: " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:...} 0"
+  putStrLn $ ">> wnf_app_cal_swi_zer  : " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:...} 0"
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
@@ -562,7 +616,7 @@ wnf_app_cal_swi_zer e s f z = do
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi_suc e s f sc n = do
   -- TODO: debug print ↓
-  putStrLn $ ">> wnf_app_cal_swi_suc: " ++ show f ++ "~>Λ{0:...;1+:" ++ show sc ++ "} 1+" ++ show n
+  putStrLn $ ">> wnf_app_cal_swi_suc  : " ++ show f ++ "~>Λ{0:...;1+:" ++ show sc ++ "} 1+" ++ show n
   inc_inters e
   p <- fresh e
   wnf_enter e s (App (Cal (Lam p (App f (Suc (Var p)))) sc) n)
@@ -570,7 +624,7 @@ wnf_app_cal_swi_suc e s f sc n = do
 -- ((f ~> Λ{0:z;1+:s}) &L{a,b})
 wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
 wnf_app_cal_swi_sup e s f z sc l a b = do
-  putStrLn $ ">> wnf_app_cal_swi_sup: " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} &" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
+  putStrLn $ ">> wnf_app_cal_swi_sup  : " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} &" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   inc_inters e
   f' <- fresh e
   z' <- fresh e
@@ -587,8 +641,7 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
 -- ! &L X = f ~> g
 wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_cal e s k l f g t = do
-  -- TODO: debug print ↓
-  putStrLn $ ">> wnf_dpn_cal: ! &" ++ int_to_name l ++ " " ++ int_to_name k ++ " = " ++ show f ++ "~>" ++ show g
+  putStrLn $ ">> wnf_dpn_cal          : ! &" ++ int_to_name l ++ " " ++ int_to_name k ++ " = " ++ show f ++ "~>" ++ show g
   inc_inters e
   f' <- fresh e
   g' <- fresh e
@@ -701,12 +754,13 @@ run book_src term_src = do
   let term = read_term term_src
   !env <- new_env book
   !ini <- getCPUTime
-  !res <- nf env 1 term
+  !nf0 <- nf env 1 term
+  -- !nf1 <- nf env 1 nf0
   !end <- getCPUTime
   !itr <- readIORef (env_inters env)
   let diff = fromIntegral (end - ini) / (10^12)
   let rate = fromIntegral itr / diff
-  putStrLn $ show res
+  putStrLn $ show nf0
   putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
   printf "- Time: %.3f seconds\n" (diff :: Double)
   printf "- Perf: %.2f M interactions/s\n" (rate / 1000000 :: Double)
@@ -717,24 +771,111 @@ book = """
   @c_false = λt. λf. f
   @c_not   = λb. λt. λf. (b f t)
 
-  @foo = λ{0:0;1+:λp.1+1+(@foo p)}
+  @id  = λa.a
+  @not = λ{0:1+0;1+:λp.0}
+  @dbl = λ{0:0;1+:λp.1+1+(@dbl p)}
+  @and = λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}
+  @add = λ{0:λb.b;1+:λa.λb.1+(@add a b)}
+  @sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}
 """
 
 main :: IO ()
--- main = run book "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
-main = run book "λx.(@foo 1+1+x)"
+-- main = run book $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+-- main = run book "λx.(@dbl 1+1+x)" -- λa.1+1+1+1+(^@dbl ^a)
+-- main = run book "(@not 0)" 1+0
+-- main = run book "(@not 1+0)" -- 0
+-- main = run book "! F & L = @id; !G & L = F₀; λx.(G₁ x)" -- λa.^a
+-- main = run book "(@and 0 0)" -- 0
+-- main = run book "(@and &L{0,1+0} 1+0)" -- &L{0,1+0}
+-- main = run book "(@and &L{1+0,0} 1+0)" -- &L{1+0,0}
+-- main = run book "(@and 1+0 &L{0,1+0})" -- &L{0,1+0}
+-- main = run book "(@and 1+0 &L{1+0,0})" -- &L{1+0,0}
+-- main = run book "λx.(@and 0 x)" -- λa.((^@and 0) ^a)
+-- main = run book "λx.(@and x 0)" -- λa.((^@and ^a) 0)
+-- main = run book "(@sum 1+1+1+0)" -- 1+1+1+1+1+1+0
+main = run book "λx.(@sum 1+x)" -- not correct yet
 
 
+{-
 
+PROBLEM: the last main program above outputs:
 
+λa.1+((λ{0:λb.^b;1+:λb.λc.1+((^@add ^b) ^c)} !b&S=^a;^b) (^@sum ^b))
 
+but we expected it to output:
 
+1+((@add ^a) (^@sum ^a))
 
+note that the app-call interactions are supposed to get stuck on free variables,
+causing them to return the left side of the cal, i.e., the original function
+spine without expansions. as such, the `λ{...}` expression should NOT appear on
+this normal form. why? moreover, seems like the free variable itself isn't fully
+reduced, being displayed as `!b&S=^a;^b`. why?
 
+your goal is to reason about the code and explain, from first principles, the
+reason for both issues above. then, propose a robust solution to make this
+program display what we expect, with minimal code changes, the "right way".
+finally, write below a COMPLETE fixed file, including everything (comments,
+imports, etc.). keep it identical to the original, except for the fix.
 
+below is the complete output of this program, including debug prints
 
+>> wnf_enter            : λx.(@sum 1+x)
+>> alloc                : λ{0:0;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))}
+>> wnf_enter_cal        : ^@sum~>λ{0:0;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))}
+>> wnf_app_cal          : ^@sum~>λ{0:0;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))} 1+x
+>> wnf_enter            : λ{0:0;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))}
+>> wnf_enter            : 1+x
+>> wnf_app_cal_swi      : ^@sum~>Λ{0:0;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))} 1+x→1+x
+>> wnf_app_cal_swi_suc  : ^@sum~>Λ{0:...;1+:λa.!b&S=a;1+((@add b₀) (@sum b₁))} 1+x
+>> wnf_enter_cal        : λc.(^@sum 1+c)~>λa.!b&S=a;1+((@add b₀) (@sum b₁))
+>> wnf_app_cal          : λc.(^@sum 1+c)~>λa.!b&S=a;1+((@add b₀) (@sum b₁)) x
+>> wnf_enter            : λa.!b&S=a;1+((@add b₀) (@sum b₁))
+>> wnf_app_cal_lam      : λc.(^@sum 1+c)~>λa.!b&S=a;1+((@add b₀) (@sum b₁)) x
+>> wnf_enter_cal        : (λc.(^@sum 1+c) a)~>!b&S=a;1+((@add b₀) (@sum b₁))
+>> wnf_enter            : 1+((@add b₀) (@sum b₁))
+>> alloc                : λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_enter_cal        : ^@add~>λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_app_cal          : ^@add~>λ{0:λd.d;1+:λe.λf.1+((@add e) f)} b₀
+>> wnf_enter            : λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_enter            : ^a
+>> wnf_app_cal_swi      : ^@add~>Λ{0:λd.d;1+:λe.λf.1+((@add e) f)} b₀→!b&S=^a;b₀
+>> wnf_enter_cal        : ^@add~>λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_app_cal          : ^@add~>λ{0:λd.d;1+:λe.λf.1+((@add e) f)} !b&S=^a;b₀
+>> wnf_enter            : λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_enter            : ^a
+>> wnf_app_cal_swi      : ^@add~>Λ{0:λd.d;1+:λe.λf.1+((@add e) f)} !b&S=^a;b₀→!b&S=^a;b₀
+>> wnf_enter_cal        : ^@add~>λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_enter            : λ{0:λd.d;1+:λe.λf.1+((@add e) f)}
+>> wnf_enter            : λd.d
+>> wnf_enter            : ^b
+>> wnf_enter            : λe.λf.1+((@add e) f)
+>> wnf_enter            : λf.1+((@add e) f)
+>> wnf_enter            : 1+((@add e) f)
+>> alloc                : λ{0:λg.g;1+:λh.λi.1+((@add h) i)}
+>> wnf_enter_cal        : ^@add~>λ{0:λg.g;1+:λh.λi.1+((@add h) i)}
+>> wnf_app_cal          : ^@add~>λ{0:λg.g;1+:λh.λi.1+((@add h) i)} e
+>> wnf_enter            : λ{0:λg.g;1+:λh.λi.1+((@add h) i)}
+>> wnf_enter            : ^b
+>> wnf_app_cal_swi      : ^@add~>Λ{0:λg.g;1+:λh.λi.1+((@add h) i)} e→^b
+>> wnf_enter            : ^@add
+>> wnf_enter            : ^@add
+>> wnf_enter            : ^b
+>> wnf_enter            : ^c
+>> wnf_enter            : ^a
+>> wnf_enter            : ^a
+>> wnf_enter            : ^b
+>> alloc                : λ{0:0;1+:λj.!k&S=j;1+((@add k₀) (@sum k₁))}
+>> wnf_enter_cal        : ^@sum~>λ{0:0;1+:λj.!k&S=j;1+((@add k₀) (@sum k₁))}
+>> wnf_app_cal          : ^@sum~>λ{0:0;1+:λj.!k&S=j;1+((@add k₀) (@sum k₁))} b₁
+>> wnf_enter            : λ{0:0;1+:λj.!k&S=j;1+((@add k₀) (@sum k₁))}
+>> wnf_enter            : ^b
+>> wnf_app_cal_swi      : ^@sum~>Λ{0:0;1+:λj.!k&S=j;1+((@add k₀) (@sum k₁))} b₁→^b
+>> wnf_enter            : ^@sum
+>> wnf_enter            : ^b
+λa.1+((λ{0:λb.^b;1+:λb.λc.1+((^@add ^b) ^c)} !b&S=^a;^b) (^@sum ^b))
+- Itrs: 6 interactions
+- Time: 0.001 seconds
+- Perf: 0.01 M interactions/s
 
-
-
-
-
+-}
