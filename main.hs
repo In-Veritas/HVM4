@@ -103,8 +103,8 @@
 -- ------------------ app-cal-sup
 -- ! F &L = f
 -- ! A &L = a
--- &L{(F₀ ~> (x A₀))
---   ,(F₁ ~> (y A₁))}
+-- &L{((F₀ ~> x) A₀))
+--   ,((F₁ ~> y) A₁))}
 -- 
 -- ! &L X = f ~> g
 -- --------------- dup-cal
@@ -127,7 +127,7 @@ import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 
 debug :: Bool
-debug = True
+debug = False
 
 -- Types
 -- =====
@@ -241,7 +241,7 @@ parse_swi_body = do
   between (lexeme (char '{')) (lexeme (char '}')) $ do
     lexeme (string "0:")
     z <- parse_term
-    lexeme (char ';')
+    optional (lexeme (char ';'))
     lexeme (string "1+:")
     s <- parse_term
     return (Swi z s)
@@ -254,7 +254,7 @@ parse_dup = do
   l <- parse_nam
   lexeme (char '=')
   v <- parse_term
-  lexeme (char ';')
+  optional (lexeme (char ';'))
   t <- parse_term
   return (Dup (name_to_int k) (name_to_int l) v t)
 
@@ -264,7 +264,7 @@ parse_sup = do
   l <- parse_nam
   between (lexeme (char '{')) (lexeme (char '}')) $ do
     a <- parse_term
-    lexeme (char ',')
+    optional (lexeme (char ','))
     b <- parse_term
     return (Sup (name_to_int l) a b)
 
@@ -396,28 +396,34 @@ wnf = wnf_enter
 wnf_enter :: Env -> Stack -> Term -> IO Term
 
 wnf_enter e s (App f x) = do
+  when debug $ putStrLn $ ">> wnf_enter_app        : " ++ show (App f x)
   wnf_enter e (FApp x : s) f
 
 wnf_enter e s (Var k) = do
+  when debug $ putStrLn $ ">> wnf_enter_var        : " ++ show (Var k)
   wnf_sub e s SubVar k
 
 wnf_enter e s (Dup k l v t) = do
+  when debug $ putStrLn $ ">> wnf_enter_dup        : " ++ show (Dup k l v t)
   regis_dup e k l v
   wnf_enter e s t
 
 wnf_enter e s (Dp0 k) = do
+  when debug $ putStrLn $ ">> wnf_enter_dp0        : " ++ show (Dp0 k)
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp0 k l : s) v
     Nothing     -> wnf_sub e s SubDp0 k
 
 wnf_enter e s (Dp1 k) = do
+  when debug $ putStrLn $ ">> wnf_enter_dp1        : " ++ show (Dp1 k)
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp1 k l : s) v
     Nothing     -> wnf_sub e s SubDp1 k
 
 wnf_enter e s (Ref k) = do
+  when debug $ putStrLn $ ">> wnf_enter_ref        : " ++ show (Ref k)
   let (Book m) = env_book e
   case M.lookup k m of
     Just f  -> do
@@ -439,33 +445,39 @@ wnf_enter e s f = do
 -- -----------
 
 wnf_unwind :: Env -> Stack -> Term -> IO Term
-wnf_unwind e [] v = case v of
-  Cal _ g -> wnf e [] g
-  f       -> return f
-wnf_unwind e (x:s) v = case x of
-  FApp x -> case v of
-    Lam fk ff    -> wnf_app_lam e s fk ff x
-    Sup fl fa fb -> wnf_app_sup e s fl fa fb x
-    Cal f g      -> wnf_app_cal e s f g x
-    f            -> wnf_unwind e s (App f x)
-  FDp0 k l -> case v of
-    Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp0 k)
-    Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp0 k)
-    Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp0 k)
-    Suc vp       -> wnf_dpn_suc e s k l vp       (Dp0 k)
-    Zer          -> wnf_dpn_zer e s k l          (Dp0 k)
-    Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp0 k)
-    Nam n        -> wnf_dpn_nam e s k l n        (Dp0 k)
-    val          -> wnf_unwind  e s (Dup k l val (Dp0 k))
-  FDp1 k l -> case v of
-    Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp1 k)
-    Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp1 k)
-    Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp1 k)
-    Suc vp       -> wnf_dpn_suc e s k l vp       (Dp1 k)
-    Zer          -> wnf_dpn_zer e s k l          (Dp1 k)
-    Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp1 k)
-    Nam n        -> wnf_dpn_nam e s k l n        (Dp1 k)
-    val          -> wnf_unwind  e s (Dup k l val (Dp1 k))
+wnf_unwind e [] v = do
+  when debug $ putStrLn $ ">> wnf_unwind           : " ++ show v
+  case v of
+    -- Cal _ g -> do
+      -- when debug $ putStrLn $ ">> wnf_unwind (cal-end) : " ++ show v
+      -- wnf e [] g
+    f       -> return f
+wnf_unwind e (x:s) v = do
+  when debug $ putStrLn $ ">> wnf_unwind           : " ++ show v
+  case x of
+    FApp x -> case v of
+      Lam fk ff    -> wnf_app_lam e s fk ff x
+      Sup fl fa fb -> wnf_app_sup e s fl fa fb x
+      Cal f g      -> wnf_app_cal e s f g x
+      f            -> wnf_unwind e s (App f x)
+    FDp0 k l -> case v of
+      Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp0 k)
+      Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp0 k)
+      Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp0 k)
+      Suc vp       -> wnf_dpn_suc e s k l vp       (Dp0 k)
+      Zer          -> wnf_dpn_zer e s k l          (Dp0 k)
+      Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp0 k)
+      Nam n        -> wnf_dpn_nam e s k l n        (Dp0 k)
+      val          -> wnf_unwind  e s (Dup k l val (Dp0 k))
+    FDp1 k l -> case v of
+      Lam vk vf    -> wnf_dpn_lam e s k l vk vf    (Dp1 k)
+      Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp1 k)
+      Cal vf vg    -> wnf_dpn_cal e s k l vf vg    (Dp1 k)
+      Suc vp       -> wnf_dpn_suc e s k l vp       (Dp1 k)
+      Zer          -> wnf_dpn_zer e s k l          (Dp1 k)
+      Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp1 k)
+      Nam n        -> wnf_dpn_nam e s k l n        (Dp1 k)
+      val          -> wnf_unwind  e s (Dup k l val (Dp1 k))
 
 -- WNF: Interactions
 -- -----------------
@@ -473,6 +485,7 @@ wnf_unwind e (x:s) v = case x of
 -- x | x₀ | x₁
 wnf_sub :: Env -> Stack -> SubSlot -> Name -> IO Term
 wnf_sub e s sl k = do
+  when debug $ putStrLn $ "## wnf_sub              : " ++ int_to_name k
   mt <- take_sub e sl k
   case mt of
     Just t  -> wnf e s t
@@ -481,6 +494,7 @@ wnf_sub e s sl k = do
 -- (λx.f a)
 wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_app_lam e s fx ff v = do
+  when debug $ putStrLn $ "## wnf_app_lam          : " ++ show (App (Lam fx ff) v)
   inc_inters e
   subst e SubVar fx v
   wnf e s ff
@@ -488,6 +502,7 @@ wnf_app_lam e s fx ff v = do
 -- (&L{f,g} a)
 wnf_app_sup :: Env -> Stack -> Lab -> Term -> Term -> Term -> IO Term
 wnf_app_sup e s fL fa fb v = do
+  when debug $ putStrLn $ "## wnf_app_sup          : " ++ show (App (Sup fL fa fb) v)
   inc_inters e
   x <- fresh e
   regis_dup e x fL v
@@ -496,6 +511,7 @@ wnf_app_sup e s fL fa fb v = do
 -- ! F &L = λx.f
 wnf_dpn_lam :: Env -> Stack -> Name -> Lab -> Name -> Term -> Term -> IO Term
 wnf_dpn_lam e s k l vk vf t = do
+  when debug $ putStrLn $ "## wnf_dpn_lam          : " ++ show (Dup k l (Lam vk vf) t)
   inc_inters e
   x0 <- fresh e
   x1 <- fresh e
@@ -510,11 +526,13 @@ wnf_dpn_lam e s k l vk vf t = do
 wnf_dpn_sup :: Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_sup e s k l vl va vb t
   | l == vl = do
+      when debug $ putStrLn $ "## wnf_dpn_sup_same     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
       subst e SubDp0 k va
       subst e SubDp1 k vb
       wnf e s t
   | otherwise = do
+      when debug $ putStrLn $ "## wnf_dpn_sup_diff     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
       a <- fresh e
       b <- fresh e
@@ -527,6 +545,7 @@ wnf_dpn_sup e s k l vl va vb t
 -- ! X &L = 0
 wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
 wnf_dpn_zer e s k _ t = do
+  when debug $ putStrLn $ "## wnf_dpn_zer          : " ++ show (Dup k (name_to_int "_") Zer t)
   inc_inters e
   subst e SubDp0 k Zer
   subst e SubDp1 k Zer
@@ -535,6 +554,7 @@ wnf_dpn_zer e s k _ t = do
 -- ! X &L = 1+n
 wnf_dpn_suc :: Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
 wnf_dpn_suc e s k l p t = do
+  when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
   inc_inters e
   n <- fresh e
   regis_dup e n l p
@@ -545,6 +565,7 @@ wnf_dpn_suc e s k l p t = do
 -- ! X &L = Λ{0:z;1+:s}
 wnf_dpn_swi :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_swi e s k l vz vs t = do
+  when debug $ putStrLn $ "## wnf_dpn_swi          : " ++ show (Dup k l (Swi vz vs) t)
   inc_inters e
   z <- fresh e
   sc <- fresh e
@@ -557,6 +578,7 @@ wnf_dpn_swi e s k l vz vs t = do
 -- ! X &L = Nam(N)
 wnf_dpn_nam :: Env -> Stack -> Name -> Lab -> String -> Term -> IO Term
 wnf_dpn_nam e s k _ n t = do
+  when debug $ putStrLn $ "## wnf_dpn_nam          : " ++ show (Dup k (name_to_int "_") (Nam n) t)
   inc_inters e
   subst e SubDp0 k (Nam n)
   subst e SubDp1 k (Nam n)
@@ -565,7 +587,7 @@ wnf_dpn_nam e s k _ n t = do
 -- ((f ~> g) a)
 wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal e s f g a = do
-  when debug $ putStrLn $ ">> wnf_app_cal          : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
+  when debug $ putStrLn $ "## wnf_app_cal          : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
   !g_wnf <- wnf e [] g
   case g_wnf of
     Lam fx ff    -> wnf_app_cal_lam e s f fx ff a
@@ -576,7 +598,7 @@ wnf_app_cal e s f g a = do
 -- ((f ~> λx.g) a)
 wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
 wnf_app_cal_lam e s f x g a = do
-  when debug $ putStrLn $ ">> wnf_app_cal_lam      : " ++ show (Cal f (Lam x g)) ++ " " ++ show a
+  when debug $ putStrLn $ "## wnf_app_cal_lam      : " ++ show (Cal f (Lam x g)) ++ " " ++ show a
   inc_inters e
   subst e SubVar x a
   wnf_enter e s (Cal (App f (Var x)) g)
@@ -584,23 +606,21 @@ wnf_app_cal_lam e s f x g a = do
 -- ((f ~> &L{x,y}) a)
 wnf_app_cal_sup :: Env -> Stack -> Term -> Lab -> Term -> Term -> Term -> IO Term
 wnf_app_cal_sup e s f l x y a = do
-  when debug $ putStrLn $ ">> wnf_app_cal_sup      : " ++ show (Cal f (Sup l x y)) ++ " " ++ show a
+  when debug $ putStrLn $ "## wnf_app_cal_sup      : " ++ show (Cal f (Sup l x y)) ++ " " ++ show a
   inc_inters e
   f' <- fresh e
   a' <- fresh e
   regis_dup e f' l f
   regis_dup e a' l a
-  let g0 = App x (Dp0 a')
-  let g1 = App y (Dp1 a')
-  let c0 = Cal (Dp0 f') g0
-  let c1 = Cal (Dp1 f') g1
-  wnf_enter e s (Sup l c0 c1)
+  let app0 = App (Cal (Dp0 f') x) (Dp0 a')
+  let app1 = App (Cal (Dp1 f') y) (Dp1 a')
+  wnf_enter e s (Sup l app0 app1)
 
 -- ((f ~> Λ{0:z;1+:s}) a)
 wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi e s f z sc a = do
   !a_wnf <- wnf e [] a
-  when debug $ putStrLn $ ">> wnf_app_cal_swi      : " ++ show (Cal f (Swi z sc)) ++ " " ++ show a ++ "→" ++ show a_wnf
+  when debug $ putStrLn $ "## wnf_app_cal_swi      : " ++ show (Cal f (Swi z sc)) ++ " " ++ show a ++ "→" ++ show a_wnf
   case a_wnf of
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
@@ -611,14 +631,14 @@ wnf_app_cal_swi e s f z sc a = do
 -- ((f ~> Λ{0:z;1+:s}) 0)
 wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_cal_swi_zer e s f z = do
-  when debug $ putStrLn $ ">> wnf_app_cal_swi_zer  : " ++ show (App (Cal f (Swi z (Nam "..."))) Zer)
+  when debug $ putStrLn $ "## wnf_app_cal_swi_zer  : " ++ show (App (Cal f (Swi z (Nam "..."))) Zer)
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
 -- ((f ~> Λ{0:z;1+:s}) 1+n)
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi_suc e s f sc n = do
-  when debug $ putStrLn $ ">> wnf_app_cal_swi_suc  : " ++ show (App (Cal f (Swi (Nam "...") sc)) (Suc n))
+  when debug $ putStrLn $ "## wnf_app_cal_swi_suc  : " ++ show (App (Cal f (Swi (Nam "...") sc)) (Suc n))
   inc_inters e
   p <- fresh e
   wnf_enter e s (App (Cal (Lam p (App f (Suc (Var p)))) sc) n)
@@ -626,7 +646,7 @@ wnf_app_cal_swi_suc e s f sc n = do
 -- ((f ~> Λ{0:z;1+:s}) &L{a,b})
 wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
 wnf_app_cal_swi_sup e s f z sc l a b = do
-  when debug $ putStrLn $ ">> wnf_app_cal_swi_sup  : " ++ show (App (Cal f (Swi z sc)) (Sup l a b))
+  when debug $ putStrLn $ "## wnf_app_cal_swi_sup  : " ++ show (App (Cal f (Swi z sc)) (Sup l a b))
   inc_inters e
   f' <- fresh e
   z' <- fresh e
@@ -643,7 +663,7 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
 -- ! &L X = f ~> g
 wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_cal e s k l f g t = do
-  when debug $ putStrLn $ ">> wnf_dpn_cal          : " ++ show (Dup k l (Cal f g) t)
+  when debug $ putStrLn $ "## wnf_dpn_cal          : " ++ show (Dup k l (Cal f g) t)
   inc_inters e
   f' <- fresh e
   g' <- fresh e
@@ -706,7 +726,10 @@ nf e d x = do { !x0 <- wnf e [] x ; go e d x0 } where
   go e d (Suc n)  = Suc <$> nf e d n
   go e d (Swi z s)= Swi <$> nf e d z <*> nf e d s
   go _ _ (Ref k)  = return $ Ref k
-  go e d (Cal f _) = nf e d f
+  go e d (Cal f g) = do
+    -- f' <- nf e d f
+    g' <- nf e d g
+    return $ g'
 
 -- Benchmark term generator
 -- =========================
@@ -759,11 +782,12 @@ book = """
   @sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}
 
   @foo = &L{
-    λx. x,
-    λy. y
+    λx. x
+    λ{
+      0: 0
+      1+: λp. p
+    }
   }
-
-
 """
 
 
