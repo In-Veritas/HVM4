@@ -109,15 +109,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
 
-import Control.Monad (replicateM, when)
 import Data.Bits (shiftL)
-import Data.Char (chr, ord)
 import Data.IORef
-import Data.List (foldl')
+import Data.List (foldl', elemIndex)
 import System.CPUTime
 import Text.ParserCombinators.ReadP
 import Text.Printf
-import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 
@@ -166,8 +163,7 @@ instance Show Term where
   show (Cal f g)     = show f ++ "~>" ++ show g
 
 instance Show Book where
-  show (Book m) = unlines [showFunc k ct | (k, ct) <- M.toList m]
-    where showFunc k ct = "@" ++ int_to_name k ++ " = " ++ show ct
+  show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
 
 -- Name Encoding/Decoding
 -- ======================
@@ -177,19 +173,15 @@ instance Show Book where
 alphabet :: String
 alphabet = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$"
 
-char_map :: M.Map Char Int
-char_map = M.fromList (zip alphabet [0..])
-
 name_to_int :: String -> Int
-name_to_int = foldl' go 0
-  where go acc c = (acc `shiftL` 6) + char_map M.! c
+name_to_int = foldl' (\acc c -> (acc `shiftL` 6) + idx c) 0
+  where idx c = maybe (error "bad name char") id (elemIndex c alphabet)
 
 int_to_name :: Int -> String
 int_to_name 0 = "_"
-int_to_name n = reverse $ go n
-  where go 0 = ""
-        go m = let (q,r) = m `divMod` 64
-               in alphabet !! r : go q
+int_to_name n = reverse (go n) where
+  go 0 = ""
+  go m = let (q,r) = m `divMod` 64 in alphabet !! r : go q
 
 -- Parsing
 -- =======
@@ -198,13 +190,10 @@ lexeme :: ReadP a -> ReadP a
 lexeme p = skipSpaces *> p
 
 parse_nam :: ReadP String
-parse_nam = lexeme $ munch1 (`M.member` char_map)
+parse_nam = lexeme $ munch1 (`elem` alphabet)
 
 parse_term :: ReadP Term
-parse_term = do
-  base <- parse_term_base
-  suff <- parse_term_suff base
-  return suff
+parse_term = parse_term_base
 
 parse_term_base :: ReadP Term
 parse_term_base = lexeme $
@@ -217,9 +206,6 @@ parse_term_base = lexeme $
   <++ parse_suc
   <++ parse_ref
   <++ parse_var
-
-parse_term_suff :: Term -> ReadP Term
-parse_term_suff base = return base
 
 parse_app :: ReadP Term
 parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
@@ -284,10 +270,7 @@ parse_zer :: ReadP Term
 parse_zer = lexeme (char '0') >> return Zer
 
 parse_suc :: ReadP Term
-parse_suc = do
-  lexeme (string "1+")
-  n <- parse_term
-  return (Suc n)
+parse_suc = lexeme (string "1+") >> Suc <$> parse_term
 
 parse_var :: ReadP Term
 parse_var = do
@@ -328,13 +311,13 @@ read_book s = case readP_to_S parse_book s of
 -- Environment
 -- ===========
 
+data Slot = SV | SD0 | SD1 deriving (Enum)
+
 data Env = Env
   { env_book    :: !Book
   , env_inters  :: !(IORef Int)
   , env_new_id  :: !(IORef Int)
-  , env_var_map :: !(IORef (IM.IntMap Term))
-  , env_dp0_map :: !(IORef (IM.IntMap Term))
-  , env_dp1_map :: !(IORef (IM.IntMap Term))
+  , env_subst   :: !(IORef (IM.IntMap Term))         -- unified var/dp0/dp1
   , env_dup_map :: !(IORef (IM.IntMap (Lab, Term)))
   }
 
@@ -342,11 +325,9 @@ new_env :: Book -> IO Env
 new_env bk = do
   itr <- newIORef 0
   ids <- newIORef 1
-  vm  <- newIORef IM.empty
-  d0m <- newIORef IM.empty
-  d1m <- newIORef IM.empty
+  sub <- newIORef IM.empty
   dm  <- newIORef IM.empty
-  return $ Env bk itr ids vm d0m d1m dm
+  return $ Env bk itr ids sub dm
 
 inc_inters :: Env -> IO ()
 inc_inters e = do
@@ -357,38 +338,26 @@ fresh :: Env -> IO Name
 fresh e = do
   !n <- readIORef (env_new_id e)
   writeIORef (env_new_id e) (n + 1)
-  return n
+  return ((n `shiftL` 6) + 63)
 
-taker :: IORef (IM.IntMap a) -> Name -> IO (Maybe a)
+key :: Slot -> Name -> Int
+key s n = (n `shiftL` 2) + fromEnum s
+
+taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
 taker ref k = do
   !m <- readIORef ref
   case IM.lookup k m of
-    Nothing -> do
-      return Nothing
-    Just v  -> do
-      writeIORef ref (IM.delete k m)
-      return (Just v)
-
-take_var :: Env -> Name -> IO (Maybe Term)
-take_var e = taker (env_var_map e)
-
-take_dp0 :: Env -> Name -> IO (Maybe Term)
-take_dp0 e = taker (env_dp0_map e)
-
-take_dp1 :: Env -> Name -> IO (Maybe Term)
-take_dp1 e = taker (env_dp1_map e)
+    Nothing -> return Nothing
+    Just v  -> writeIORef ref (IM.delete k m) >> return (Just v)
 
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e = taker (env_dup_map e)
+take_dup e k = taker (env_dup_map e) k
 
-subst_var :: Env -> Name -> Term -> IO ()
-subst_var e k v = modifyIORef' (env_var_map e) (IM.insert k v)
+take_sub :: Env -> Slot -> Name -> IO (Maybe Term)
+take_sub e s k = taker (env_subst e) (key s k)
 
-subst_dp0 :: Env -> Name -> Term -> IO ()
-subst_dp0 e k v = modifyIORef' (env_dp0_map e) (IM.insert k v)
-
-subst_dp1 :: Env -> Name -> Term -> IO ()
-subst_dp1 e k v = modifyIORef' (env_dp1_map e) (IM.insert k v)
+subst :: Env -> Slot -> Name -> Term -> IO ()
+subst e s k v = modifyIORef' (env_subst e) (IM.insert (key s k) v)
 
 regis_dup :: Env -> Name -> Lab -> Term -> IO ()
 regis_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
@@ -411,27 +380,23 @@ wnf = wnf_enter
 
 wnf_enter :: Env -> Stack -> Term -> IO Term
 
-wnf_enter e s (App f x) = do
-  wnf_enter e (FApp x : s) f
+wnf_enter e s (App f x) = wnf_enter e (FApp x : s) f
 
-wnf_enter e s (Var k) = do
-  wnf_sub e s k take_var Var
+wnf_enter e s (Var k) = wnf_sub e s SV k
 
-wnf_enter e s (Dup k l v t) = do
-  regis_dup e k l v
-  wnf_enter e s t
+wnf_enter e s (Dup k l v t) = regis_dup e k l v >> wnf_enter e s t
 
 wnf_enter e s (Dp0 k) = do
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp0 k l : s) v
-    Nothing     -> wnf_sub e s k take_dp0 Dp0
+    Nothing     -> wnf_sub e s SD0 k
 
 wnf_enter e s (Dp1 k) = do
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp1 k l : s) v
-    Nothing     -> wnf_sub e s k take_dp1 Dp1
+    Nothing     -> wnf_sub e s SD1 k
 
 wnf_enter e s (Ref k) = do
   let (Book m) = env_book e
@@ -439,17 +404,16 @@ wnf_enter e s (Ref k) = do
     Just f  -> do
       inc_inters e
       g <- wnf_alloc e f
-      putStrLn $ ">> alloc                : " ++ show g
+      -- putStrLn $ ">> alloc                : " ++ show g
       wnf_enter e s (Cal (Nam ("@" ++ int_to_name k)) g)
-    Nothing -> do
-      error $ "UndefinedReference: " ++ int_to_name k
+    Nothing -> error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s (Cal f g) = do
-  putStrLn $ ">> wnf_enter_cal        : " ++ show f ++ "~>" ++ show g
+  -- putStrLn $ ">> wnf_enter_cal        : " ++ show f ++ "~>" ++ show g
   wnf_unwind e s (Cal f g)
 
 wnf_enter e s f = do
-  putStrLn $ ">> wnf_enter            : " ++ show f
+  -- putStrLn $ ">> wnf_enter            : " ++ show f
   wnf_unwind e s f
 
 -- WNF: Unwind
@@ -457,7 +421,7 @@ wnf_enter e s f = do
 
 wnf_unwind :: Env -> Stack -> Term -> IO Term
 wnf_unwind e [] v = case v of
-  Cal f g -> wnf e [] g
+  Cal _ g -> wnf e [] g
   f       -> return f
 wnf_unwind e (x:s) v = case x of
   FApp x -> case v of
@@ -488,9 +452,9 @@ wnf_unwind e (x:s) v = case x of
 -- -----------------
 
 -- x | x₀ | x₁
-wnf_sub :: Env -> Stack -> Name -> (Env -> Name -> IO (Maybe Term)) -> (Name -> Term) -> IO Term
-wnf_sub e s k takeFunc mkTerm = do
-  mt <- takeFunc e k
+wnf_sub :: Env -> Stack -> Slot -> Name -> IO Term
+wnf_sub e s sl k = do
+  mt <- take_sub e sl k
   case mt of
     Just t  -> wnf e s t
     Nothing -> wnf_unwind e s (Nam (int_to_name k))
@@ -499,7 +463,7 @@ wnf_sub e s k takeFunc mkTerm = do
 wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_app_lam e s fx ff v = do
   inc_inters e
-  subst_var e fx v
+  subst e SV fx v
   wnf e s ff
 
 -- (&L{f,g} a)
@@ -517,9 +481,9 @@ wnf_dpn_lam e s k l vk vf t = do
   x0 <- fresh e
   x1 <- fresh e
   g  <- fresh e
-  subst_dp0 e k (Lam x0 (Dp0 g))
-  subst_dp1 e k (Lam x1 (Dp1 g))
-  subst_var e vk (Sup l (Var x0) (Var x1))
+  subst e SD0 k (Lam x0 (Dp0 g))
+  subst e SD1 k (Lam x1 (Dp1 g))
+  subst e SV  vk (Sup l (Var x0) (Var x1))
   regis_dup e g l vf
   wnf e s t
 
@@ -528,25 +492,25 @@ wnf_dpn_sup :: Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO 
 wnf_dpn_sup e s k l vl va vb t
   | l == vl = do
       inc_inters e
-      subst_dp0 e k va
-      subst_dp1 e k vb
+      subst e SD0 k va
+      subst e SD1 k vb
       wnf e s t
   | otherwise = do
       inc_inters e
       a <- fresh e
       b <- fresh e
-      subst_dp0 e k (Sup vl (Dp0 a) (Dp0 b))
-      subst_dp1 e k (Sup vl (Dp1 a) (Dp1 b))
+      subst e SD0 k (Sup vl (Dp0 a) (Dp0 b))
+      subst e SD1 k (Sup vl (Dp1 a) (Dp1 b))
       regis_dup e a l va
       regis_dup e b l vb
       wnf e s t
 
 -- ! X &L = 0
 wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_zer e s k l t = do
+wnf_dpn_zer e s k _ t = do
   inc_inters e
-  subst_dp0 e k Zer
-  subst_dp1 e k Zer
+  subst e SD0 k Zer
+  subst e SD1 k Zer
   wnf e s t
 
 -- ! X &L = 1+n
@@ -555,8 +519,8 @@ wnf_dpn_suc e s k l p t = do
   inc_inters e
   n <- fresh e
   regis_dup e n l p
-  subst_dp0 e k (Suc (Dp0 n))
-  subst_dp1 e k (Suc (Dp1 n))
+  subst e SD0 k (Suc (Dp0 n))
+  subst e SD1 k (Suc (Dp1 n))
   wnf e s t
 
 -- ! X &L = Λ{0:z;1+:s}
@@ -567,59 +531,59 @@ wnf_dpn_swi e s k l vz vs t = do
   sc <- fresh e
   regis_dup e z l vz
   regis_dup e sc l vs
-  subst_dp0 e k (Swi (Dp0 z) (Dp0 sc))
-  subst_dp1 e k (Swi (Dp1 z) (Dp1 sc))
+  subst e SD0 k (Swi (Dp0 z) (Dp0 sc))
+  subst e SD1 k (Swi (Dp1 z) (Dp1 sc))
   wnf e s t
 
 -- ! X &L = Nam(N)
 wnf_dpn_nam :: Env -> Stack -> Name -> Lab -> String -> Term -> IO Term
-wnf_dpn_nam e s k l n t = do
+wnf_dpn_nam e s k _ n t = do
   inc_inters e
-  subst_dp0 e k (Nam n)
-  subst_dp1 e k (Nam n)
+  subst e SD0 k (Nam n)
+  subst e SD1 k (Nam n)
   wnf e s t
 
 -- ((f ~> g) a)
 wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal e s f g a = do
-  putStrLn $ ">> wnf_app_cal          : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
+  -- putStrLn $ ">> wnf_app_cal          : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
   !g_wnf <- wnf e [] g
   case g_wnf of
     Lam fx ff -> wnf_app_cal_lam e s f fx ff a
     Swi fz fs -> wnf_app_cal_swi e s f fz fs a
-    g_wnf     -> wnf_unwind e s (App (Cal f g_wnf) a)
+    _         -> wnf_unwind e s (App (Cal f g_wnf) a)
 
 -- ((f ~> λx.g) a)
 wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
 wnf_app_cal_lam e s f x g a = do
-  putStrLn $ ">> wnf_app_cal_lam      : " ++ show (Cal f (Lam x g)) ++ " " ++ show a
+  -- putStrLn $ ">> wnf_app_cal_lam      : " ++ show (Cal f (Lam x g)) ++ " " ++ show a
   inc_inters e
-  subst_var e x a
+  subst e SV x a
   wnf_enter e s (Cal (App f (Var x)) g)
 
 -- ((f ~> Λ{0:z;1+:s}) a)
 wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi e s f z sc a = do
   !a_wnf <- wnf e [] a
-  putStrLn $ ">> wnf_app_cal_swi      : " ++ show (Cal f (Swi z sc)) ++ " " ++ show a ++ "→" ++ show a_wnf
+  -- putStrLn $ ">> wnf_app_cal_swi      : " ++ show (Cal f (Swi z sc)) ++ " " ++ show a ++ "→" ++ show a_wnf
   case a_wnf of
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
     Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
     Nam k     -> wnf_unwind e s (App f (Nam k))
-    a_wnf     -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
+    _         -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
 
 -- ((f ~> Λ{0:z;1+:s}) 0)
 wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_cal_swi_zer e s f z = do
-  putStrLn $ ">> wnf_app_cal_swi_zer  : " ++ show (App (Cal f (Swi z (Nam "..."))) Zer)
+  -- putStrLn $ ">> wnf_app_cal_swi_zer  : " ++ show (App (Cal f (Swi z (Nam "..."))) Zer)
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
 -- ((f ~> Λ{0:z;1+:s}) 1+n)
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi_suc e s f sc n = do
-  putStrLn $ ">> wnf_app_cal_swi_suc  : " ++ show (App (Cal f (Swi (Nam "...") sc)) (Suc n))
+  -- putStrLn $ ">> wnf_app_cal_swi_suc  : " ++ show (App (Cal f (Swi (Nam "...") sc)) (Suc n))
   inc_inters e
   p <- fresh e
   wnf_enter e s (App (Cal (Lam p (App f (Suc (Var p)))) sc) n)
@@ -627,7 +591,7 @@ wnf_app_cal_swi_suc e s f sc n = do
 -- ((f ~> Λ{0:z;1+:s}) &L{a,b})
 wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
 wnf_app_cal_swi_sup e s f z sc l a b = do
-  putStrLn $ ">> wnf_app_cal_swi_sup  : " ++ show (App (Cal f (Swi z sc)) (Sup l a b))
+  -- putStrLn $ ">> wnf_app_cal_swi_sup  : " ++ show (App (Cal f (Swi z sc)) (Sup l a b))
   inc_inters e
   f' <- fresh e
   z' <- fresh e
@@ -644,14 +608,14 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
 -- ! &L X = f ~> g
 wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_cal e s k l f g t = do
-  putStrLn $ ">> wnf_dpn_cal          : " ++ show (Dup k l (Cal f g) t)
+  -- putStrLn $ ">> wnf_dpn_cal          : " ++ show (Dup k l (Cal f g) t)
   inc_inters e
   f' <- fresh e
   g' <- fresh e
   regis_dup e f' l f
   regis_dup e g' l g
-  subst_dp0 e k (Cal (Dp0 f') (Dp0 g'))
-  subst_dp1 e k (Cal (Dp1 f') (Dp1 g'))
+  subst e SD0 k (Cal (Dp0 f') (Dp0 g'))
+  subst e SD1 k (Cal (Dp1 f') (Dp1 g'))
   wnf_enter e s t
 
 -- WNF: Alloc
@@ -664,13 +628,13 @@ wnf_alloc e term = go IM.empty term where
   go m (Var k)       = return $ Var (IM.findWithDefault k k m)
   go m (Dp0 k)       = return $ Dp0 (IM.findWithDefault k k m)
   go m (Dp1 k)       = return $ Dp1 (IM.findWithDefault k k m)
-  go m Era           = return Era
+  go _ Era           = return Era
   go m (Sup l a b)   = Sup l <$> go m a <*> go m b
   go m (App f x)     = App <$> go m f <*> go m x
-  go m Zer           = return Zer
+  go _ Zer           = return Zer
   go m (Suc n)       = Suc <$> go m n
   go m (Swi z s)     = Swi <$> go m z <*> go m s
-  go m (Ref k)       = return $ Ref k
+  go _ (Ref k)       = return $ Ref k
   go m (Cal f g)     = Cal <$> go m f <*> go m g
   go m (Dup k l v t) = do
     k' <- fresh e
@@ -688,48 +652,26 @@ wnf_alloc e term = go IM.empty term where
 nf :: Env -> Int -> Term -> IO Term
 nf e d x = do { !x0 <- wnf e [] x ; go e d x0 } where
   go :: Env -> Int -> Term -> IO Term
-  go e d (Nam k) = do
-    return $ Nam k
-  go e d (Var k) = do
-    return $ Var k
-  go e d (Dp0 k) = do
-    return $ Dp0 k
-  go e d (Dp1 k) = do
-    return $ Dp1 k
-  go e d Era = do
-    return Era
-  go e d (App f x) = do
-    !f0 <- nf e d f
-    !x0 <- nf e d x
-    return $ App f0 x0
-  go e d (Sup l a b) = do
-    !a0 <- nf e d a
-    !b0 <- nf e d b
-    return $ Sup l a0 b0
+  go _ _ (Nam k) = return $ Nam k
+  go _ _ (Var k) = return $ Var k
+  go _ _ (Dp0 k) = return $ Dp0 k
+  go _ _ (Dp1 k) = return $ Dp1 k
+  go _ _ Era     = return Era
+  go e d (App f x) = App <$> nf e d f <*> nf e d x
+  go e d (Sup l a b) = Sup l <$> nf e d a <*> nf e d b
   go e d (Lam k f) = do
-    subst_var e k (Nam (int_to_name d))
-    !f0 <- nf e (d + 1) f
-    return $ Lam d f0
+    subst e SV k (Nam (int_to_name d))
+    Lam d <$> nf e (d + 1) f
   go e d (Dup k l v t) = do
-    !v0 <- nf e d v
-    subst_dp0 e k (Nam (int_to_name d))
-    subst_dp1 e k (Nam (int_to_name d))
-    !t0 <- nf e (d + 1) t
-    return $ Dup d l v0 t0
-  go e d Zer = do
-    return Zer
-  go e d (Suc n) = do
-    !n0 <- nf e d n
-    return $ Suc n0
-  go e d (Swi z s) = do
-    !z0 <- nf e d z
-    !s0 <- nf e d s
-    return $ Swi z0 s0
-  go e d (Ref k) = do
-    return $ Ref k
-  go e d (Cal f g) = do
-    !f0 <- nf e d f
-    return f0
+    v0 <- nf e d v
+    subst e SD0 k (Nam (int_to_name d))
+    subst e SD1 k (Nam (int_to_name d))
+    Dup d l v0 <$> nf e (d + 1) t
+  go _ _ Zer      = return Zer
+  go e d (Suc n)  = Suc <$> nf e d n
+  go e d (Swi z s)= Swi <$> nf e d z <*> nf e d s
+  go _ _ (Ref k)  = return $ Ref k
+  go e d (Cal f _) = nf e d f
 
 -- Benchmark term generator
 -- =========================
@@ -782,10 +724,11 @@ book = """
   @sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}
 """
 
+
 main :: IO ()
--- main = run book $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+main = run book $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
 -- main = run book "λx.(@dbl 1+1+x)" -- λa.1+1+1+1+(^@dbl ^a)
--- main = run book "(@not 0)" 1+0
+-- main = run book "(@not 0)" -- 1+0
 -- main = run book "(@not 1+0)" -- 0
 -- main = run book "! F & L = @id; !G & L = F₀; λx.(G₁ x)" -- λa.^a
 -- main = run book "(@and 0 0)" -- 0
@@ -796,4 +739,4 @@ main :: IO ()
 -- main = run book "λx.(@and 0 x)" -- λa.((^@and 0) ^a)
 -- main = run book "λx.(@and x 0)" -- λa.((^@and ^a) 0)
 -- main = run book "(@sum 1+1+1+0)" -- 1+1+1+1+1+1+0
-main = run book "λx.(@sum 1+1+1+x)"
+-- main = run book "λx.(@sum 1+1+1+x)"
