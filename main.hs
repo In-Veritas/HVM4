@@ -150,7 +150,7 @@ data Book = Book (M.Map Name Term)
 -- =======
 
 instance Show Term where
-  show (Nam k)       = "^" ++ k
+  show (Nam k)       = k
   show (Var k)       = int_to_name k
   show (Dp0 k)       = int_to_name k ++ "₀"
   show (Dp1 k)       = int_to_name k ++ "₁"
@@ -219,11 +219,7 @@ parse_term_base = lexeme $
   <++ parse_var
 
 parse_term_suff :: Term -> ReadP Term
-parse_term_suff base =
-      (do lexeme (string "~>")
-          t <- parse_term
-          return (Cal base t))
-  <++ return base
+parse_term_suff base = return base
 
 parse_app :: ReadP Term
 parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
@@ -499,7 +495,6 @@ wnf_sub e s k takeFunc mkTerm = do
   mt <- takeFunc e k
   case mt of
     Just t  -> wnf e s t
-    -- Nothing -> wnf_unwind e s (mkTerm k)
     Nothing -> wnf_unwind e s (Nam (int_to_name k))
 
 -- (λx.f a)
@@ -613,9 +608,7 @@ wnf_app_cal_swi e s f z sc a = do
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
     Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
-    -- When stuck on a Nam, the WNF is the spine.
     Nam k     -> wnf_unwind e s (App f (Nam k))
-    -- When stuck on other neutrals, the WNF retains the Cal structure.
     a_wnf     -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
 
 -- ((f ~> Λ{0:z;1+:s}) 0)
@@ -628,7 +621,6 @@ wnf_app_cal_swi_zer e s f z = do
 -- ((f ~> Λ{0:z;1+:s}) 1+n)
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi_suc e s f sc n = do
-  -- TODO: debug print ↓
   putStrLn $ ">> wnf_app_cal_swi_suc  : " ++ show f ++ "~>Λ{0:...;1+:" ++ show sc ++ "} 1+" ++ show n
   inc_inters e
   p <- fresh e
@@ -695,7 +687,6 @@ wnf_alloc e term = go IM.empty term where
 -- Normalization
 -- =============
 
--- FIX 2: Restructure nf to handle Cal normalization semantics correctly (normalize spine).
 nf :: Env -> Int -> Term -> IO Term
 nf e d x = do { !x0 <- wnf e [] x ; go e d x0 } where
   go :: Env -> Int -> Term -> IO Term
