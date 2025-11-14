@@ -1498,6 +1498,7 @@ gen_lam_mat e l d k t s f r b c = do
           (r0, r1)   <- clone2  e 0 r
           (b0, b1)   <- clone2s e 0 b
           (c0, c1)   <- clone2s e 0 c
+
           n          <- fresh e
           m          <- fresh e
           p          <- fresh e
@@ -1556,14 +1557,15 @@ gen_intr e l d k t s f r b c = do
     Era -> do
       return Era
     Sup tl t0 t1 -> do
-      (s0, s1) <- clone   e tl s
-      (f0, f1) <- clones  e tl f
-      (r0, r1) <- clone2  e tl r
-      (b0, b1) <- clone2s e tl b
-      (c0, c1) <- clone2s e tl c
-      fork0    <- gen_intr e l d k t0 s0 f0 r0 b0 c0
-      fork1    <- gen_intr e l d k t1 s1 f1 r1 b1 c1
-      return $ Sup tl fork0 fork1
+      error "TODO"
+      -- (s0, s1) <- clone   e tl s
+      -- (f0, f1) <- clones  e tl f
+      -- (r0, r1) <- clone2  e tl r
+      -- (b0, b1) <- clone2s e tl b
+      -- (c0, c1) <- clone2s e tl c
+      -- fork0    <- gen_intr e l d k t0 s0 f0 r0 b0 c0
+      -- fork1    <- gen_intr e l d k t1 s1 f1 r1 b1 c1
+      -- return $ Sup tl fork0 fork1
     Nat -> do
       (s0, s1) <- clone   e l s
       (f0, f1) <- clones  e l f
@@ -1785,25 +1787,21 @@ test = forM_ tests $ \ (src, exp) -> do
     putStrLn $ "  - expected: " ++ exp
     putStrLn $ "  - detected: " ++ det
 
--- -- e: Env    = environment
--- -- l: Int    = label (for forking)
--- -- d: Int    = depth (lam binders)
--- -- k: Int    = max_elim/intr
--- -- t: Term   = goal type
--- -- s: Term   = spine/lhs
--- -- f: [Term] = folds
--- -- r: Ann    = recursion
--- -- b: [Ann]  = library (external fns)
--- -- c: [Ann]  = context (internal vars)
--- type Gen a = Env -> Int -> Int -> Int -> Term -> Term -> [Term] -> Ann -> [Ann] -> [Ann] -> IO a
-
 main :: IO ()
 main = do
   !env <- new_env $ read_book book
   !val <- gen_lam env 1 0 max_elim (All Nat (Lam 0 Nat)) (Lam 0 (Var 0)) [] (Nam "F", (All Nat (Lam 0 Nat))) [] []
-  !val <- col env val
-  !val <- snf env 1 val
-  !val <- return $ flatten val
-  -- print $ val
-  forM_ val $ \x ->
-    print x
+  -- !val <- col env val
+  -- !val <- snf env 1 val
+  -- !val <- return $ flatten val
+  print $ val
+  -- forM_ val $ \x ->
+    -- print x
+
+  -- Print duplications map
+  !dup_map <- readIORef (env_dup_map env)
+  putStrLn $ show_dup_map dup_map
+  
+  -- Print substitutions map
+  !sub_map <- readIORef (env_sub_map env)
+  putStrLn $ show_sub_map sub_map
