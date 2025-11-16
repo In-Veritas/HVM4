@@ -334,24 +334,24 @@ clone e l v = do
   duply e k l v
   return $ (Dp0 k , Dp1 k)
 
-clones :: Env -> Lab -> [Term] -> IO ([Term],[Term])
-clones e l []       = return $ ([],[])
-clones e l (x : xs) = do
-  (x0  , x1 ) <- clone  e l x
-  (xs0 , xs1) <- clones e l xs
+clone_list :: Env -> Lab -> [Term] -> IO ([Term],[Term])
+clone_list e l []       = return $ ([],[])
+clone_list e l (x : xs) = do
+  (x0  , x1 ) <- clone e l x
+  (xs0 , xs1) <- clone_list e l xs
   return $ (x0 : xs0 , x1 : xs1)
 
-clone2 :: Env -> Lab -> (Term,Term) -> IO ((Term,Term),(Term,Term))
-clone2 e l (x,y) = do
+clone_pair :: Env -> Lab -> (Term,Term) -> IO ((Term,Term),(Term,Term))
+clone_pair e l (x,y) = do
   (x0,x1) <- clone e l x
   (y0,y1) <- clone e l y
   return ((x0,y0),(x1,y1))
 
-clone2s :: Env -> Lab -> [(Term,Term)] -> IO ([(Term,Term)],[(Term,Term)])
-clone2s e l []         = return $ ([],[])
-clone2s e l (xy : xys) = do
-  (xy0  , xy1 ) <- clone2  e l xy
-  (xys0 , xys1) <- clone2s e l xys
+clone_pair_list :: Env -> Lab -> [(Term,Term)] -> IO ([(Term,Term)],[(Term,Term)])
+clone_pair_list e l []         = return $ ([],[])
+clone_pair_list e l (xy : xys) = do
+  (xy0  , xy1 ) <- clone_pair e l xy
+  (xys0 , xys1) <- clone_pair_list e l xys
   return $ (xy0 : xys0, xy1 : xys1)
 
 -- WNF: Weak Normal Form
@@ -868,8 +868,8 @@ inj e f (x : xs) = do
   !x' <- wnf e [] x
   case x' of
     (Sup l a b) -> do
-      (f0  , f1 ) <- clone  e l f
-      (xs0 , xs1) <- clones e l xs
+      (f0  , f1 ) <- clone e l f
+      (xs0 , xs1) <- clone_list e l xs
       a' <- inj e f0 (a : xs0)
       b' <- inj e f1 (b : xs1)
       return $ Sup l a' b'
@@ -880,17 +880,6 @@ inj e f [] = do
 
 -- SupGen
 -- ======
-
--- Our goal now is to port SupGen functions from Bend to Haskell.
--- IMPORTANT: In CoI, we must handle linearity (affinity) explicitly.
--- 1. Convention: Always WNF immediately before pattern matching.
--- 2. We must handle Sup/Era cases globally during generation.
--- 3. When the search space forks (e.g., fork L), the entire context must be
---    cloned using the fork label L.
--- 4. When a superposition is encountered in a type (label tl), the context must
---    be cloned using tl to distribute the generation process.
-
--- Constants (from Bend definitions)
 
 max_elim :: Int
 max_elim = 2
@@ -946,10 +935,10 @@ gen_lam e l d k t s f r b c = do
     Sup tl t0 t1 -> do
       error "TODO"
       -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clones  e tl f
-      -- (r0, r1) <- clone2  e tl r
-      -- (b0, b1) <- clone2s e tl b
-      -- (c0, c1) <- clone2s e tl c
+      -- (f0, f1) <- clone_list  e tl f
+      -- (r0, r1) <- clone_pair  e tl r
+      -- (b0, b1) <- clone_pair_list e tl b
+      -- (c0, c1) <- clone_pair_list e tl c
       -- fork0    <- gen_lam e l d k t0 s0 f0 r0 b0 c0
       -- fork1    <- gen_lam e l d k t1 s1 f1 r1 b1 c1
       -- return $ Sup tl fork0 fork1
@@ -970,12 +959,12 @@ gen_lam_all_try e l d k t s f r b c = do
   if k == 0 then do
     gen_lam_var e l d 0 t s f r b c
   else do
-    (t0, t1) <- clone   e l t
-    (s0, s1) <- clone   e l s
-    (f0, f1) <- clones  e l f
-    (r0, r1) <- clone2  e l r
-    (b0, b1) <- clone2s e l b
-    (c0, c1) <- clone2s e l c
+    (t0, t1) <- clone e l t
+    (s0, s1) <- clone e l s
+    (f0, f1) <- clone_list e l f
+    (r0, r1) <- clone_pair e l r
+    (b0, b1) <- clone_pair_list e l b
+    (c0, c1) <- clone_pair_list e l c
     fork0    <- gen_lam_var e (sp0 l) d k     t0 s0 f0 r0 b0 c0
     fork1    <- gen_lam_mat e (sp1 l) d (k-1) t1 s1 f1 r1 b1 c1
     return $ Sup l fork0 fork1
@@ -990,10 +979,10 @@ gen_lam_var e l d k t s f r b c = do
     Sup tl t0 t1 -> do
       error "TODO"
       -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clones  e tl f
-      -- (r0, r1) <- clone2  e tl r
-      -- (b0, b1) <- clone2s e tl b
-      -- (c0, c1) <- clone2s e tl c
+      -- (f0, f1) <- clone_list  e tl f
+      -- (r0, r1) <- clone_pair  e tl r
+      -- (b0, b1) <- clone_pair_list e tl b
+      -- (c0, c1) <- clone_pair_list e tl c
       -- fork0    <- gen_lam_var e l d k t0 s0 f0 r0 b0 c0
       -- fork1    <- gen_lam_var e l d k t1 s1 f1 r1 b1 c1
       -- return $ Sup tl fork0 fork1
@@ -1018,10 +1007,10 @@ gen_lam_mat e l d k t s f r b c = do
     Sup tl t0 t1 -> do
       error "TODO"
       -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clones  e tl f
-      -- (r0, r1) <- clone2  e tl r
-      -- (b0, b1) <- clone2s e tl b
-      -- (c0, c1) <- clone2s e tl c
+      -- (f0, f1) <- clone_list  e tl f
+      -- (r0, r1) <- clone_pair  e tl r
+      -- (b0, b1) <- clone_pair_list e tl b
+      -- (c0, c1) <- clone_pair_list e tl c
       -- fork0    <- gen_lam_mat e l d k t0 s0 f0 r0 b0 c0
       -- fork1    <- gen_lam_mat e l d k t1 s1 f1 r1 b1 c1
       -- return $ Sup tl fork0 fork1
@@ -1033,23 +1022,22 @@ gen_lam_mat e l d k t s f r b c = do
         Sup tl a0 a1 -> do
           error "TODO"
           -- (s0, s1)   <- clone   e tl s
-          -- (f0, f1)   <- clones  e tl f
-          -- (r0, r1)   <- clone2  e tl r
-          -- (b0, b1)   <- clone2s e tl b
-          -- (c0, c1)   <- clone2s e tl c
+          -- (f0, f1)   <- clone_list  e tl f
+          -- (r0, r1)   <- clone_pair  e tl r
+          -- (b0, b1)   <- clone_pair_list e tl b
+          -- (c0, c1)   <- clone_pair_list e tl c
           -- (tb0, tb1) <- clone   e tl tb
           -- fork0      <- gen_lam_mat e l d k (All a0 tb0) s0 f0 r0 b0 c0
           -- fork1      <- gen_lam_mat e l d k (All a1 tb1) s1 f1 r1 b1 c1
           -- return $ Sup tl fork0 fork1
         Nat -> do
-          -- Clones due to truly duplicated usage (not a fork)
-          (tb0, tb1) <- clone   e 0 tb
-          (s0, s1)   <- clone   e 0 s
-          (f0, f1)   <- clones  e 0 f
-          (r0, r1)   <- clone2  e 0 r
-          (b0, b1)   <- clone2s e 0 b
-          (c0, c1)   <- clone2s e 0 c
-
+          -- clone_list due to truly duplicated usage (not a fork)
+          (tb0, tb1) <- clone e 0 tb
+          (s0, s1)   <- clone e 0 s
+          (f0, f1)   <- clone_list e 0 f
+          (r0, r1)   <- clone_pair e 0 r
+          (b0, b1)   <- clone_pair_list e 0 b
+          (c0, c1)   <- clone_pair_list e 0 c
           n          <- fresh e
           m          <- fresh e
           p          <- fresh e
@@ -1082,12 +1070,12 @@ gen_expr e l d k t s f r b c = do
     return Zer
     -- gen_pick e l d 0 t s f r b c
   else do
-    (t0, t1) <- clone   e l t
-    (s0, s1) <- clone   e l s
-    (f0, f1) <- clones  e l f
-    (r0, r1) <- clone2  e l r
-    (b0, b1) <- clone2s e l b
-    (c0, c1) <- clone2s e l c
+    (t0, t1) <- clone e l t
+    (s0, s1) <- clone e l s
+    (f0, f1) <- clone_list e l f
+    (r0, r1) <- clone_pair e l r
+    (b0, b1) <- clone_pair_list e l b
+    (c0, c1) <- clone_pair_list e l c
     fork0    <- gen_intr e (sp0 l) d (k-1) t0 s0 f0 r0 b0 c0
     -- fork0    <- return $ Zer
     fork1    <- gen_pick e (sp1 l) d k t1 s1 f1 r1 b1 c1
@@ -1106,20 +1094,20 @@ gen_intr e l d k t s f r b c = do
       return Era
     Sup tl t0 t1 -> do
       error "TODO"
-      -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clones  e tl f
-      -- (r0, r1) <- clone2  e tl r
-      -- (b0, b1) <- clone2s e tl b
-      -- (c0, c1) <- clone2s e tl c
+      -- (s0, s1) <- clone e tl s
+      -- (f0, f1) <- clone_list e tl f
+      -- (r0, r1) <- clone_pair e tl r
+      -- (b0, b1) <- clone_pair_list e tl b
+      -- (c0, c1) <- clone_pair_list e tl c
       -- fork0    <- gen_intr e l d k t0 s0 f0 r0 b0 c0
       -- fork1    <- gen_intr e l d k t1 s1 f1 r1 b1 c1
       -- return $ Sup tl fork0 fork1
     Nat -> do
-      (s0, s1) <- clone   e l s
-      (f0, f1) <- clones  e l f
-      (r0, r1) <- clone2  e l r
-      (b0, b1) <- clone2s e l b
-      (c0, c1) <- clone2s e l c
+      (s0, s1) <- clone e l s
+      (f0, f1) <- clone_list e l f
+      (r0, r1) <- clone_pair e l r
+      (b0, b1) <- clone_pair_list e l b
+      (c0, c1) <- clone_pair_list e l c
       fork0    <- return $ Zer
       pred     <- gen_expr e (sp1 l) d k Nat s1 f1 r1 b1 c1
       fork1    <- return $ Suc pred
@@ -1142,12 +1130,12 @@ gen_pick_lib e l d k t s f r b c = do
     [] -> do
       gen_pick_fol e l d k t s f r [] c
     ((tm, ty) : bs) -> do
-      (t0, t1)   <- clone   e l t
-      (s0, s1)   <- clone   e l s
-      (f0, f1)   <- clones  e l f
-      (r0, r1)   <- clone2  e l r
-      (c0, c1)   <- clone2s e l c
-      (bs0, bs1) <- clone2s e l bs
+      (t0, t1)   <- clone e l t
+      (s0, s1)   <- clone e l s
+      (f0, f1)   <- clone_list e l f
+      (r0, r1)   <- clone_pair e l r
+      (c0, c1)   <- clone_pair_list e l c
+      (bs0, bs1) <- clone_pair_list e l bs
       fork0      <- gen_call e (sp0 l) d k t0 s0 f0 r0 bs0 c0 tm ty
       fork1      <- gen_pick_lib e (sp1 l) d k t1 s1 f1 r1 bs1 c1
       return $ Sup l fork0 fork1
@@ -1158,12 +1146,12 @@ gen_pick_fol e l d k t s f r b c = do
     [] -> do
       gen_pick_ctx e l d k t s [] r b c
     (rxs : fs) -> do
-      (t0, t1)     <- clone   e l t
-      (s0, s1)     <- clone   e l s
-      (b0, b1)     <- clone2s e l b
-      (c0, c1)     <- clone2s e l c
-      (r0, r1)     <- clone2  e l r
-      (fs0, fs1)   <- clones  e l fs
+      (t0, t1)     <- clone e l t
+      (s0, s1)     <- clone e l s
+      (b0, b1)     <- clone_pair_list e l b
+      (c0, c1)     <- clone_pair_list e l c
+      (r0, r1)     <- clone_pair e l r
+      (fs0, fs1)   <- clone_list e l fs
       (tm0, ty0)   <- return $ r0
       (tm0A, tm0B) <- clone e l tm0
       (ty0A, ty0B) <- clone e l ty0
@@ -1179,12 +1167,12 @@ gen_pick_ctx e l d k t s f r b c = do
     [(tm, ty)] -> do
       gen_call e l d k t s f r b [] tm ty
     ((tm, ty) : cs) -> do
-      (t0, t1)   <- clone   e l t
-      (s0, s1)   <- clone   e l s
-      (f0, f1)   <- clones  e l f
-      (r0, r1)   <- clone2  e l r
-      (b0, b1)   <- clone2s e l b
-      (cs0, cs1) <- clone2s e l cs
+      (t0, t1)   <- clone e l t
+      (s0, s1)   <- clone e l s
+      (f0, f1)   <- clone_list e l f
+      (r0, r1)   <- clone_pair e l r
+      (b0, b1)   <- clone_pair_list e l b
+      (cs0, cs1) <- clone_pair_list e l cs
       fork0      <- gen_call e (sp0 l) d k t0 s0 f0 r0 b0 cs0 tm ty
       fork1      <- gen_pick_ctx e (sp1 l) d k t1 s1 f1 r1 b1 cs1
       return $ Sup l fork0 fork1
@@ -1215,22 +1203,22 @@ gen_call e l d k t s f r b c tm ty = do
       return Era
     Sup tl ty0 ty1 -> do
       error "TODO"
-      -- (t0, t1)   <- clone   e tl t
-      -- (s0, s1)   <- clone   e tl s
-      -- (f0, f1)   <- clones  e tl f
-      -- (r0, r1)   <- clone2  e tl r
-      -- (b0, b1)   <- clone2s e tl b
-      -- (c0, c1)   <- clone2s e tl c
+      -- (t0, t1)   <- clone e tl t
+      -- (s0, s1)   <- clone e tl s
+      -- (f0, f1)   <- clone_list e tl f
+      -- (r0, r1)   <- clone_pair e tl r
+      -- (b0, b1)   <- clone_pair_list e tl b
+      -- (c0, c1)   <- clone_pair_list e tl c
       -- (tm0, tm1) <- clone   e tl tm
       -- fork0      <- gen_call e l d k t0 s0 f0 r0 b0 c0 tm0 ty0
       -- fork1      <- gen_call e l d k t1 s1 f1 r1 b1 c1 tm1 ty1
       -- return $ Sup tl fork0 fork1
     All ta tb -> do
-      (s0, s1) <- clone   e l s
-      (f0, f1) <- clones  e l f
-      (r0, r1) <- clone2  e l r
-      (b0, b1) <- clone2s e l b
-      (c0, c1) <- clone2s e l c
+      (s0, s1) <- clone e l s
+      (f0, f1) <- clone_list e l f
+      (r0, r1) <- clone_pair e l r
+      (b0, b1) <- clone_pair_list e l b
+      (c0, c1) <- clone_pair_list e l c
       arg      <- gen_expr e (sp0 l) d k ta s0 f0 r0 b0 c0
       let tm'  = App tm arg
       let ty'  = App tb arg
