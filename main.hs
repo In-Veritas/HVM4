@@ -738,6 +738,8 @@ wnf_dup_dry e s (Dry vf vx) k l t = wnf_dup_2 e s k l t vf vx Dry
 -- WNF: Deref Interactions
 -- -----------------------
 
+type WnfAppCal = Env -> Stack -> Term -> Term -> Term -> IO Term
+
 wnf_app_cal :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_cal e s (Cal f g) a = do
   !g_wnf <- wnf e [] g
@@ -756,12 +758,12 @@ wnf_app_cal e s (Cal f g) a = do
     Cal {} -> error "wnf_app_cal_cal"
     _      -> wnf_unwind e s (App (Cal f g_wnf) a)
 
-wnf_app_cal_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_era :: WnfAppCal
 wnf_app_cal_era e s f Era a = do
   inc_inters e
   wnf e s Era
 
-wnf_app_cal_sup :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_sup :: WnfAppCal
 wnf_app_cal_sup e s f (Sup l x y) a = do
   inc_inters e
   (f0,f1) <- clone e l f
@@ -770,20 +772,20 @@ wnf_app_cal_sup e s f (Sup l x y) a = do
   let app1 = (App (Cal f1 y) a1)
   wnf_enter e s (Sup l app0 app1)
 
-wnf_app_cal_lam :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_lam :: WnfAppCal
 wnf_app_cal_lam e s f (Lam x g) a = do
   inc_inters e
   subst VAR e x a
   wnf_enter e s (Cal (App f (Var x)) g)
 
-wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi :: WnfAppCal
 wnf_app_cal_swi e s f (Swi z sc) a = do
   !a_wnf <- wnf e [] a
   case a_wnf of
     Era    -> wnf_app_cal_swi_era e s f z sc a_wnf
     Sup {} -> wnf_app_cal_swi_sup e s f z sc a_wnf
-    Zer    -> wnf_app_cal_swi_zer e s f z a_wnf
-    Suc {} -> wnf_app_cal_swi_suc e s f sc a_wnf
+    Zer    -> wnf_app_cal_swi_zer e s f z sc a_wnf
+    Suc {} -> wnf_app_cal_swi_suc e s f z sc a_wnf
     Set    -> error "wnf_app_cal_swi_set"
     All {} -> error "wnf_app_cal_swi_all"
     Lam {} -> error "wnf_app_cal_swi_lam"
@@ -794,11 +796,13 @@ wnf_app_cal_swi e s f (Swi z sc) a = do
     Cal {} -> error "wnf_app_cal_swi_cal"
     a      -> wnf_unwind e s (App f a)
 
-wnf_app_cal_swi_era :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+type WnfAppCalSwi = Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+
+wnf_app_cal_swi_era :: WnfAppCalSwi
 wnf_app_cal_swi_era e s f z sc Era = do
   wnf_enter e s Era
 
-wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi_sup :: WnfAppCalSwi
 wnf_app_cal_swi_sup e s f z sc (Sup l a b) = do
   inc_inters e
   (f0,f1) <- clone e l f
@@ -808,13 +812,13 @@ wnf_app_cal_swi_sup e s f z sc (Sup l a b) = do
   let app1 = App (Cal f1 (Swi z1 s1)) b
   wnf_enter e s (Sup l app0 app1)
 
-wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_zer e s f z Zer = do
+wnf_app_cal_swi_zer :: WnfAppCalSwi
+wnf_app_cal_swi_zer e s f z sc Zer = do
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
-wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_suc e s f sc (Suc n) = do
+wnf_app_cal_swi_suc :: WnfAppCalSwi
+wnf_app_cal_swi_suc e s f z sc (Suc n) = do
   inc_inters e
   p <- fresh e
   let fn = (Lam p (App f (Suc (Var p))))
@@ -835,17 +839,8 @@ alloc e term = go IM.empty term where
   go m (Dp1 k)       = return $ Dp1 (IM.findWithDefault k k m)
   go _ Era           = return Era
   go m (Sup l a b)   = Sup l <$> go m a <*> go m b
-  go m (Dup k l v t) = do
-    k' <- fresh e
-    v' <- go m v
-    t' <- go (IM.insert k k' m) t
-    return $ Dup k' l v' t'
   go _ Set           = return Set
   go m (All a b)     = All <$> go m a <*> go m b
-  go m (Lam k f) = do
-    k' <- fresh e
-    f' <- go (IM.insert k k' m) f
-    return $ Lam k' f'
   go m (App f x)     = App <$> go m f <*> go m x
   go _ Nat           = return Nat
   go _ Zer           = return Zer
@@ -855,6 +850,15 @@ alloc e term = go IM.empty term where
   go _ (Nam k)       = return $ Nam k
   go m (Dry f x)     = Dry <$> go m f <*> go m x
   go m (Cal f g)     = Cal <$> go m f <*> go m g
+  go m (Dup k l v t) = do
+    k' <- fresh e
+    v' <- go m v
+    t' <- go (IM.insert k k' m) t
+    return $ Dup k' l v' t'
+  go m (Lam k f) = do
+    k' <- fresh e
+    f' <- go (IM.insert k k' m) f
+    return $ Lam k' f'
 
 -- Normalization
 -- =============
