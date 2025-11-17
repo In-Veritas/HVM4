@@ -1,11 +1,12 @@
 -- Calculus of Interactions
 -- ========================
 -- CoI is a term rewrite system for the following grammar:
--- 
+--
 -- Term ::=
 -- | Var ::= Name
 -- | Dp0 ::= Name "₀"
 -- | Dp1 ::= Name "₁"
+-- | Ref ::= "@" Name
 -- | Nam ::= "." Name
 -- | Dry ::= "." "(" Term " " Term ")"
 -- | Era ::= "&{}"
@@ -15,27 +16,49 @@
 -- | All ::= "∀" Term "." Term
 -- | Lam ::= "λ" Name "." Term
 -- | App ::= "(" Term " " Term ")"
+-- | Sig ::= "Σ" Term "." Term
+-- | Tup ::= Term "," Term
+-- | Get ::= "λ" "{" "," ":" Term ";"? "}"
+-- | Emp ::= "⊥"
+-- | Efq ::= "λ" "{" "}"
+-- | Uni ::= "⊤"
+-- | One ::= "()"
+-- | Use ::= "λ" "{" "()" ":" Term ";"? "}"
+-- | Bol ::= "𝔹"
+-- | Fal ::= "#F"
+-- | Tru ::= "#T"
+-- | If  ::= "λ" "{" "#F" ":" Term ";"? "#T" ":" Term ";"? "}"
 -- | Nat ::= "ℕ"
 -- | Zer ::= "0"
 -- | Suc ::= "1+"
--- | Swi ::= "λ" "{" "0" ":" Term ";"? "1" "+" ":" term ";"? "}"
+-- | Swi ::= "λ" "{" "0" ":" Term ";"? "1" "+" ":" Term ";"? "}"
+-- | Lst ::= Term "[]"
+-- | Nil ::= "[]"
+-- | Con ::= Term "<>" Term
+-- | Mat ::= "λ" "{" "[]" ":" Term ";"? "<>" Term ";"? "}"
 -- | And ::= Term "&&" Term
 -- | Eq0 ::= Term ":=" Term
 -- | Eq1 ::= Term "=:" Term
--- | Ref ::= "@" Name
 -- | Gua ::= Term "~>" Term
 --
 -- Where:
 -- - Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
 -- - [T]  ::= any sequence of T separated by ","
--- 
+--
 -- In CoI:
 -- - Variables are affine (they must occur at most once)
 -- - Variables range globally (they can occur anywhere)
--- 
+--
+-- Reference Interaction
+-- =====================
+--
+-- @foo
+-- ---------------------- ref
+-- foo ~> alloc(book.foo)
+--
 -- Duplication Interactions
 -- ========================
--- 
+--
 -- ! X &L = &{}
 -- ------------ dup-era
 -- X₀ ← &{}
@@ -71,6 +94,74 @@
 -- x  ← &L{$x0,$x1}
 -- ! G &L = f
 --
+-- ! X &L = Σa.b
+-- ------------- dup-sig (NEW)
+-- ! A &L = a
+-- ! B &L = b
+-- X₀ ← ΣA₀.B₀
+-- X₁ ← ΣA₁.B₁
+--
+-- ! X &L = (a,b)
+-- -------------- dup-tup (NEW)
+-- ! A &L = a
+-- ! B &L = b
+-- X₀ ← (A₀,B₀)
+-- X₁ ← (A₁,B₁)
+--
+-- ! X &L = λ{,:c}
+-- --------------- dup-get (NEW)
+-- ! C &L = c
+-- X₀ ← λ{,:C₀}
+-- X₁ ← λ{,:C₁}
+--
+-- ! X &L = ⊥
+-- ---------- dup-emp (NEW)
+-- X₀ ← ⊥
+-- X₁ ← ⊥
+--
+-- ! X &L = λ{}
+-- ------------ dup-efq (NEW)
+-- X₀ ← λ{}
+-- X₁ ← λ{}
+--
+-- ! X &L = ⊤
+-- ---------- dup-uni (NEW)
+-- X₀ ← ⊤
+-- X₁ ← ⊤
+--
+-- ! X &L = ()
+-- ----------- dup-one (NEW)
+-- X₀ ← ()
+-- X₁ ← ()
+--
+-- ! X &L = λ{():u}
+-- ---------------- dup-use (NEW)
+-- ! U &L = u
+-- X₀ ← λ{():U₀}
+-- X₁ ← λ{():U₁}
+--
+-- ! X &L = 𝔹
+-- ---------- dup-bol (NEW)
+-- X₀ ← 𝔹
+-- X₁ ← 𝔹
+--
+-- ! X &L = #F
+-- ----------- dup-fal (NEW)
+-- X₀ ← #F
+-- X₁ ← #F
+--
+-- ! X &L = #T
+-- ----------- dup-tru (NEW)
+-- X₀ ← #T
+-- X₁ ← #T
+--
+-- ! X &L = λ{#F:f;#T:t}
+-- --------------------- dup-if (NEW)
+-- ! F &L = f
+-- ! T &L = t
+-- X₀ ← λ{#F:F₀;#T:T₀}
+-- X₁ ← λ{#F:F₁;#T:T₁}
+--
 -- ! X &L = ℕ
 -- ---------- dup-nat
 -- X₀ ← ℕ
@@ -94,6 +185,31 @@
 -- X₀ ← Λ{0:Z₀;1+:S₀}
 -- X₁ ← Λ{0:Z₁;1+:S₁}
 --
+-- ! X &L = t[]
+-- ------------ dup-lst (NEW)
+-- ! T &L = t
+-- X₀ ← T₀[]
+-- X₁ ← T₁[]
+--
+-- ! X &L = []
+-- ----------- dup-nil (NEW)
+-- X₀ ← []
+-- X₁ ← []
+--
+-- ! X &L = h<>t
+-- ------------- dup-con (NEW)
+-- ! H &L = h
+-- ! T &L = t
+-- X₀ ← H₀<>T₀
+-- X₁ ← H₁<>T₁
+--
+-- ! X &L = λ{[]:n;<>:c}
+-- --------------------- dup-mat (NEW)
+-- ! N &L = n
+-- ! C &L = c
+-- X₀ ← λ{[]:N₀;<>:C₀}
+-- X₁ ← λ{[]:N₁;<>:C₁}
+--
 -- ! X &L = .n
 -- ----------- dup-nam
 -- X₀ ← .n
@@ -115,7 +231,7 @@
 --
 -- Application Interactions
 -- ========================
--- 
+--
 -- (&{} a)
 -- ------- app-era
 -- &{}
@@ -124,11 +240,71 @@
 -- ----------------- app-sup
 -- ! A &L = a
 -- &L{(f A₀),(g A₁)}
--- 
+--
 -- (λx.f a)
 -- -------- app-lam
 -- x ← a
 -- f
+--
+-- (λ{,:c} &{})
+-- ------------ app-get-era (NEW)
+-- &{}
+--
+-- (λ{,:c} &L{a,b})
+-- ---------------- app-get-sup (NEW)
+-- ! C &L = c
+-- &L{(λ{,:C₀} a)
+--   ,(λ{,:C₁} b)}
+--
+-- (λ{,:c} (a,b))
+-- -------------- app-get-tup (NEW)
+-- (c a b)
+--
+-- (λ{} &{})
+-- --------- app-efq-era (NEW)
+-- &{}
+--
+-- (λ{} &L{a,b})
+-- ------------- app-efq-sup (NEW)
+-- &L{(λ{} a)
+--   ,(λ{} b)}
+--
+-- (λ{} ⊥)
+-- ------- app-efq-emp (NEW)
+-- λ{} ⊥
+--
+-- (λ{():u} &{})
+-- ------------- app-use-era (NEW)
+-- &{}
+--
+-- (λ{():u} &L{a,b})
+-- ----------------- app-use-sup (NEW)
+-- ! U &L = u
+-- &L{(λ{():U₀} a)
+--   ,(λ{():U₁} b)}
+--
+-- (λ{():u} ())
+-- ------------ app-use-one (NEW)
+-- u
+--
+-- (λ{#F:f;#T:t} &{})
+-- ------------------ app-if-era (NEW)
+-- &{}
+--
+-- (λ{#F:f;#T:t} &L{a,b})
+-- ---------------------- app-if-sup (NEW)
+-- ! F &L = f
+-- ! T &L = t
+-- &L{(λ{#F:F₀;#T:T₀} a)
+--   ,(λ{#F:F₁;#T:T₁} b)}
+--
+-- (λ{#F:f;#T:t} #F)
+-- ----------------- app-if-fal (NEW)
+-- f
+--
+-- (λ{#F:f;#T:t} #T)
+-- ----------------- app-if-tru (NEW)
+-- t
 --
 -- (Λ{0:z;1+:s} &{})
 -- ----------------- app-swi-era
@@ -149,6 +325,25 @@
 -- ----------------- app-swi-suc
 -- (s n)
 --
+-- (λ{[]:n;<>:c} &{})
+-- ------------------ app-mat-era (NEW)
+-- &{}
+--
+-- (λ{[]:n;<>:c} &L{a,b})
+-- ---------------------- app-mat-sup (NEW)
+-- ! N &L = n
+-- ! C &L = c
+-- &L{(λ{[]:N₀;<>:C₀} a)
+--   ,(λ{[]:N₁;<>:C₁} b)}
+--
+-- (λ{[]:n;<>:c} [])
+-- ----------------- app-mat-nil (NEW)
+-- n
+--
+-- (λ{[]:n;<>:c} h<>t)
+-- ------------------- app-mat-con (NEW)
+-- (c h t)
+--
 -- (.n a)
 -- ------ app-nam
 -- .(.n a)
@@ -157,138 +352,278 @@
 -- ---------- app-dry
 -- .(.(f x) a)
 --
--- @foo
--- ------------------ ref
--- foo ~> Book["foo"]
--- 
 -- Conjunction Interactions
 -- ========================
--- 
+--
 -- &{} && b
 -- -------- and-era
 -- &{}
--- 
+--
 -- &L{a0,a1} && b
 -- -------------- and-sup
 -- ! B &L = b
 -- &L{B₀ && a0
 --   ,B₁ && a1}
--- 
--- 0 && b
--- ------ and-zer
--- 0
 --
--- 1+p && b
--- -------- and-suc
+-- #F && b
+-- ------- and-fal (NEW - now uses #F instead of 0)
+-- #F
+--
+-- #T && b
+-- ------- and-tru (NEW - now uses #T instead of 1)
 -- b
--- 
+--
 -- Equality Interactions
 -- =====================
--- 
+--
 -- &{} := b
 -- -------- eq0-era
 -- &{}
--- 
+--
 -- &L{a0,a1} := b
 -- -------------- eq0-sup
 -- ! &L B = b
 -- &L{a0 := B₀
 --   ,a1 := B₁}
--- 
+--
 -- * := b
 -- ------ eq0-set
 -- * =: b
--- 
+--
 -- ∀aA.aB := b
 -- ------------ eq0-all
 -- ∀aA.aB =: b
--- 
+--
 -- λx.f := b
 -- --------- eq0-lam
 -- λx.f =: b
--- 
+--
+-- Σa.b := c
+-- --------- eq0-sig (NEW)
+-- Σa.b =: c
+--
+-- (a,b) := c
+-- ---------- eq0-tup (NEW)
+-- (a,b) =: c
+--
+-- λ{,:c} := d
+-- ----------- eq0-get (NEW)
+-- λ{,:c} =: d
+--
+-- ⊥ := b
+-- ------ eq0-emp (NEW)
+-- ⊥ =: b
+--
+-- λ{} := b
+-- -------- eq0-efq (NEW)
+-- λ{} =: b
+--
+-- ⊤ := b
+-- ------ eq0-uni (NEW)
+-- ⊤ =: b
+--
+-- () := b
+-- ------- eq0-one (NEW)
+-- () =: b
+--
+-- λ{():u} := b
+-- ------------ eq0-use (NEW)
+-- λ{():u} =: b
+--
+-- 𝔹 := b
+-- ------ eq0-bol (NEW)
+-- 𝔹 =: b
+--
+-- #F := b
+-- ------- eq0-fal (NEW)
+-- #F =: b
+--
+-- #T := b
+-- ------- eq0-tru (NEW)
+-- #T =: b
+--
+-- λ{#F:f;#T:t} := b
+-- ----------------- eq0-if (NEW)
+-- λ{#F:f;#T:t} =: b
+--
 -- ℕ := b
 -- ------ eq0-nat
 -- ℕ =: b
--- 
+--
 -- 0 := b
 -- ------ eq0-zer
 -- 0 =: b
--- 
+--
 -- 1+a := b
 -- -------- eq0-suc
 -- 1+a =: b
--- 
+--
+-- Λ{0:z;1+:s} := b
+-- ---------------- eq0-swi (NEW)
+-- Λ{0:z;1+:s} =: b
+--
+-- T[] := b
+-- -------- eq0-lst (NEW)
+-- T[] =: b
+--
+-- [] := b
+-- ------- eq0-nil (NEW)
+-- [] =: b
+--
+-- h<>t := b
+-- --------- eq0-con (NEW)
+-- h<>t =: b
+--
+-- λ{[]:n;<>:c} := b
+-- ----------------- eq0-mat (NEW)
+-- λ{[]:n;<>:c} =: b
+--
 -- .x := b
 -- ------- eq0-nam
 -- .x =: b
--- 
+--
 -- .(f x) := b
 -- ----------- eq0-dry
 -- .(f x) =: b
--- 
+--
 -- (af~>ag) := b
 -- ------------- eq0-gua
 -- TODO
--- 
+--
 -- a =: &{}
 -- -------- eq1-era
 -- &{}
--- 
+--
 -- a =: &L{b0,b1}
 -- -------------- eq1-sup
 -- ! &L A = a
 -- &L{A₀ := b0
 --   ,A₁ := b1}
--- 
+--
 -- * =: *
 -- ------ eq1-set
 -- 1
--- 
+--
 -- ∀aA.aB =: ∀bA.bB
 -- ------------------ eq1-all
 -- (aA:=bA)&&(aB:=bB)
--- 
+--
 -- λax.af =: λbx.bf
 -- ---------------- eq1-lam
 -- ax ← X
 -- bx ← X
 -- af := bf
 --
+-- ΣaA.aB =: ΣbA.bB
+-- ---------------- eq1-sig (NEW)
+-- (aA:=bA)&&(aB:=bB)
+--
+-- (a1,a2) =: (b1,b2)
+-- ------------------ eq1-tup (NEW)
+-- (a1:=b1)&&(a2:=b2)
+--
+-- λ{,:ac} =: λ{,:bc}
+-- ------------------ eq1-get (NEW)
+-- ac := bc
+--
+-- ⊥ =: ⊥
+-- ------ eq1-emp (NEW)
+-- 1
+--
+-- λ{} =: λ{}
+-- ---------- eq1-efq (NEW)
+-- 1
+--
+-- ⊤ =: ⊤
+-- ------ eq1-uni (NEW)
+-- 1
+--
+-- () =: ()
+-- -------- eq1-one (NEW)
+-- 1
+--
+-- λ{():au} =: λ{():bu}
+-- -------------------- eq1-use (NEW)
+-- au := bu
+--
+-- 𝔹 =: 𝔹
+-- ------ eq1-bol (NEW)
+-- 1
+--
+-- #F =: #F
+-- -------- eq1-fal (NEW)
+-- 1
+--
+-- #T =: #T
+-- -------- eq1-tru (NEW)
+-- 1
+--
+-- #F =: #T
+-- -------- eq1-fal-tru (NEW)
+-- 0
+--
+-- #T =: #F
+-- -------- eq1-tru-fal (NEW)
+-- 0
+--
+-- λ{#F:af;#T:at} =: λ{#F:bf;#T:bt}
+-- --------------------------------- eq1-if (NEW)
+-- (af:=bf)&&(at:=bt)
+--
 -- ℕ =: ℕ
 -- ------ eq1-nat
 -- 1
--- 
+--
 -- 0 =: 0
 -- ------ eq1-zer
 -- 1
--- 
+--
 -- 1+a =: 1+b
 -- ---------- eq1-suc
 -- a := b
--- 
+--
+-- Λ{0:az;1+:as} =: Λ{0:bz;1+:bs}
+-- ------------------------------- eq1-swi (NEW)
+-- (az:=bz)&&(as:=bs)
+--
+-- aT[] =: bT[]
+-- ------------ eq1-lst (NEW)
+-- aT := bT
+--
+-- [] =: []
+-- -------- eq1-nil (NEW)
+-- 1
+--
+-- ah<>at =: bh<>bt
+-- ---------------- eq1-con (NEW)
+-- (ah:=bh)&&(at:=bt)
+--
+-- λ{[]:an;<>:ac} =: λ{[]:bn;<>:bc}
+-- --------------------------------- eq1-mat (NEW)
+-- (an:=bn)&&(ac:=bc)
+--
 -- .x =: .y
 -- ---------- eq1-nam
 -- if x == y:
 --   1
 -- else:
 --   0
--- 
+--
 -- .(af ax) =: .(bf bx)
 -- ------------------------ eq1-dry
 -- (af := bf) && (ax := bx)
--- 
+--
 -- (af~>ag) =: b
 -- ------------- eq1-gua
 -- TODO
 --
 -- Guarded Application Interactions
 -- ================================
--- 
+--
 -- ((f ~> &{}) a)
 -- -------------- app-gua-era
 -- &{}
--- 
+--
 -- ((f ~> &L{x,y}) a)
 -- ------------------ app-gua-sup
 -- ! &L F = f
@@ -301,6 +636,86 @@
 -- --------------- app-gua-lam
 -- x ← a
 -- (f x) ~> g
+--
+-- ((f ~> λ{,:c}) &{})
+-- ------------------- app-gua-get-era (NEW)
+-- &{}
+--
+-- ((f ~> λ{,:c}) &L{a,b})
+-- ----------------------- app-gua-get-sup (NEW)
+-- ! F &L = f
+-- ! C &L = c
+-- &L{((F₀ ~> λ{,:C₀}) a)
+--   ,((F₁ ~> λ{,:C₁}) b)}
+--
+-- ((f ~> λ{,:c}) (a,b))
+-- ---------------------------- app-gua-get-tup (NEW)
+-- ((λx.λy.(f (x,y)) ~> c) a b)
+--
+-- ((f ~> λ{}) &{})
+-- ---------------- app-gua-efq-era (NEW)
+-- &{}
+--
+-- ((f ~> λ{}) &L{a,b})
+-- -------------------- app-gua-efq-sup (NEW)
+-- ! F &L = f
+-- &L{((F₀ ~> λ{}) a)
+--   ,((F₁ ~> λ{}) b)}
+--
+-- ((f ~> λ{():u}) &{})
+-- -------------------- app-gua-use-era (NEW)
+-- &{}
+--
+-- ((f ~> λ{():u}) &L{a,b})
+-- ------------------------ app-gua-use-sup (NEW)
+-- ! F &L = f
+-- ! U &L = u
+-- &L{((F₀ ~> λ{():U₀}) a)
+--   ,((F₁ ~> λ{():U₁}) b)}
+--
+-- ((f ~> λ{():u}) ())
+-- ------------------- app-gua-use-one (NEW)
+-- (f ()) ~> u
+--
+-- ((g ~> λ{#F:f;#T:t}) &{})
+-- ------------------------- app-gua-if-era (NEW)
+-- &{}
+--
+-- ((g ~> λ{#F:f;#T:t}) &L{a,b})
+-- ------------------------------- app-gua-if-sup (NEW)
+-- ! G &L = g
+-- ! F &L = f
+-- ! T &L = t
+-- &L{((G₀ ~> λ{#F:F₀;#T:T₀}) a)
+--   ,((G₁ ~> λ{#F:F₁;#T:T₁}) b)}
+--
+-- ((g ~> λ{#F:f;#T:t}) #F)
+-- ------------------------ app-gua-if-fal (NEW)
+-- (g #F) ~> f
+--
+-- ((g ~> λ{#F:f;#T:t}) #T)
+-- ------------------------ app-gua-if-tru (NEW)
+-- (g #T) ~> t
+--
+-- ((f ~> λ{[]:n;<>:c}) &{})
+-- ------------------------- app-gua-mat-era (NEW)
+-- &{}
+--
+-- ((f ~> λ{[]:n;<>:c}) &L{a,b})
+-- ----------------------------- app-gua-mat-sup (NEW)
+-- ! F &L = f
+-- ! N &L = n
+-- ! C &L = c
+-- &L{((F₀ ~> λ{[]:N₀;<>:C₀}) a)
+--   ,((F₁ ~> λ{[]:N₁;<>:C₁}) b)}
+--
+-- ((f ~> λ{[]:n;<>:c}) [])
+-- ------------------------ app-gua-mat-nil (NEW)
+-- (f []) ~> n
+--
+-- ((f ~> λ{[]:n;<>:c}) h<>t)
+-- -------------------------- app-gua-mat-con (NEW)
+-- ((λh.λt.(f h<>t) ~> c) h t)
 --
 -- ((f ~> Λ{0:z;1+:s}) &{})
 -- ------------------------ app-gua-swi-era
@@ -346,6 +761,9 @@ data Term
   = Var !Name
   | Dp0 !Name
   | Dp1 !Name
+  | Ref !Name
+  | Nam !String
+  | Dry !Term !Term
   | Era
   | Sup !Lab !Term !Term
   | Dup !Name !Lab !Term !Term
@@ -353,16 +771,29 @@ data Term
   | All !Term !Term
   | Lam !Name !Term
   | App !Term !Term
+  | Sig !Term !Term
+  | Tup !Term !Term
+  | Get !Term
+  | Emp
+  | Efq
+  | Uni
+  | One
+  | Use !Term
+  | Bol
+  | Fal
+  | Tru
+  | If !Term !Term
   | Nat
   | Zer
   | Suc !Term
   | Swi !Term !Term
+  | Lst !Term
+  | Nil
+  | Con !Term !Term
+  | Mat !Term !Term
   | And !Term !Term
   | Eq0 !Term !Term
   | Eq1 !Term !Term
-  | Ref !Name
-  | Nam !String
-  | Dry !Term !Term
   | Gua !Term !Term
   deriving (Eq)
 
@@ -389,23 +820,39 @@ instance Show Term where
   show (Var k)       = int_to_name k
   show (Dp0 k)       = int_to_name k ++ "₀"
   show (Dp1 k)       = int_to_name k ++ "₁"
+  show (Ref k)       = "@" ++ int_to_name k
+  show (Nam k)       = "" ++ k
+  show (Dry f x)     = show_app f [x]
   show Era           = "&{}"
   show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
   show Set           = "*"
-  show (All a b)     = "∀" ++ show a ++ "." ++ show b                                 --
+  show (All a b)     = "∀" ++ show a ++ "." ++ show b
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
   show (App f x)     = show_app f [x]
+  show (Sig a b)     = "Σ" ++ show a ++ "." ++ show b
+  show (Tup a b)     = "(" ++ show a ++ "," ++ show b ++ ")"
+  show (Get c)       = "λ{,:" ++ show c ++ "}"
+  show Emp           = "⊥"
+  show Efq           = "λ{}"
+  show Uni           = "⊤"
+  show One           = "()"
+  show (Use u)       = "λ{():" ++ show u ++ "}"
+  show Bol           = "𝔹"
+  show Fal           = "#F"
+  show Tru           = "#T"
+  show (If f t)      = "λ{#F:" ++ show f ++ ";#T:" ++ show t ++ "}"
   show Nat           = "ℕ"
   show Zer           = "0"
   show (Suc p)       = show_add 1 p
   show (Swi z s)     = "λ{0:" ++ show z ++ ";1+:" ++ show s ++ "}"
+  show (Lst t)       = show t ++ "[]"
+  show Nil           = "[]"
+  show (Con h t)     = show h ++ "<>" ++ show t
+  show (Mat n c)     = "λ{[]:" ++ show n ++ ";<>:" ++ show c ++ "}"
   show (And a b)     = show a ++ "&&" ++ show b
   show (Eq0 a b)     = show a ++ ":=" ++ show b
   show (Eq1 a b)     = show a ++ "=:" ++ show b
-  show (Ref k)       = "@" ++ int_to_name k
-  show (Nam k)       = k
-  show (Dry f x)     = show_app f [x]
   show (Gua f g)     = show f ++ "~>" ++ show g
 
 show_add :: Int -> Term -> String
@@ -471,6 +918,9 @@ parse_term_suff t = skipSpaces >> choice
   [ do string "&&"; t2 <- parse_term; return (And t t2)
   , do string ":="; t2 <- parse_term; return (Eq0 t t2)
   , do string "=:"; t2 <- parse_term; return (Eq1 t t2)
+  , do string "~>"; t2 <- parse_term; return (Gua t t2)
+  , do string "[]"; t' <- return (Lst t); parse_term_suff t'
+  , do string "<>"; t2 <- parse_term; return (Con t t2)
   , return t
   ]
 
@@ -478,28 +928,41 @@ parse_term_base :: ReadP Term
 parse_term_base = lexeme $ choice
   [ parse_lam_or_swi
   , parse_dup
-  , parse_app
+  , parse_par
   , parse_sup
   , parse_era
   , parse_set
   , parse_all
+  , parse_sig
   , parse_nat
   , parse_add
   , parse_num
   , parse_ref
+  , parse_emp
+  , parse_uni
+  , parse_bol
+  , parse_ctr
+  , parse_nil
   , parse_var
   ]
 
-parse_app :: ReadP Term
-parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
-  ts <- many1 parse_term
-  let (t:rest) = ts
-  return (foldl' App t rest)
+parse_par :: ReadP Term
+parse_par = do
+  lexeme (char '(')
+  choice
+    [ do lexeme (char ')'); return One
+    , do
+      t <- parse_term
+      choice
+        [ do lexeme (char ','); u <- parse_term; lexeme (char ')'); return (Tup t u)
+        , do ts <- many parse_term; lexeme (char ')'); return (foldl' App t ts)
+        ]
+    ]
 
 parse_lam_or_swi :: ReadP Term
 parse_lam_or_swi = do
   lexeme (choice [char 'λ', char '\\'])
-  parse_swi_body <++ parse_lam_body
+  parse_lam_brace <++ parse_lam_body
 
 parse_lam_body :: ReadP Term
 parse_lam_body = do
@@ -508,15 +971,15 @@ parse_lam_body = do
   body <- parse_term
   return (Lam (name_to_int k) body)
 
-parse_swi_body :: ReadP Term
-parse_swi_body = do
-  between (lexeme (char '{')) (lexeme (char '}')) $ do
-    lexeme (string "0:")
-    z <- parse_term
-    optional (lexeme (char ';'))
-    lexeme (string "1+:")
-    s <- parse_term
-    return (Swi z s)
+parse_lam_brace :: ReadP Term
+parse_lam_brace = between (lexeme (char '{')) (lexeme (char '}')) $ choice
+  [ do lexeme (string "0:"); z <- parse_term; optional (lexeme (char ';')); lexeme (string "1+:"); s <- parse_term; return (Swi z s)
+  , do lexeme (string "[]:"); n <- parse_term; optional (lexeme (char ';')); lexeme (string "<>:"); c <- parse_term; return (Mat n c)
+  , do lexeme (string "#F:"); f <- parse_term; optional (lexeme (char ';')); lexeme (string "#T:"); t <- parse_term; return (If f t)
+  , do lexeme (string "():"); u <- parse_term; return (Use u)
+  , do lexeme (string ",:"); c <- parse_term; return (Get c)
+  , return Efq
+  ]
 
 parse_dup :: ReadP Term
 parse_dup = do
@@ -554,6 +1017,14 @@ parse_all = do
   b <- parse_term
   return (All a b)
 
+parse_sig :: ReadP Term
+parse_sig = do
+  lexeme (char 'Σ')
+  a <- parse_term_base
+  lexeme (char '.')
+  b <- parse_term
+  return (Sig a b)
+
 parse_nat :: ReadP Term
 parse_nat = lexeme (char 'ℕ') >> return Nat
 
@@ -588,6 +1059,29 @@ parse_var = do
     , string "₁" >> return (Dp1 kid)
     , return (Var kid)
     ]
+
+parse_emp :: ReadP Term
+parse_emp = lexeme (char '⊥') >> return Emp
+
+parse_uni :: ReadP Term
+parse_uni = lexeme (char '⊤') >> return Uni
+
+parse_bol :: ReadP Term
+parse_bol = lexeme (char '𝔹') >> return Bol
+
+parse_ctr :: ReadP Term
+parse_ctr = do
+  lexeme (char '#')
+  choice
+    [ char 'F' >> return Fal
+    , char 'T' >> return Tru
+    ]
+
+parse_nil :: ReadP Term
+parse_nil = do
+  lexeme (char '[')
+  lexeme (char ']')
+  return Nil
 
 parse_func :: ReadP (Name, Term)
 parse_func = do
@@ -656,6 +1150,9 @@ take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
 make_dup :: Env -> Name -> Lab -> Term -> IO ()
 make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
 
+make_auto_dup :: Env -> Name -> Lab -> Term -> IO ()
+make_auto_dup e k l v = do { k <- fresh e ; make_dup e k l v }
+
 subst :: Kind -> Env -> Name -> Term -> IO ()
 subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
 
@@ -674,19 +1171,6 @@ clone_list e l (x : xs) = do
   (x0  , x1 ) <- clone e l x
   (xs0 , xs1) <- clone_list e l xs
   return $ (x0 : xs0 , x1 : xs1)
-
-clone_pair :: Env -> Lab -> (Term,Term) -> IO ((Term,Term),(Term,Term))
-clone_pair e l (x,y) = do
-  (x0,x1) <- clone e l x
-  (y0,y1) <- clone e l y
-  return ((x0,y0),(x1,y1))
-
-clone_pair_list :: Env -> Lab -> [(Term,Term)] -> IO ([(Term,Term)],[(Term,Term)])
-clone_pair_list e l []         = return $ ([],[])
-clone_pair_list e l (xy : xys) = do
-  (xy0  , xy1 ) <- clone_pair e l xy
-  (xys0 , xys1) <- clone_pair_list e l xys
-  return $ (xy0 : xys0, xy1 : xys1)
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -796,6 +1280,11 @@ wnf_app e s f a = case f of
   Nam {} -> wnf_app_nam e s f a
   Dry {} -> wnf_app_dry e s f a
   Gua {} -> wnf_app_gua e s f a
+  Get {} -> wnf_app_get e s f a
+  Efq    -> wnf_app_efq e s f a
+  Use {} -> wnf_app_use e s f a
+  If {}  -> wnf_app_if e s f a
+  Mat {} -> wnf_app_mat e s f a
   Set    -> error "wnf_app_set"
   All {} -> error "wnf_app_all"
   Nat    -> error "wnf_app_nat"
@@ -804,6 +1293,17 @@ wnf_app e s f a = case f of
   And {} -> error "wnf_app_and"
   Eq0 {} -> error "wnf_app_eq0"
   Eq1 {} -> error "wnf_app_eq1"
+  Sig {} -> error "wnf_app_sig"
+  Tup {} -> error "wnf_app_tup"
+  Emp    -> error "wnf_app_emp"
+  Uni    -> error "wnf_app_uni"
+  One    -> error "wnf_app_one"
+  Bol    -> error "wnf_app_bol"
+  Fal    -> error "wnf_app_fal"
+  Tru    -> error "wnf_app_tru"
+  Lst {} -> error "wnf_app_lst"
+  Nil    -> error "wnf_app_nil"
+  Con {} -> error "wnf_app_con"
   _      -> wnf_unwind e s (App f a)
 
 wnf_app_era :: WnfApp
@@ -863,6 +1363,90 @@ wnf_app_sup e s (Sup fL fa fb) v = do
   (x0,x1) <- clone e fL v
   wnf e s (Sup fL (App fa x0) (App fb x1))
 
+wnf_app_get :: WnfApp
+wnf_app_get e s f@(Get c) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do
+      inc_inters e
+      wnf e s Era
+    Sup l x y -> do
+      inc_inters e
+      (c0, c1) <- clone e l c
+      wnf_enter e s (Sup l (App (Get c0) x) (App (Get c1) y))
+    Tup x y -> do
+      inc_inters e
+      wnf_enter e s (App (App c x) y)
+    _ -> wnf_unwind e s (App f a_wnf)
+
+wnf_app_efq :: WnfApp
+wnf_app_efq e s Efq a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do
+      inc_inters e
+      wnf e s Era
+    Sup l x y -> do
+      inc_inters e
+      wnf_enter e s (Sup l (App Efq x) (App Efq y))
+    _ -> wnf_unwind e s (App Efq a_wnf)
+
+wnf_app_use :: WnfApp
+wnf_app_use e s f@(Use u) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do
+      inc_inters e
+      wnf e s Era
+    Sup l x y -> do
+      inc_inters e
+      (u0, u1) <- clone e l u
+      wnf_enter e s (Sup l (App (Use u0) x) (App (Use u1) y))
+    One -> do
+      inc_inters e
+      wnf e s u
+    _ -> wnf_unwind e s (App f a_wnf)
+
+wnf_app_if :: WnfApp
+wnf_app_if e s f@(If ft ff) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do
+      inc_inters e
+      wnf e s Era
+    Sup l x y -> do
+      inc_inters e
+      (ft0, ft1) <- clone e l ft
+      (ff0, ff1) <- clone e l ff
+      wnf_enter e s (Sup l (App (If ft0 ff0) x) (App (If ft1 ff1) y))
+    Fal -> do
+      inc_inters e
+      wnf e s ft
+    Tru -> do
+      inc_inters e
+      wnf e s ff
+    _ -> wnf_unwind e s (App f a_wnf)
+
+wnf_app_mat :: WnfApp
+wnf_app_mat e s f@(Mat n c) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do
+      inc_inters e
+      wnf e s Era
+    Sup l x y -> do
+      inc_inters e
+      (n0, n1) <- clone e l n
+      (c0, c1) <- clone e l c
+      wnf_enter e s (Sup l (App (Mat n0 c0) x) (App (Mat n1 c1) y))
+    Nil -> do
+      inc_inters e
+      wnf e s n
+    Con h t -> do
+      inc_inters e
+      wnf_enter e s (App (App c h) t)
+    _ -> wnf_unwind e s (App f a_wnf)
+
 -- WNF: Dup Interactions
 -- ---------------------
 
@@ -882,6 +1466,22 @@ wnf_dup e s v k l t = case v of
   Nam {} -> wnf_dup_nam e s v k l t
   Dry {} -> wnf_dup_dry e s v k l t
   Gua {} -> wnf_dup_gua e s v k l t
+  Sig {} -> wnf_dup_sig e s v k l t
+  Tup {} -> wnf_dup_tup e s v k l t
+  Get {} -> wnf_dup_get e s v k l t
+  Emp    -> wnf_dup_emp e s v k l t
+  Efq    -> wnf_dup_efq e s v k l t
+  Uni    -> wnf_dup_uni e s v k l t
+  One    -> wnf_dup_one e s v k l t
+  Use {} -> wnf_dup_use e s v k l t
+  Bol    -> wnf_dup_bol e s v k l t
+  Fal    -> wnf_dup_fal e s v k l t
+  Tru    -> wnf_dup_tru e s v k l t
+  If {}  -> wnf_dup_if  e s v k l t
+  Lst {} -> wnf_dup_lst e s v k l t
+  Nil    -> wnf_dup_nil e s v k l t
+  Con {} -> wnf_dup_con e s v k l t
+  Mat {} -> wnf_dup_mat e s v k l t
   _      -> wnf_unwind e s (Dup k l v t)
 
 wnf_dup_0 :: Env -> Stack -> Name -> Term -> Term -> IO Term
@@ -959,6 +1559,54 @@ wnf_dup_dry e s (Dry vf vx) k l t = wnf_dup_2 e s k l t vf vx Dry
 wnf_dup_gua :: WnfDup
 wnf_dup_gua e s (Gua f g) k l t = wnf_dup_2 e s k l t f g Gua
 
+wnf_dup_sig :: WnfDup
+wnf_dup_sig e s (Sig a b) k l t = wnf_dup_2 e s k l t a b Sig
+
+wnf_dup_tup :: WnfDup
+wnf_dup_tup e s (Tup a b) k l t = wnf_dup_2 e s k l t a b Tup
+
+wnf_dup_get :: WnfDup
+wnf_dup_get e s (Get c) k l t = wnf_dup_1 e s k l t c Get
+
+wnf_dup_emp :: WnfDup
+wnf_dup_emp e s Emp k _ t = wnf_dup_0 e s k Emp t
+
+wnf_dup_efq :: WnfDup
+wnf_dup_efq e s Efq k _ t = wnf_dup_0 e s k Efq t
+
+wnf_dup_uni :: WnfDup
+wnf_dup_uni e s Uni k _ t = wnf_dup_0 e s k Uni t
+
+wnf_dup_one :: WnfDup
+wnf_dup_one e s One k _ t = wnf_dup_0 e s k One t
+
+wnf_dup_use :: WnfDup
+wnf_dup_use e s (Use u) k l t = wnf_dup_1 e s k l t u Use
+
+wnf_dup_bol :: WnfDup
+wnf_dup_bol e s Bol k _ t = wnf_dup_0 e s k Bol t
+
+wnf_dup_fal :: WnfDup
+wnf_dup_fal e s Fal k _ t = wnf_dup_0 e s k Fal t
+
+wnf_dup_tru :: WnfDup
+wnf_dup_tru e s Tru k _ t = wnf_dup_0 e s k Tru t
+
+wnf_dup_if :: WnfDup
+wnf_dup_if e s (If f tr) k l t = wnf_dup_2 e s k l t f tr If
+
+wnf_dup_lst :: WnfDup
+wnf_dup_lst e s (Lst x) k l t = wnf_dup_1 e s k l t x Lst
+
+wnf_dup_nil :: WnfDup
+wnf_dup_nil e s Nil k _ t = wnf_dup_0 e s k Nil t
+
+wnf_dup_con :: WnfDup
+wnf_dup_con e s (Con h tr) k l t = wnf_dup_2 e s k l t h tr Con
+
+wnf_dup_mat :: WnfDup
+wnf_dup_mat e s (Mat n c) k l t = wnf_dup_2 e s k l t n c Mat
+
 -- WNF: And Interactions
 -- ---------------------
 
@@ -966,8 +1614,8 @@ wnf_and :: Env -> Stack -> Term -> Term -> IO Term
 wnf_and e s a b = case a of
   Era    -> wnf_and_era e s a b
   Sup {} -> wnf_and_sup e s a b
-  Zer    -> wnf_and_zer e s a b
-  Suc {} -> wnf_and_suc e s a b
+  Fal    -> wnf_and_fal e s a b
+  Tru    -> wnf_and_tru e s a b
   _      -> wnf_unwind e s (And a b)
 
 wnf_and_era :: Env -> Stack -> Term -> Term -> IO Term
@@ -981,13 +1629,13 @@ wnf_and_sup e s (Sup l a0 a1) b = do
   (b0, b1) <- clone e l b
   wnf_enter e s (Sup l (And a0 b0) (And a1 b1))
 
-wnf_and_zer :: Env -> Stack -> Term -> Term -> IO Term
-wnf_and_zer e s Zer b = do
+wnf_and_fal :: Env -> Stack -> Term -> Term -> IO Term
+wnf_and_fal e s Fal b = do
   inc_inters e
-  wnf e s Zer
+  wnf e s Fal
 
-wnf_and_suc :: Env -> Stack -> Term -> Term -> IO Term
-wnf_and_suc e s (Suc p) b = do
+wnf_and_tru :: Env -> Stack -> Term -> Term -> IO Term
+wnf_and_tru e s Tru b = do
   inc_inters e
   wnf e s b
 
@@ -1006,6 +1654,23 @@ wnf_eq0 e s a b = case a of
   Suc {} -> wnf_eq0_suc e s a b
   Nam {} -> wnf_eq0_nam e s a b
   Dry {} -> wnf_eq0_dry e s a b
+  Sig {} -> wnf_eq0_sig e s a b
+  Tup {} -> wnf_eq0_tup e s a b
+  Get {} -> wnf_eq0_get e s a b
+  Emp    -> wnf_eq0_emp e s a b
+  Efq    -> wnf_eq0_efq e s a b
+  Uni    -> wnf_eq0_uni e s a b
+  One    -> wnf_eq0_one e s a b
+  Use {} -> wnf_eq0_use e s a b
+  Bol    -> wnf_eq0_bol e s a b
+  Fal    -> wnf_eq0_fal e s a b
+  Tru    -> wnf_eq0_tru e s a b
+  If {}  -> wnf_eq0_if  e s a b
+  Swi {} -> wnf_eq0_swi e s a b
+  Lst {} -> wnf_eq0_lst e s a b
+  Nil    -> wnf_eq0_nil e s a b
+  Con {} -> wnf_eq0_con e s a b
+  Mat {} -> wnf_eq0_mat e s a b
   _      -> wnf_unwind e s (Eq0 a b)
 
 wnf_eq0_era :: Env -> Stack -> Term -> Term -> IO Term
@@ -1059,6 +1724,91 @@ wnf_eq0_dry e s (Dry f x) b = do
   inc_inters e
   wnf_enter e s (Eq1 (Dry f x) b)
 
+wnf_eq0_sig :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_sig e s (Sig a b) c = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Sig a b) c)
+
+wnf_eq0_tup :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_tup e s (Tup a b) c = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Tup a b) c)
+
+wnf_eq0_get :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_get e s (Get c) d = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Get c) d)
+
+wnf_eq0_emp :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_emp e s Emp b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Emp b)
+
+wnf_eq0_efq :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_efq e s Efq b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Efq b)
+
+wnf_eq0_uni :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_uni e s Uni b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Uni b)
+
+wnf_eq0_one :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_one e s One b = do
+  inc_inters e
+  wnf_enter e s (Eq1 One b)
+
+wnf_eq0_use :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_use e s (Use u) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Use u) b)
+
+wnf_eq0_bol :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_bol e s Bol b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Bol b)
+
+wnf_eq0_fal :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_fal e s Fal b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Fal b)
+
+wnf_eq0_tru :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_tru e s Tru b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Tru b)
+
+wnf_eq0_if :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_if e s (If f t) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (If f t) b)
+
+wnf_eq0_swi :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_swi e s (Swi z sc) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Swi z sc) b)
+
+wnf_eq0_lst :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_lst e s (Lst t) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Lst t) b)
+
+wnf_eq0_nil :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_nil e s Nil b = do
+  inc_inters e
+  wnf_enter e s (Eq1 Nil b)
+
+wnf_eq0_con :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_con e s (Con h t) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Con h t) b)
+
+wnf_eq0_mat :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq0_mat e s (Mat n c) b = do
+  inc_inters e
+  wnf_enter e s (Eq1 (Mat n c) b)
+
 -- WNF: Eq1 Interactions
 -- ---------------------
 
@@ -1074,6 +1824,23 @@ wnf_eq1 e s a b = case b of
   Suc {} -> wnf_eq1_suc e s a b
   Nam {} -> wnf_eq1_nam e s a b
   Dry {} -> wnf_eq1_dry e s a b
+  Sig {} -> wnf_eq1_sig e s a b
+  Tup {} -> wnf_eq1_tup e s a b
+  Get {} -> wnf_eq1_get e s a b
+  Emp    -> wnf_eq1_emp e s a b
+  Efq    -> wnf_eq1_efq e s a b
+  Uni    -> wnf_eq1_uni e s a b
+  One    -> wnf_eq1_one e s a b
+  Use {} -> wnf_eq1_use e s a b
+  Bol    -> wnf_eq1_bol e s a b
+  Fal    -> wnf_eq1_fal e s a b
+  Tru    -> wnf_eq1_tru e s a b
+  If {}  -> wnf_eq1_if e s a b
+  Swi {} -> wnf_eq1_swi e s a b
+  Lst {} -> wnf_eq1_lst e s a b
+  Nil    -> wnf_eq1_nil e s a b
+  Con {} -> wnf_eq1_con e s a b
+  Mat {} -> wnf_eq1_mat e s a b
   _      -> wnf_unwind e s (Eq1 a b)
 
 wnf_eq1_era :: Env -> Stack -> Term -> Term -> IO Term
@@ -1091,9 +1858,9 @@ wnf_eq1_set :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_set e s a Set = case a of
   Set -> do
     inc_inters e
-    wnf e s (Suc Zer)
+    wnf e s Tru
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_all :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_all e s a (All bA bB) = case a of
@@ -1101,7 +1868,7 @@ wnf_eq1_all e s a (All bA bB) = case a of
     inc_inters e
     wnf_enter e s (And (Eq0 aA bA) (Eq0 aB bB))
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_lam :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_lam e s a (Lam bx bf) = case a of
@@ -1112,23 +1879,23 @@ wnf_eq1_lam e s a (Lam bx bf) = case a of
     subst VAR e bx (Nam (int_to_name x))
     wnf_enter e s (Eq0 af bf)
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_nat :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_nat e s a Nat = case a of
   Nat -> do
     inc_inters e
-    wnf e s (Suc Zer)
+    wnf e s Tru
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_zer :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_zer e s a Zer = case a of
   Zer -> do
     inc_inters e
-    wnf e s (Suc Zer)
+    wnf e s Tru
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_suc :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_suc e s a (Suc b) = case a of
@@ -1136,18 +1903,18 @@ wnf_eq1_suc e s a (Suc b) = case a of
     inc_inters e
     wnf_enter e s (Eq0 a' b)
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_nam :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_nam e s a (Nam y) = case a of
   Nam x -> do
     inc_inters e
     if x == y then
-      wnf e s (Suc Zer)
+      wnf e s Tru
     else
-      wnf e s Zer
+      wnf e s Fal
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
 
 wnf_eq1_dry :: Env -> Stack -> Term -> Term -> IO Term
 wnf_eq1_dry e s a (Dry bf bx) = case a of
@@ -1155,7 +1922,110 @@ wnf_eq1_dry e s a (Dry bf bx) = case a of
     inc_inters e
     wnf_enter e s (And (Eq0 af bf) (Eq0 ax bx))
   _ -> do
-    wnf e s Zer
+    wnf e s Fal
+
+wnf_eq1_sig :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_sig e s a (Sig bA bB) = case a of
+  Sig aA aB -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 aA bA) (Eq0 aB bB))
+  _ -> wnf e s Fal
+
+wnf_eq1_tup :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_tup e s a (Tup b1 b2) = case a of
+  Tup a1 a2 -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 a1 b1) (Eq0 a2 b2))
+  _ -> wnf e s Fal
+
+wnf_eq1_get :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_get e s a (Get bc) = case a of
+  Get ac -> do
+    inc_inters e
+    wnf_enter e s (Eq0 ac bc)
+  _ -> wnf e s Fal
+
+wnf_eq1_emp :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_emp e s a Emp = case a of
+  Emp -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_efq :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_efq e s a Efq = case a of
+  Efq -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_uni :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_uni e s a Uni = case a of
+  Uni -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_one :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_one e s a One = case a of
+  One -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_use :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_use e s a (Use bu) = case a of
+  Use au -> do
+    inc_inters e
+    wnf_enter e s (Eq0 au bu)
+  _ -> wnf e s Fal
+
+wnf_eq1_bol :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_bol e s a Bol = case a of
+  Bol -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_fal :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_fal e s a Fal = case a of
+  Fal -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_tru :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_tru e s a Tru = case a of
+  Tru -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_if :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_if e s a (If bf bt) = case a of
+  If af at -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 af bf) (Eq0 at bt))
+  _ -> wnf e s Fal
+
+wnf_eq1_swi :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_swi e s a (Swi bz bs) = case a of
+  Swi az as -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 az bz) (Eq0 as bs))
+  _ -> wnf e s Fal
+
+wnf_eq1_lst :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_lst e s a (Lst bT) = case a of
+  Lst aT -> do
+    inc_inters e
+    wnf_enter e s (Eq0 aT bT)
+  _ -> wnf e s Fal
+
+wnf_eq1_nil :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_nil e s a Nil = case a of
+  Nil -> do { inc_inters e; wnf e s Tru }
+  _ -> wnf e s Fal
+
+wnf_eq1_con :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_con e s a (Con bh bt) = case a of
+  Con ah at -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 ah bh) (Eq0 at bt))
+  _ -> wnf e s Fal
+
+wnf_eq1_mat :: Env -> Stack -> Term -> Term -> IO Term
+wnf_eq1_mat e s a (Mat bn bc) = case a of
+  Mat an ac -> do
+    inc_inters e
+    wnf_enter e s (And (Eq0 an bn) (Eq0 ac bc))
+  _ -> wnf e s Fal
 
 -- WNF: Deref Interactions
 -- -----------------------
@@ -1170,6 +2040,11 @@ wnf_app_gua e s (Gua f g) a = do
     Sup {} -> wnf_app_gua_sup e s f g_wnf a
     Lam {} -> wnf_app_gua_lam e s f g_wnf a
     Swi {} -> wnf_app_gua_swi e s f g_wnf a
+    Get {} -> wnf_app_gua_get e s f g_wnf a
+    Efq    -> wnf_app_gua_efq e s f g_wnf a
+    Use {} -> wnf_app_gua_use e s f g_wnf a
+    If {}  -> wnf_app_gua_if e s f g_wnf a
+    Mat {} -> wnf_app_gua_mat e s f g_wnf a
     Set    -> error "wnf_app_gua_set"
     All {} -> error "wnf_app_gua_all"
     Nat    -> error "wnf_app_gua_nat"
@@ -1181,6 +2056,17 @@ wnf_app_gua e s (Gua f g) a = do
     And {} -> error "wnf_app_gua_and"
     Eq0 {} -> error "wnf_app_gua_eq0"
     Eq1 {} -> error "wnf_app_gua_eq1"
+    Sig {} -> error "wnf_app_gua_sig"
+    Tup {} -> error "wnf_app_gua_tup"
+    Emp    -> error "wnf_app_gua_emp"
+    Uni    -> error "wnf_app_gua_uni"
+    One    -> error "wnf_app_gua_one"
+    Bol    -> error "wnf_app_gua_bol"
+    Fal    -> error "wnf_app_gua_fal"
+    Tru    -> error "wnf_app_gua_tru"
+    Lst {} -> error "wnf_app_gua_lst"
+    Nil    -> error "wnf_app_gua_nil"
+    Con {} -> error "wnf_app_gua_con"
     _      -> wnf_unwind e s (App (Gua f g_wnf) a)
 
 wnf_app_gua_era :: WnfAppGua
@@ -1252,6 +2138,91 @@ wnf_app_gua_swi_suc e s f z sc (Suc n) = do
   let fn = (Lam p (App f (Suc (Var p))))
   wnf_enter e s (App (Gua fn sc) n)
 
+wnf_app_gua_get :: WnfAppGua
+wnf_app_gua_get e s f (Get c) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do { inc_inters e; wnf e s Era }
+    Sup l x y -> do
+      inc_inters e
+      (f0, f1) <- clone e l f
+      (c0, c1) <- clone e l c
+      wnf_enter e s (Sup l (App (Gua f0 (Get c0)) x) (App (Gua f1 (Get c1)) y))
+    Tup x y -> do
+      inc_inters e
+      xV <- fresh e
+      yV <- fresh e
+      let fn = Lam xV (Lam yV (App f (Tup (Var xV) (Var yV))))
+      wnf_enter e s (App (App (Gua fn c) x) y)
+    _ -> wnf_unwind e s (App (Gua f (Get c)) a_wnf)
+
+wnf_app_gua_efq :: WnfAppGua
+wnf_app_gua_efq e s f Efq a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do { inc_inters e; wnf e s Era }
+    Sup l x y -> do
+      inc_inters e
+      (f0, f1) <- clone e l f
+      wnf_enter e s (Sup l (App (Gua f0 Efq) x) (App (Gua f1 Efq) y))
+    _ -> wnf_unwind e s (App (Gua f Efq) a_wnf)
+
+wnf_app_gua_use :: WnfAppGua
+wnf_app_gua_use e s f (Use u) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do { inc_inters e; wnf e s Era }
+    Sup l x y -> do
+      inc_inters e
+      (f0, f1) <- clone e l f
+      (u0, u1) <- clone e l u
+      wnf_enter e s (Sup l (App (Gua f0 (Use u0)) x) (App (Gua f1 (Use u1)) y))
+    One -> do
+      inc_inters e
+      wnf_enter e s (Gua (App f One) u)
+    _ -> wnf_unwind e s (App (Gua f (Use u)) a_wnf)
+
+wnf_app_gua_if :: WnfAppGua
+wnf_app_gua_if e s f (If ft ff) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do { inc_inters e; wnf e s Era }
+    Sup l x y -> do
+      inc_inters e
+      (f0, f1) <- clone e l f
+      (ft0, ft1) <- clone e l ft
+      (ff0, ff1) <- clone e l ff
+      wnf_enter e s (Sup l (App (Gua f0 (If ft0 ff0)) x) (App (Gua f1 (If ft1 ff1)) y))
+    Fal -> do
+      inc_inters e
+      wnf_enter e s (Gua (App f Fal) ft)
+    Tru -> do
+      inc_inters e
+      wnf_enter e s (Gua (App f Tru) ff)
+    _ -> wnf_unwind e s (App (Gua f (If ft ff)) a_wnf)
+
+wnf_app_gua_mat :: WnfAppGua
+wnf_app_gua_mat e s f (Mat n c) a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Era -> do { inc_inters e; wnf e s Era }
+    Sup l x y -> do
+      inc_inters e
+      (f0, f1) <- clone e l f
+      (n0, n1) <- clone e l n
+      (c0, c1) <- clone e l c
+      wnf_enter e s (Sup l (App (Gua f0 (Mat n0 c0)) x) (App (Gua f1 (Mat n1 c1)) y))
+    Nil -> do
+      inc_inters e
+      wnf_enter e s (Gua (App f Nil) n)
+    Con h t -> do
+      inc_inters e
+      hV <- fresh e
+      tV <- fresh e
+      let fn = Lam hV (Lam tV (App f (Con (Var hV) (Var tV))))
+      wnf_enter e s (App (App (Gua fn c) h) t)
+    _ -> wnf_unwind e s (App (Gua f (Mat n c)) a_wnf)
+
 -- Allocation
 -- ==========
 
@@ -1278,6 +2249,22 @@ alloc e term = go IM.empty term where
   go _ (Nam k)       = return $ Nam k
   go m (Dry f x)     = Dry <$> go m f <*> go m x
   go m (Gua f g)     = Gua <$> go m f <*> go m g
+  go m (Sig a b)     = Sig <$> go m a <*> go m b
+  go m (Tup a b)     = Tup <$> go m a <*> go m b
+  go m (Get c)       = Get <$> go m c
+  go _ Emp           = return Emp
+  go _ Efq           = return Efq
+  go _ Uni           = return Uni
+  go _ One           = return One
+  go m (Use u)       = Use <$> go m u
+  go _ Bol           = return Bol
+  go _ Fal           = return Fal
+  go _ Tru           = return Tru
+  go m (If f t)      = If <$> go m f <*> go m t
+  go m (Lst t)       = Lst <$> go m t
+  go _ Nil           = return Nil
+  go m (Con h t)     = Con <$> go m h <*> go m t
+  go m (Mat n c)     = Mat <$> go m n <*> go m c
   go m (Dup k l v t) = do
     k' <- fresh e
     v' <- go m v
@@ -1358,9 +2345,54 @@ snf e d x = do
       f' <- snf e d f
       x' <- snf e d x
       return $ Dry f' x'
-    Gua f g -> do 
+    Gua f g -> do
       g' <- snf e d g
       return g'
+    Sig a b -> do
+      a' <- snf e d a
+      b' <- snf e d b
+      return $ Sig a' b'
+    Tup a b -> do
+      a' <- snf e d a
+      b' <- snf e d b
+      return $ Tup a' b'
+    Get c -> do
+      c' <- snf e d c
+      return $ Get c'
+    Emp -> do
+      return Emp
+    Efq -> do
+      return Efq
+    Uni -> do
+      return Uni
+    One -> do
+      return One
+    Use u -> do
+      u' <- snf e d u
+      return $ Use u'
+    Bol -> do
+      return Bol
+    Fal -> do
+      return Fal
+    Tru -> do
+      return Tru
+    If f t -> do
+      f' <- snf e d f
+      t' <- snf e d t
+      return $ If f' t'
+    Lst t -> do
+      t' <- snf e d t
+      return $ Lst t'
+    Nil -> do
+      return Nil
+    Con h t -> do
+      h' <- snf e d h
+      t' <- snf e d t
+      return $ Con h' t'
+    Mat n c -> do
+      n' <- snf e d n
+      c' <- snf e d c
+      return $ Mat n' c'
 
 -- Collapsing
 -- ==========
@@ -1433,8 +2465,66 @@ collapse e x = do
       f' <- collapse e f
       x' <- collapse e x
       inj e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
-    (Gua f g) -> do 
+    (Gua f g) -> do
       collapse e g
+    Sig a b -> do
+      aV <- fresh e
+      bV <- fresh e
+      a' <- collapse e a
+      b' <- collapse e b
+      inj e (Lam aV (Lam bV (Sig (Var aV) (Var bV)))) [a',b']
+    Tup a b -> do
+      aV <- fresh e
+      bV <- fresh e
+      a' <- collapse e a
+      b' <- collapse e b
+      inj e (Lam aV (Lam bV (Tup (Var aV) (Var bV)))) [a',b']
+    Get c -> do
+      cV <- fresh e
+      c' <- collapse e c
+      inj e (Lam cV (Get (Var cV))) [c']
+    Emp -> do
+      return Emp
+    Efq -> do
+      return Efq
+    Uni -> do
+      return Uni
+    One -> do
+      return One
+    Use u -> do
+      uV <- fresh e
+      u' <- collapse e u
+      inj e (Lam uV (Use (Var uV))) [u']
+    Bol -> do
+      return Bol
+    Fal -> do
+      return Fal
+    Tru -> do
+      return Tru
+    If f t -> do
+      fV <- fresh e
+      tV <- fresh e
+      f' <- collapse e f
+      t' <- collapse e t
+      inj e (Lam fV (Lam tV (If (Var fV) (Var tV)))) [f',t']
+    Lst t -> do
+      tV <- fresh e
+      t' <- collapse e t
+      inj e (Lam tV (Lst (Var tV))) [t']
+    Nil -> do
+      return Nil
+    Con h t -> do
+      hV <- fresh e
+      tV <- fresh e
+      h' <- collapse e h
+      t' <- collapse e t
+      inj e (Lam hV (Lam tV (Con (Var hV) (Var tV)))) [h',t']
+    Mat n c -> do
+      nV <- fresh e
+      cV <- fresh e
+      n' <- collapse e n
+      c' <- collapse e c
+      inj e (Lam nV (Lam cV (Mat (Var nV) (Var cV)))) [n',c']
     x -> do
       return $ x
 
@@ -1453,369 +2543,8 @@ inj e f (x : xs) = do
 inj e f [] = do
   return $ f
 
--- SupGen
--- ======
-
-max_elim :: Int
-max_elim = 2
-
-max_intr :: Int
-max_intr = 2
-
-rec_intr :: Int
-rec_intr = 1
-
-sp0 :: Int -> Int
-sp0 x = (x * 16293 + 1) `mod` 65536
-
-sp1 :: Int -> Int
-sp1 x = (x * 32677 + 3) `mod` 65536
-
--- e: Env    = environment
--- l: Int    = label (for forking the search space)
--- d: Int    = depth (lam binders, used for internal variable names)
--- k: Int    = budget (max_elim/intr)
--- t: Term   = goal type
--- s: Term   = spine/lhs (represented as application chain)
--- f: [Term] = folds (list of spines eligible for recursion)
--- r: Ann    = recursion (the function itself)
--- b: [Ann]  = library (external fns)
--- c: [Ann]  = context (internal vars)
-type Ann   = (Term,Term)
-type Gen a = Env -> Int -> Int -> Int -> Term -> Term -> [Term] -> Ann -> [Ann] -> [Ann] -> IO a
-
--- Utils for SupGen
--- ----------------
-
--- Helper function to extract arguments from a spine Term (application chain).
--- Corresponds to Term/LHS/to_list in Bend.
-lhs_to_list :: Term -> [Term]
-lhs_to_list tm = reverse (go tm [])
-  where go (App f x) acc = go f (x:acc)
-        go _ acc = acc
-
--- Folding
--- -------
-
--- def Term/gen/Fol/arg(...) -> Term/gen/Fol:
--- Applies arg to each spine in fol.
-gen_fol_arg :: Env -> [Term] -> Term -> IO [Term]
-gen_fol_arg e f arg = do -- FIXME: this is using arg non linearly
-  return $ map (\rxs -> App rxs arg) f
-
--- Pattern-Matcher (LHS)
--- ---------------------
-
--- def Term/gen/lam(...) -> Term:
-gen_lam :: Gen Term
-gen_lam e l d k t s f r b c = do
-  !t_wnf <- wnf e [] t
-  case t_wnf of
-    Era -> do
-      return Era
-    Sup tl t0 t1 -> do
-      error "TODO"
-      -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clone_list  e tl f
-      -- (r0, r1) <- clone_pair  e tl r
-      -- (b0, b1) <- clone_pair_list e tl b
-      -- (c0, c1) <- clone_pair_list e tl c
-      -- fork0    <- gen_lam e l d k t0 s0 f0 r0 b0 c0
-      -- fork1    <- gen_lam e l d k t1 s1 f1 r1 b1 c1
-      -- return $ Sup tl fork0 fork1
-    All ta tb -> do
-      gen_lam_all e l d k t_wnf s f r b c
-    t' -> do
-      gen_body e l d k t' s f r b c
-
--- def Term/gen/lam/all(...) -> Term:
-gen_lam_all :: Gen Term
-gen_lam_all e l d k t s f r b c = do
-  -- In Bend, this function checks if A is frozen. We skip that distinction here.
-  gen_lam_all_try e l d k t s f r b c
-
--- def Term/gen/lam/all/try(...) -> Term:
-gen_lam_all_try :: Gen Term
-gen_lam_all_try e l d k t s f r b c = do
-  if k == 0 then do
-    gen_lam_var e l d 0 t s f r b c
-  else do
-    (t0, t1) <- clone e l t
-    (s0, s1) <- clone e l s
-    (f0, f1) <- clone_list e l f
-    (r0, r1) <- clone_pair e l r
-    (b0, b1) <- clone_pair_list e l b
-    (c0, c1) <- clone_pair_list e l c
-    fork0    <- gen_lam_var e (sp0 l) d k     t0 s0 f0 r0 b0 c0
-    fork1    <- gen_lam_mat e (sp1 l) d (k-1) t1 s1 f1 r1 b1 c1
-    return $ Sup l fork0 fork1
-
--- def Term/gen/lam/var(...) -> Term:
-gen_lam_var :: Gen Term
-gen_lam_var e l d k t s f r b c = do
-  !t_wnf <- wnf e [] t
-  case t_wnf of
-    Era -> do
-      return Era
-    Sup tl t0 t1 -> do
-      error "TODO"
-      -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clone_list  e tl f
-      -- (r0, r1) <- clone_pair  e tl r
-      -- (b0, b1) <- clone_pair_list e tl b
-      -- (c0, c1) <- clone_pair_list e tl c
-      -- fork0    <- gen_lam_var e l d k t0 s0 f0 r0 b0 c0
-      -- fork1    <- gen_lam_var e l d k t1 s1 f1 r1 b1 c1
-      -- return $ Sup tl fork0 fork1
-    (All ta tb) -> do
-      x  <- fresh e
-      xv <- return $ Nam (int_to_name d)
-      s' <- return $ App s xv
-      f' <- gen_fol_arg e f xv
-      c' <- return $ c ++ [(xv, ta)]
-      t' <- return $ App tb xv
-      fn <- gen_lam e l (d + 1) k t' s' f' r b c'
-      return $ Lam x fn
-    _ -> do
-      return Era -- Cannot introduce lambda if type is not All.
-
-gen_lam_mat :: Gen Term
-gen_lam_mat e l d k t s f r b c = do
-  !t_wnf <- wnf e [] t
-  case t_wnf of
-    Era -> do
-      return Era
-    Sup tl t0 t1 -> do
-      error "TODO"
-      -- (s0, s1) <- clone   e tl s
-      -- (f0, f1) <- clone_list  e tl f
-      -- (r0, r1) <- clone_pair  e tl r
-      -- (b0, b1) <- clone_pair_list e tl b
-      -- (c0, c1) <- clone_pair_list e tl c
-      -- fork0    <- gen_lam_mat e l d k t0 s0 f0 r0 b0 c0
-      -- fork1    <- gen_lam_mat e l d k t1 s1 f1 r1 b1 c1
-      -- return $ Sup tl fork0 fork1
-    All ta tb -> do
-      !a_wnf <- wnf e [] ta
-      case a_wnf of
-        Era -> do
-          return Era
-        Sup tl a0 a1 -> do
-          error "TODO"
-          -- (s0, s1)   <- clone   e tl s
-          -- (f0, f1)   <- clone_list  e tl f
-          -- (r0, r1)   <- clone_pair  e tl r
-          -- (b0, b1)   <- clone_pair_list e tl b
-          -- (c0, c1)   <- clone_pair_list e tl c
-          -- (tb0, tb1) <- clone   e tl tb
-          -- fork0      <- gen_lam_mat e l d k (All a0 tb0) s0 f0 r0 b0 c0
-          -- fork1      <- gen_lam_mat e l d k (All a1 tb1) s1 f1 r1 b1 c1
-          -- return $ Sup tl fork0 fork1
-        Nat -> do
-          -- clone_list due to truly duplicated usage (not a fork)
-          (tb0, tb1) <- clone e 0 tb
-          (s0, s1)   <- clone e 0 s
-          (f0, f1)   <- clone_list e 0 f
-          (r0, r1)   <- clone_pair e 0 r
-          (b0, b1)   <- clone_pair_list e 0 b
-          (c0, c1)   <- clone_pair_list e 0 c
-          n          <- fresh e
-          m          <- fresh e
-          p          <- fresh e
-          z_t        <- return $ App tb0 Zer
-          z_s        <- return $ App s0 Zer
-          z_f        <- gen_fol_arg e f0 Zer
-          z_x        <- gen_lam e (sp0 l) d k z_t z_s z_f r0 b0 c0
-          s_t        <- return $ All Nat (Lam n (App tb1 (Suc (Var n))))
-          s_s        <- return $ App s1 (Lam m (Suc (Var m)))
-          s_f        <- return $ App s1 (Lam p (Var p)) : f1
-          s_x        <- gen_lam e (sp1 l) d k s_t s_s s_f r1 b1 c1
-          return $ Swi z_x s_x
-        _ -> do -- Cannot match on this argument type.
-          return Era
-    _ -> do -- Cannot match if type is not All.
-      return Era
-
--- def Term/gen/body(...) -> Term:
-gen_body :: Gen Term
-gen_body e l d k t s f r b c = do
-  gen_expr e l d max_intr t s f r b c
-
--- Enumerator (RHS)
--- ----------------
-
--- def Term/gen/expr(...) -> Term:
-gen_expr :: Gen Term
-gen_expr e l d k t s f r b c = do
-  if k == 0 then do
-    return Zer
-    -- gen_pick e l d 0 t s f r b c
-  else do
-    (t0, t1) <- clone e l t
-    (s0, s1) <- clone e l s
-    (f0, f1) <- clone_list e l f
-    (r0, r1) <- clone_pair e l r
-    (b0, b1) <- clone_pair_list e l b
-    (c0, c1) <- clone_pair_list e l c
-    fork0    <- gen_intr e (sp0 l) d (k-1) t0 s0 f0 r0 b0 c0
-    -- fork0    <- return $ Zer
-    fork1    <- gen_pick e (sp1 l) d k t1 s1 f1 r1 b1 c1
-    -- fork1    <- return $ Zer
-    return $ Sup l fork0 fork1
-
--- Introduce Constructor
--- ---------------------
-
--- def Term/gen/intr(...) -> Term:
-gen_intr :: Gen Term
-gen_intr e l d k t s f r b c = do
-  !t_wnf <- wnf e [] t
-  case t_wnf of
-    Era -> do
-      return Era
-    Sup tl t0 t1 -> do
-      error "TODO"
-      -- (s0, s1) <- clone e tl s
-      -- (f0, f1) <- clone_list e tl f
-      -- (r0, r1) <- clone_pair e tl r
-      -- (b0, b1) <- clone_pair_list e tl b
-      -- (c0, c1) <- clone_pair_list e tl c
-      -- fork0    <- gen_intr e l d k t0 s0 f0 r0 b0 c0
-      -- fork1    <- gen_intr e l d k t1 s1 f1 r1 b1 c1
-      -- return $ Sup tl fork0 fork1
-    Nat -> do
-      (s0, s1) <- clone e l s
-      (f0, f1) <- clone_list e l f
-      (r0, r1) <- clone_pair e l r
-      (b0, b1) <- clone_pair_list e l b
-      (c0, c1) <- clone_pair_list e l c
-      fork0    <- return $ Zer
-      pred     <- gen_expr e (sp1 l) d k Nat s1 f1 r1 b1 c1
-      fork1    <- return $ Suc pred
-      return $ Sup l fork0 fork1
-    All ta tb -> do
-      error "TODO"
-    _ -> do
-      return Era -- Cannot introduce constructor for this type.
-
--- Pick (Elimination/Application)
--- ------------------------------
-
-gen_pick :: Gen Term
-gen_pick e l d k t s f r b c = do
-  gen_pick_lib e l d k t s f r b c
-
-gen_pick_lib :: Gen Term
-gen_pick_lib e l d k t s f r b c = do
-  case b of
-    [] -> do
-      gen_pick_fol e l d k t s f r [] c
-    ((tm, ty) : bs) -> do
-      (t0, t1)   <- clone e l t
-      (s0, s1)   <- clone e l s
-      (f0, f1)   <- clone_list e l f
-      (r0, r1)   <- clone_pair e l r
-      (c0, c1)   <- clone_pair_list e l c
-      (bs0, bs1) <- clone_pair_list e l bs
-      fork0      <- gen_call e (sp0 l) d k t0 s0 f0 r0 bs0 c0 tm ty
-      fork1      <- gen_pick_lib e (sp1 l) d k t1 s1 f1 r1 bs1 c1
-      return $ Sup l fork0 fork1
-
-gen_pick_fol :: Gen Term
-gen_pick_fol e l d k t s f r b c = do
-  case f of
-    [] -> do
-      gen_pick_ctx e l d k t s [] r b c
-    (rxs : fs) -> do
-      (t0, t1)     <- clone e l t
-      (s0, s1)     <- clone e l s
-      (b0, b1)     <- clone_pair_list e l b
-      (c0, c1)     <- clone_pair_list e l c
-      (r0, r1)     <- clone_pair e l r
-      (fs0, fs1)   <- clone_list e l fs
-      (tm0, ty0)   <- return $ r0
-      (tm0A, tm0B) <- clone e l tm0
-      (ty0A, ty0B) <- clone e l ty0
-      fork0        <- gen_fold e (sp0 l) d k t0 s0 [] (tm0A,ty0A) b0 c0 (lhs_to_list rxs) tm0B ty0B
-      fork1        <- gen_pick_fol e (sp1 l) d k t1 s1 fs1 r1 b1 c1
-      return $ Sup l fork0 fork1
-
-gen_pick_ctx :: Gen Term
-gen_pick_ctx e l d k t s f r b c = do
-  case c of
-    [] -> do
-      return Era
-    [(tm, ty)] -> do
-      gen_call e l d k t s f r b [] tm ty
-    ((tm, ty) : cs) -> do
-      (t0, t1)   <- clone e l t
-      (s0, s1)   <- clone e l s
-      (f0, f1)   <- clone_list e l f
-      (r0, r1)   <- clone_pair e l r
-      (b0, b1)   <- clone_pair_list e l b
-      (cs0, cs1) <- clone_pair_list e l cs
-      fork0      <- gen_call e (sp0 l) d k t0 s0 f0 r0 b0 cs0 tm ty
-      fork1      <- gen_pick_ctx e (sp1 l) d k t1 s1 f1 r1 b1 cs1
-      return $ Sup l fork0 fork1
-
--- Callers
--- -------
-
--- def Term/gen/fold(...) -> Term:
-gen_fold :: Env -> Int -> Int -> Int -> Term -> Term -> [Term] -> Ann -> [Ann] -> [Ann] -> [Term] -> Term -> Term -> IO Term
-gen_fold e l d k t s f r b c args tm ty = do
-  case args of
-    [] -> do
-      gen_call e l d rec_intr t s f r b c tm ty
-    (arg : args_rest) -> do
-      case ty of
-        All ta tb -> do
-          let tm' = App tm arg
-          let ty' = App tb arg
-          gen_fold e l d k t s f r b c args_rest tm' ty'
-        _ -> do
-          return Era -- Type mismatch: expected All type.
-
-gen_call :: Env -> Int -> Int -> Int -> Term -> Term -> [Term] -> Ann -> [Ann] -> [Ann] -> Term -> Term -> IO Term
-gen_call e l d k t s f r b c tm ty = do
-  !ty_wnf <- wnf e [] ty
-  case ty_wnf of
-    Era -> do
-      return Era
-    Sup tl ty0 ty1 -> do
-      error "TODO"
-      -- (t0, t1)   <- clone e tl t
-      -- (s0, s1)   <- clone e tl s
-      -- (f0, f1)   <- clone_list e tl f
-      -- (r0, r1)   <- clone_pair e tl r
-      -- (b0, b1)   <- clone_pair_list e tl b
-      -- (c0, c1)   <- clone_pair_list e tl c
-      -- (tm0, tm1) <- clone   e tl tm
-      -- fork0      <- gen_call e l d k t0 s0 f0 r0 b0 c0 tm0 ty0
-      -- fork1      <- gen_call e l d k t1 s1 f1 r1 b1 c1 tm1 ty1
-      -- return $ Sup tl fork0 fork1
-    All ta tb -> do
-      (s0, s1) <- clone e l s
-      (f0, f1) <- clone_list e l f
-      (r0, r1) <- clone_pair e l r
-      (b0, b1) <- clone_pair_list e l b
-      (c0, c1) <- clone_pair_list e l c
-      arg      <- gen_expr e (sp0 l) d k ta s0 f0 r0 b0 c0
-      let tm'  = App tm arg
-      let ty'  = App tb arg
-      fun <- gen_call e (sp1 l) d k t s1 f1 r1 b1 c1 tm' ty'
-      return fun
-    _ -> do
-      !t_wnf   <- wnf e [] t
-      !ty_norm <- snf e d ty_wnf
-      !t_norm  <- snf e d t_wnf
-      if ty_norm == t_norm then
-        return tm
-      else
-        return Era
-
--- Main
--- ====
+-- Flattening
+-- ==========
 
 flatten :: Term -> [Term]
 flatten term = bfs [term] [] where
@@ -1824,6 +2553,9 @@ flatten term = bfs [term] [] where
     Sup _ a b -> bfs (ts ++ [a, b]) acc
     _         -> bfs ts (t : acc)
 
+-- Main
+-- ====
+
 f :: Int -> String
 f n = "λf." ++ dups ++ final where
   dups  = concat [dup i | i <- [0..n-1]]
@@ -1831,6 +2563,18 @@ f n = "λf." ++ dups ++ final where
   dup i = "!F" ++ pad i ++ "&A=λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));"
   final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
   pad x = if x < 10 then "0" ++ show x else show x
+
+book :: String
+book = unlines
+  [ "@id  = λa.a"
+  , "@not = λ{0:1+0;1+:λp.0}"
+  , "@dbl = λ{0:0;1+:λp.1+1+(@dbl p)}"
+  , "@and = λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
+  , "@add = λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
+  , "@sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
+  , "@foo = &L{λx.x,λ{0:0;1+:λp.p}}"
+  , "@gen = !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
+  ]
 
 tests :: [(String,String)]
 tests =
@@ -1861,33 +2605,21 @@ tests =
   , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
   , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
   , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
-  , ("2 := 2", "1")
-  , ("3 := 2", "0")
-  , ("(λa.λb.a) := (λx.λy.x)", "1")
-  , ("(λa.λb.a) := (λx.λy.y)", "0")
-  , ("(λx.2+x) := (λy.2+y)", "1")
-  , ("(λx.3+x) := (λy.2+y)", "0")
-  , ("0 && 0", "0")
-  , ("0 && 1", "0")
-  , ("1 && 0", "0")
-  , ("1 && 1", "1")
-  , ("(λt.(t (λa.2+a) (λb.2+b))) := (λu.(u (λx.2+x) (λy.2+y)))", "1")
-  , ("(λt.(t (λa.2+a) (λb.2+b))) := (λu.(u (λx.2+x) (λy.3+y)))", "0")
+  , ("2 := 2", "#T")
+  , ("3 := 2", "#F")
+  , ("(λa.λb.a) := (λx.λy.x)", "#T")
+  , ("(λa.λb.a) := (λx.λy.y)", "#F")
+  , ("(λx.2+x) := (λy.2+y)", "#T")
+  , ("(λx.3+x) := (λy.2+y)", "#F")
+  , ("#F && #F", "#F")
+  , ("#F && #T", "#F")
+  , ("#T && #F", "#F")
+  , ("#T && #T", "#T")
+  , ("(λt.(t (λa.2+a) (λb.2+b))) := (λu.(u (λx.2+x) (λy.2+y)))", "#T")
+  , ("(λt.(t (λa.2+a) (λb.2+b))) := (λu.(u (λx.2+x) (λy.3+y)))", "#F")
   ]
 
-book :: String
-book = unlines
-  [ "@id  = λa.a"
-  , "@not = λ{0:1+0;1+:λp.0}"
-  , "@dbl = λ{0:0;1+:λp.1+1+(@dbl p)}"
-  , "@and = λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
-  , "@add = λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
-  , "@sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
-  , "@foo = &L{λx.x,λ{0:0;1+:λp.p}}"
-  , "@gen = !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
-  ]
-
-run :: String -> String -> IO () 
+run :: String -> String -> IO ()
 run book_src term_src = do
   !env <- new_env $ read_book book_src
   !ini <- getCPUTime
