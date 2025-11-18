@@ -1144,9 +1144,9 @@ wnf_unwind e (x : s) v = do
     FAnd b           -> wnf_and e s v b
     FEql b           -> wnf_enter e (FEqlA v : s) b
     FEqlA a          -> wnf_eql e s a v
-    FAppF f          -> wnf_appf e s f v
-    FAppG (Tup f a)  -> wnf_appg e s f v a
-    FAppGF (Tup f m) -> wnf_appgf e s f m v
+    FAppF f          -> wnf_app_f e s f v
+    FAppG (Tup f a)  -> wnf_app_g e s f v a
+    FAppGF (Tup f m) -> wnf_app_gua_f e s f m v
     _                -> error "BadFrame"
 
 -- WNF: Sub Interaction
@@ -1364,31 +1364,31 @@ wnf_app_sup e s (Sup fL fa fb) v = do
   (x0,x1) <- clone e fL v
   wnf e s (Sup fL (App fa x0) (App fb x1))
 
-wnf_appf :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf e s f a = case f of
-  Swi {} -> wnf_appf_swi e s f a
-  Get {} -> wnf_appf_get e s f a
-  Efq    -> wnf_appf_efq e s f a
-  Use {} -> wnf_appf_use e s f a
-  If {}  -> wnf_appf_if  e s f a
-  Mat {} -> wnf_appf_mat e s f a
+wnf_app_f :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_f e s f a = case f of
+  Swi {} -> wnf_app_swi e s f a
+  Get {} -> wnf_app_get e s f a
+  Efq    -> wnf_app_efq e s f a
+  Use {} -> wnf_app_use e s f a
+  If {}  -> wnf_app_if  e s f a
+  Mat {} -> wnf_app_mat e s f a
   _      -> wnf_unwind e s (App f a)
 
-wnf_appf_swi :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_swi e s f@(Swi z sc) a = case a of
-  Era    -> wnf_appf_swi_era e s f a
-  Sup {} -> wnf_appf_swi_sup e s f a
-  Zer    -> wnf_appf_swi_zer e s f a
-  Suc {} -> wnf_appf_swi_suc e s f a
+wnf_app_swi :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_swi e s f@(Swi z sc) a = case a of
+  Era    -> wnf_app_swi_era e s f a
+  Sup {} -> wnf_app_swi_sup e s f a
+  Zer    -> wnf_app_swi_zer e s f a
+  Suc {} -> wnf_app_swi_suc e s f a
   _      -> wnf_unwind e s (App f a)
 
-wnf_appf_swi_era :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_swi_era e s (Swi z sc) Era = do
+wnf_app_swi_era :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_swi_era e s (Swi z sc) Era = do
   inc_inters e
   wnf e s Era
 
-wnf_appf_swi_sup :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_swi_sup e s (Swi z sc) (Sup l a b) = do
+wnf_app_swi_sup :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_swi_sup e s (Swi z sc) (Sup l a b) = do
   inc_inters e
   (z0, z1) <- clone e l z
   (s0, s1) <- clone e l sc
@@ -1396,18 +1396,18 @@ wnf_appf_swi_sup e s (Swi z sc) (Sup l a b) = do
   let app1 = App (Swi z1 s1) b
   wnf_enter e s (Sup l app0 app1)
 
-wnf_appf_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_swi_zer e s (Swi z sc) Zer = do
+wnf_app_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_swi_zer e s (Swi z sc) Zer = do
   inc_inters e
   wnf e s z
 
-wnf_appf_swi_suc :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_swi_suc e s (Swi z sc) (Suc n) = do
+wnf_app_swi_suc :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_swi_suc e s (Swi z sc) (Suc n) = do
   inc_inters e
   wnf_enter e s (App sc n)
 
-wnf_appf_get :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_get e s f@(Get c) a = case a of
+wnf_app_get :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_get e s f@(Get c) a = case a of
   Era -> do
     inc_inters e
     wnf e s Era
@@ -1420,8 +1420,8 @@ wnf_appf_get e s f@(Get c) a = case a of
     wnf_enter e s (App (App c x) y)
   _ -> wnf_unwind e s (App f a)
 
-wnf_appf_efq :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_efq e s Efq a = case a of
+wnf_app_efq :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_efq e s Efq a = case a of
   Era -> do
     inc_inters e
     wnf e s Era
@@ -1430,8 +1430,8 @@ wnf_appf_efq e s Efq a = case a of
     wnf_enter e s (Sup l (App Efq x) (App Efq y))
   _ -> wnf_unwind e s (App Efq a)
 
-wnf_appf_use :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_use e s f@(Use u) a = case a of
+wnf_app_use :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_use e s f@(Use u) a = case a of
   Era -> do
     inc_inters e
     wnf e s Era
@@ -1444,8 +1444,8 @@ wnf_appf_use e s f@(Use u) a = case a of
     wnf e s u
   _ -> wnf_unwind e s (App f a)
 
-wnf_appf_if :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_if e s f@(If ft ff) a = case a of
+wnf_app_if :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_if e s f@(If ft ff) a = case a of
   Era -> do
     inc_inters e
     wnf e s Era
@@ -1462,8 +1462,8 @@ wnf_appf_if e s f@(If ft ff) a = case a of
     wnf e s ff
   _ -> wnf_unwind e s (App f a)
 
-wnf_appf_mat :: Env -> Stack -> Term -> Term -> IO Term
-wnf_appf_mat e s f@(Mat n c) a = case a of
+wnf_app_mat :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_mat e s f@(Mat n c) a = case a of
   Era -> do
     inc_inters e
     wnf e s Era
@@ -1717,11 +1717,11 @@ wnf_eql_default e s a b = do
 -- WNF: Deref Interactions
 -- -----------------------
 
-wnf_appg :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appg e s f g a = case g of
-  Era    -> wnf_appg_era e s f g a
-  Sup {} -> wnf_appg_sup e s f g a
-  Lam {} -> wnf_appg_lam e s f g a
+wnf_app_g :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_g e s f g a = case g of
+  Era    -> wnf_app_gua_era e s f g a
+  Sup {} -> wnf_app_gua_sup e s f g a
+  Lam {} -> wnf_app_gua_lam e s f g a
   Swi {} -> wnf_enter e (FAppGF (Tup f g) : s) a
   Get {} -> wnf_enter e (FAppGF (Tup f g) : s) a
   Efq    -> wnf_enter e (FAppGF (Tup f g) : s) a
@@ -1730,13 +1730,13 @@ wnf_appg e s f g a = case g of
   Mat {} -> wnf_enter e (FAppGF (Tup f g) : s) a
   _      -> wnf_unwind e s (App (Tup f g) a)
 
-wnf_appg_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appg_era e s f Era a = do
+wnf_app_gua_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_era e s f Era a = do
   inc_inters e
   wnf e s Era
 
-wnf_appg_sup :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appg_sup e s f (Sup l x y) a = do
+wnf_app_gua_sup :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_sup e s f (Sup l x y) a = do
   inc_inters e
   (f0,f1) <- clone e l f
   (a0,a1) <- clone e l a
@@ -1744,8 +1744,8 @@ wnf_appg_sup e s f (Sup l x y) a = do
   let app1 = (App (Gua f1 y) a1)
   wnf_enter e s (Sup l app0 app1)
 
-wnf_appg_lam :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appg_lam e s f (Lam x g) a = do
+wnf_app_gua_lam :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_lam e s f (Lam x g) a = do
   inc_inters e
   subst VAR e x a
   wnf_enter e s (Gua (App f (Var x)) g)
@@ -1753,32 +1753,32 @@ wnf_appg_lam e s f (Lam x g) a = do
 -- WNF: Gua Pat Interactions (Match reduced argument through guard)
 -- ----------------------------------------------------------------
 
-wnf_appgf :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf e s f m a = case m of
-  Swi {} -> wnf_appgf_swi e s f m a
-  Get {} -> wnf_appgf_get e s f m a
-  Efq    -> wnf_appgf_efq e s f m a
-  Use {} -> wnf_appgf_use e s f m a
-  If {}  -> wnf_appgf_if  e s f m a
-  Mat {} -> wnf_appgf_mat e s f m a
+wnf_app_gua_f :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_f e s f m a = case m of
+  Swi {} -> wnf_app_gua_swi e s f m a
+  Get {} -> wnf_app_gua_get e s f m a
+  Efq    -> wnf_app_gua_efq e s f m a
+  Use {} -> wnf_app_gua_use e s f m a
+  If {}  -> wnf_app_gua_if  e s f m a
+  Mat {} -> wnf_app_gua_mat e s f m a
   _      -> wnf_unwind e s (App (Gua f m) a)
 
-wnf_appgf_swi :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_swi e s f (Swi z sc) a = case a of
-  Era    -> wnf_appgf_swi_era e s f z sc a
-  Sup {} -> wnf_appgf_swi_sup e s f z sc a
-  Zer    -> wnf_appgf_swi_zer e s f z sc a
-  Suc {} -> wnf_appgf_swi_suc e s f z sc a
+wnf_app_gua_swi :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_swi e s f (Swi z sc) a = case a of
+  Era    -> wnf_app_gua_swi_era e s f z sc a
+  Sup {} -> wnf_app_gua_swi_sup e s f z sc a
+  Zer    -> wnf_app_gua_swi_zer e s f z sc a
+  Suc {} -> wnf_app_gua_swi_suc e s f z sc a
   _      -> wnf_unwind e s (App f a)
 
 type WnfGuaSwi = Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
 
-wnf_appgf_swi_era :: WnfGuaSwi
-wnf_appgf_swi_era e s f z sc Era = do
+wnf_app_gua_swi_era :: WnfGuaSwi
+wnf_app_gua_swi_era e s f z sc Era = do
   wnf_enter e s Era
 
-wnf_appgf_swi_sup :: WnfGuaSwi
-wnf_appgf_swi_sup e s f z sc (Sup l a b) = do
+wnf_app_gua_swi_sup :: WnfGuaSwi
+wnf_app_gua_swi_sup e s f z sc (Sup l a b) = do
   inc_inters e
   (f0,f1) <- clone e l f
   (z0,z1) <- clone e l z
@@ -1787,20 +1787,20 @@ wnf_appgf_swi_sup e s f z sc (Sup l a b) = do
   let app1 = App (Gua f1 (Swi z1 s1)) b
   wnf_enter e s (Sup l app0 app1)
 
-wnf_appgf_swi_zer :: WnfGuaSwi
-wnf_appgf_swi_zer e s f z sc Zer = do
+wnf_app_gua_swi_zer :: WnfGuaSwi
+wnf_app_gua_swi_zer e s f z sc Zer = do
   inc_inters e
   wnf_enter e s (Gua (App f Zer) z)
 
-wnf_appgf_swi_suc :: WnfGuaSwi
-wnf_appgf_swi_suc e s f z sc (Suc n) = do
+wnf_app_gua_swi_suc :: WnfGuaSwi
+wnf_app_gua_swi_suc e s f z sc (Suc n) = do
   inc_inters e
   p <- fresh e
   let fn = (Lam p (App f (Suc (Var p))))
   wnf_enter e s (App (Gua fn sc) n)
 
-wnf_appgf_get :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_get e s f (Get c) a = case a of
+wnf_app_gua_get :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_get e s f (Get c) a = case a of
   Era -> do { inc_inters e; wnf e s Era }
   Sup l x y -> do
     inc_inters e
@@ -1815,8 +1815,8 @@ wnf_appgf_get e s f (Get c) a = case a of
     wnf_enter e s (App (App (Gua fn c) x) y)
   _ -> wnf_unwind e s (App (Gua f (Get c)) a)
 
-wnf_appgf_efq :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_efq e s f Efq a = case a of
+wnf_app_gua_efq :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_efq e s f Efq a = case a of
   Era -> do { inc_inters e; wnf e s Era }
   Sup l x y -> do
     inc_inters e
@@ -1824,8 +1824,8 @@ wnf_appgf_efq e s f Efq a = case a of
     wnf_enter e s (Sup l (App (Gua f0 Efq) x) (App (Gua f1 Efq) y))
   _ -> wnf_unwind e s (App (Gua f Efq) a)
 
-wnf_appgf_use :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_use e s f (Use u) a = case a of
+wnf_app_gua_use :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_use e s f (Use u) a = case a of
   Era -> do { inc_inters e; wnf e s Era }
   Sup l x y -> do
     inc_inters e
@@ -1837,8 +1837,8 @@ wnf_appgf_use e s f (Use u) a = case a of
     wnf_enter e s (Gua (App f One) u)
   _ -> wnf_unwind e s (App (Gua f (Use u)) a)
 
-wnf_appgf_if :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_if e s f (If ft ff) a = case a of
+wnf_app_gua_if :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_if e s f (If ft ff) a = case a of
   Era -> do { inc_inters e; wnf e s Era }
   Sup l x y -> do
     inc_inters e
@@ -1854,8 +1854,8 @@ wnf_appgf_if e s f (If ft ff) a = case a of
     wnf_enter e s (Gua (App f Tru) ff)
   _ -> wnf_unwind e s (App (Gua f (If ft ff)) a)
 
-wnf_appgf_mat :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_appgf_mat e s f (Mat n c) a = case a of
+wnf_app_gua_mat :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_mat e s f (Mat n c) a = case a of
   Era -> do { inc_inters e; wnf e s Era }
   Sup l x y -> do
     inc_inters e
