@@ -531,6 +531,10 @@
 -- --------------- app-gua-lam
 -- x ← a
 -- (f x) ~> g
+-- 
+-- ((f ~> (g ~> h)) x)
+-- ----------------------- app-gua-gua
+-- ((f x) ~> ((g ~> h) x))
 --
 -- ((f ~> λ{,:c}) &{})
 -- ------------------- app-gua-get-era (NEW)
@@ -635,7 +639,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Data.Bits (shiftL)
 import Data.Char (isDigit)
 import Data.IORef
@@ -645,6 +649,9 @@ import Text.ParserCombinators.ReadP
 import Text.Printf
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
+
+debug :: Bool
+debug = False
 
 -- Types
 -- =====
@@ -1077,6 +1084,7 @@ data Frame
   | FAnd   Term     -- (_ && b)
   | FEql   Term     -- (_ == b)
   | FEqlA  Term     -- (a == _)
+  deriving Show
 
 type Stack = [Frame]
 
@@ -1089,34 +1097,42 @@ wnf = wnf_enter
 wnf_enter :: Env -> Stack -> Term -> IO Term
 
 wnf_enter e s (Var k) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Var k)
   wnf_sub VAR e s k
 
 wnf_enter e s (Dp0 k) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Dp0 k)
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp0 k l : s) v
     Nothing     -> wnf_sub DP0 e s k
 
 wnf_enter e s (Dp1 k) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Dp1 k)
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp1 k l : s) v
     Nothing     -> wnf_sub DP1 e s k
 
 wnf_enter e s (App f x) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (App f x)
   wnf_enter e (FApp x : s) f
 
 wnf_enter e s (And a b) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (And a b)
   wnf_enter e (FAnd b : s) a
 
 wnf_enter e s (Eql a b) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Eql a b)
   wnf_enter e (FEql b : s) a
 
 wnf_enter e s (Dup k l v t) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Dup k l v t)
   make_dup e k l v
   wnf_enter e s t
 
 wnf_enter e s (Ref k) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Ref k)
   let (Book m) = env_book e
   case M.lookup k m of
     Just f  -> do
@@ -1126,9 +1142,11 @@ wnf_enter e s (Ref k) = do
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s (Gua f g) = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show (Gua f g)
   wnf_unwind e s (Gua f g)
 
 wnf_enter e s f = do
+  when debug $ putStrLn $ "wnf_enter: " ++ show f
   wnf_unwind e s f
 
 -- WNF: Unwind
@@ -1137,6 +1155,7 @@ wnf_enter e s f = do
 wnf_unwind :: Env -> Stack -> Term -> IO Term
 wnf_unwind e []      v = return v
 wnf_unwind e (x : s) v = do
+  when debug $ putStrLn $ "wnf_unwind: " ++ show (x:s) ++ " | " ++ show v
   case x of
     FApp a           -> wnf_app e s v a
     FDp0 k l         -> wnf_dup e s v k l (Dp0 k)
@@ -1145,7 +1164,7 @@ wnf_unwind e (x : s) v = do
     FEql b           -> wnf_enter e (FEqlA v : s) b
     FEqlA a          -> wnf_eql e s a v
     FAppF f          -> wnf_app_f e s f v
-    FAppG (Tup f a)  -> wnf_app_g e s f v a
+    FAppG (Tup f a)  -> wnf_app_gua e s f v a
     FAppGF (Tup f m) -> wnf_app_gua_f e s f m v
     _                -> error "BadFrame"
 
@@ -1154,6 +1173,7 @@ wnf_unwind e (x : s) v = do
 
 wnf_sub :: Kind -> Env -> Stack -> Name -> IO Term
 wnf_sub ki e s k = do
+  when debug $ putStrLn $ "wnf_sub: " ++ show (Var k)
   mt <- take_sub ki e k
   case mt of
     Just t  -> wnf e s t
@@ -1168,36 +1188,38 @@ wnf_sub ki e s k = do
 type WnfDup = Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
 
 wnf_dup :: Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
-wnf_dup e s v k l t = case v of
-  Era    -> wnf_dup_era e s v k l t
-  Sup {} -> wnf_dup_sup e s v k l t
-  Set    -> wnf_dup_set e s v k l t
-  All {} -> wnf_dup_all e s v k l t
-  Lam {} -> wnf_dup_lam e s v k l t
-  Nat    -> wnf_dup_nat e s v k l t
-  Zer    -> wnf_dup_zer e s v k l t
-  Suc {} -> wnf_dup_suc e s v k l t
-  Swi {} -> wnf_dup_swi e s v k l t
-  Nam {} -> wnf_dup_nam e s v k l t
-  Dry {} -> wnf_dup_dry e s v k l t
-  Gua {} -> wnf_dup_gua e s v k l t
-  Sig {} -> wnf_dup_sig e s v k l t
-  Tup {} -> wnf_dup_tup e s v k l t
-  Get {} -> wnf_dup_get e s v k l t
-  Emp    -> wnf_dup_emp e s v k l t
-  Efq    -> wnf_dup_efq e s v k l t
-  Uni    -> wnf_dup_uni e s v k l t
-  One    -> wnf_dup_one e s v k l t
-  Use {} -> wnf_dup_use e s v k l t
-  Bol    -> wnf_dup_bol e s v k l t
-  Fal    -> wnf_dup_fal e s v k l t
-  Tru    -> wnf_dup_tru e s v k l t
-  If {}  -> wnf_dup_if  e s v k l t
-  Lst {} -> wnf_dup_lst e s v k l t
-  Nil    -> wnf_dup_nil e s v k l t
-  Con {} -> wnf_dup_con e s v k l t
-  Mat {} -> wnf_dup_mat e s v k l t
-  _      -> wnf_unwind e s (Dup k l v t)
+wnf_dup e s v k l t = do
+  when debug $ putStrLn $ "wnf_dup: " ++ show (Dup k l v t)
+  case v of
+    Era    -> wnf_dup_era e s v k l t
+    Sup {} -> wnf_dup_sup e s v k l t
+    Set    -> wnf_dup_set e s v k l t
+    All {} -> wnf_dup_all e s v k l t
+    Lam {} -> wnf_dup_lam e s v k l t
+    Nat    -> wnf_dup_nat e s v k l t
+    Zer    -> wnf_dup_zer e s v k l t
+    Suc {} -> wnf_dup_suc e s v k l t
+    Swi {} -> wnf_dup_swi e s v k l t
+    Nam {} -> wnf_dup_nam e s v k l t
+    Dry {} -> wnf_dup_dry e s v k l t
+    Gua {} -> wnf_dup_gua e s v k l t
+    Sig {} -> wnf_dup_sig e s v k l t
+    Tup {} -> wnf_dup_tup e s v k l t
+    Get {} -> wnf_dup_get e s v k l t
+    Emp    -> wnf_dup_emp e s v k l t
+    Efq    -> wnf_dup_efq e s v k l t
+    Uni    -> wnf_dup_uni e s v k l t
+    One    -> wnf_dup_one e s v k l t
+    Use {} -> wnf_dup_use e s v k l t
+    Bol    -> wnf_dup_bol e s v k l t
+    Fal    -> wnf_dup_fal e s v k l t
+    Tru    -> wnf_dup_tru e s v k l t
+    If {}  -> wnf_dup_if  e s v k l t
+    Lst {} -> wnf_dup_lst e s v k l t
+    Nil    -> wnf_dup_nil e s v k l t
+    Con {} -> wnf_dup_con e s v k l t
+    Mat {} -> wnf_dup_mat e s v k l t
+    _      -> wnf_unwind e s (Dup k l v t)
 
 wnf_dup_0 :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_dup_0 e s k v t = do
@@ -1326,20 +1348,22 @@ wnf_dup_mat e s (Mat n c) k l t = wnf_dup_2 e s k l t n c Mat
 -- ---------------------
 
 wnf_app :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app e s f a = case f of
-  Era       -> wnf_app_era e s f a
-  Sup {}    -> wnf_app_sup e s f a
-  Lam {}    -> wnf_app_lam e s f a
-  Nam {}    -> wnf_app_nam e s f a
-  Dry {}    -> wnf_app_dry e s f a
-  Swi {}    -> wnf_enter e (FAppF f : s) a
-  Get {}    -> wnf_enter e (FAppF f : s) a
-  Efq       -> wnf_enter e (FAppF f : s) a
-  Use {}    -> wnf_enter e (FAppF f : s) a
-  If {}     -> wnf_enter e (FAppF f : s) a
-  Mat {}    -> wnf_enter e (FAppF f : s) a
-  Gua f0 g0 -> wnf_enter e (FAppG (Tup f0 a) : s) g0
-  _         -> wnf_unwind e s (App f a)
+wnf_app e s f a = do
+  when debug $ putStrLn $ "wnf_app: " ++ show (App f a)
+  case f of
+    Era       -> wnf_app_era e s f a
+    Sup {}    -> wnf_app_sup e s f a
+    Lam {}    -> wnf_app_lam e s f a
+    Nam {}    -> wnf_app_nam e s f a
+    Dry {}    -> wnf_app_dry e s f a
+    Swi {}    -> wnf_enter e (FAppF f : s) a
+    Get {}    -> wnf_enter e (FAppF f : s) a
+    Efq       -> wnf_enter e (FAppF f : s) a
+    Use {}    -> wnf_enter e (FAppF f : s) a
+    If {}     -> wnf_enter e (FAppF f : s) a
+    Mat {}    -> wnf_enter e (FAppF f : s) a
+    Gua f0 g0 -> wnf_enter e (FAppG (Tup f0 a) : s) g0
+    _         -> wnf_unwind e s (App f a)
 
 wnf_app_era :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_era e s Era v = do
@@ -1484,12 +1508,13 @@ wnf_app_mat e s f@(Mat n c) a = case a of
 -- ---------------------
 
 wnf_and :: Env -> Stack -> Term -> Term -> IO Term
-wnf_and e s a b = case a of
-  Era    -> wnf_and_era e s a b
-  Sup {} -> wnf_and_sup e s a b
-  Fal    -> wnf_and_fal e s a b
-  Tru    -> wnf_and_tru e s a b
-  _      -> wnf_unwind e s (And a b)
+wnf_and e s a b =  do
+  case a of
+    Era    -> wnf_and_era e s a b
+    Sup {} -> wnf_and_sup e s a b
+    Fal    -> wnf_and_fal e s a b
+    Tru    -> wnf_and_tru e s a b
+    _      -> wnf_unwind e s (And a b)
 
 wnf_and_era :: Env -> Stack -> Term -> Term -> IO Term
 wnf_and_era e s Era b = do
@@ -1518,25 +1543,26 @@ wnf_and_tru e s Tru b = do
 type WnfEql = Env -> Stack -> Term -> Term -> IO Term
 
 wnf_eql :: WnfEql
-wnf_eql e s a b = case (a, b) of
-  (Era, b) -> do
-    inc_inters e
-    wnf e s Era
-  (a, Era) -> do
-    inc_inters e
-    wnf e s Era
-  (Sup l a0 a1, b) -> do
-    inc_inters e
-    k <- fresh e
-    make_dup e k l b
-    wnf_enter e s (Sup l (Eql a0 (Dp0 k)) (Eql a1 (Dp1 k)))
-  (a, Sup l b0 b1) -> do
-    inc_inters e
-    k <- fresh e
-    make_dup e k l a
-    wnf_enter e s (Sup l (Eql (Dp0 k) b0) (Eql (Dp1 k) b1))
-  (a, b) -> do
-    wnf_eql_val e s a b
+wnf_eql e s a b = do
+  case (a, b) of
+    (Era, b) -> do
+      inc_inters e
+      wnf e s Era
+    (a, Era) -> do
+      inc_inters e
+      wnf e s Era
+    (Sup l a0 a1, b) -> do
+      inc_inters e
+      k <- fresh e
+      make_dup e k l b
+      wnf_enter e s (Sup l (Eql a0 (Dp0 k)) (Eql a1 (Dp1 k)))
+    (a, Sup l b0 b1) -> do
+      inc_inters e
+      k <- fresh e
+      make_dup e k l a
+      wnf_enter e s (Sup l (Eql (Dp0 k) b0) (Eql (Dp1 k) b1))
+    (a, b) -> do
+      wnf_eql_val e s a b
 
 wnf_eql_val :: WnfEql
 wnf_eql_val e s a b = case (a, b) of
@@ -1717,18 +1743,20 @@ wnf_eql_default e s a b = do
 -- WNF: Deref Interactions
 -- -----------------------
 
-wnf_app_g :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_g e s f g a = case g of
-  Era    -> wnf_app_gua_era e s f g a
-  Sup {} -> wnf_app_gua_sup e s f g a
-  Lam {} -> wnf_app_gua_lam e s f g a
-  Swi {} -> wnf_enter e (FAppGF (Tup f g) : s) a
-  Get {} -> wnf_enter e (FAppGF (Tup f g) : s) a
-  Efq    -> wnf_enter e (FAppGF (Tup f g) : s) a
-  Use {} -> wnf_enter e (FAppGF (Tup f g) : s) a
-  If {}  -> wnf_enter e (FAppGF (Tup f g) : s) a
-  Mat {} -> wnf_enter e (FAppGF (Tup f g) : s) a
-  _      -> wnf_unwind e s (App (Tup f g) a)
+wnf_app_gua :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua e s f g a = do
+  case g of
+    Era    -> wnf_app_gua_era e s f g a
+    Sup {} -> wnf_app_gua_sup e s f g a
+    Lam {} -> wnf_app_gua_lam e s f g a
+    Swi {} -> wnf_enter e (FAppGF (Tup f g) : s) a
+    Get {} -> wnf_enter e (FAppGF (Tup f g) : s) a
+    Efq    -> wnf_enter e (FAppGF (Tup f g) : s) a
+    Use {} -> wnf_enter e (FAppGF (Tup f g) : s) a
+    If {}  -> wnf_enter e (FAppGF (Tup f g) : s) a
+    Mat {} -> wnf_enter e (FAppGF (Tup f g) : s) a
+    Gua {} -> wnf_app_gua_gua e s f g a
+    _      -> wnf_unwind e s (App (Tup f g) a)
 
 wnf_app_gua_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_gua_era e s f Era a = do
@@ -1749,6 +1777,11 @@ wnf_app_gua_lam e s f (Lam x g) a = do
   inc_inters e
   subst VAR e x a
   wnf_enter e s (Gua (App f (Var x)) g)
+
+wnf_app_gua_gua :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_gua_gua e s f g a = do
+  inc_inters e
+  wnf_enter e s (Gua (App f a) (App g a))
 
 -- WNF: Gua Pat Interactions (Match reduced argument through guard)
 -- ----------------------------------------------------------------
@@ -2206,7 +2239,16 @@ f n = "λf." ++ dups ++ final where
 
 book :: String
 book = unlines
-  [ "@id  = λa.a"
+  [ "@T   = λt. λf. t"
+  , "@F   = λt. λf. f"
+  , "@NOT = λb. λt. λf. (b f t)"
+  , "@ADD = λa. λb. λs. λz. !S&B=s; (a S₀ (b S₁ z))"
+  , "@MUL = λa. λb. λs. λz. (a (b s) z)"
+  , "@C1  = λs. λx. (s x)"
+  , "@C2  = λs. !S0&A=s; λx0.(S0₀ (S0₁ x0))"
+  , "@C4  = λs. !S0&A=s; !S1&A=λx0.(S0₀ (S0₁ x0)); λx1.(S1₀ (S1₁ x1))"
+  , "@C8  = λs. !S0&A=s; !S1&A=λx0.(S0₀ (S0₁ x0)); !S2&A=λx1.(S1₀ (S1₁ x1)); !S3&A=λx2.(S2₀ (S2₁ x2)); !S4&A=λx3.(S3₀ (S3₁ x3)); !S5&A=λx4.(S4₀ (S4₁ x4)); !S6&A=λx5.(S5₀ (S5₁ x5)); !S7&A=λx6.(S6₀ (S6₁ x6)); λx7.(S7₀ (S7₁ x7))"
+  , "@id  = λa.a"
   , "@not = λ{0:1+0;1+:λp.0}"
   , "@dbl = λ{0:0;1+:λp.1+1+(@dbl p)}"
   , "@and = λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
@@ -2218,7 +2260,8 @@ book = unlines
 
 tests :: [(String,String)]
 tests =
-  [ ("(@not 0)", "1")
+  [ ("0", "0")
+  , ("(@not 0)", "1")
   , ("(@not 1+0)", "0")
   , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
   , ("(@and 0 0)", "0")
@@ -2257,6 +2300,21 @@ tests =
   , ("#T && #T", "#T")
   , ("(λt.(t (λa.2+a) (λb.2+b))) == (λu.(u (λx.2+x) (λy.2+y)))", "#T")
   , ("(λt.(t (λa.2+a) (λb.2+b))) == (λu.(u (λx.2+x) (λy.3+y)))", "#F")
+  , ("(@NOT @T)", "λa.λb.b")
+  , ("(@NOT (@NOT @T))", "λa.λb.a")
+  , ("(@C2 @NOT @T)", "λa.λb.a")
+  , ("@C2", "λa.λb.(a (a b))")
+  , ("(@ADD @C2 @C1)", "λa.λb.(a (a (a b)))")
+  , ("(@ADD @C1 λf.λx.(f x) @NOT)", "λa.λb.λc.(a b c)")
+  , ("(@ADD @C1 @C1 @NOT)", "λa.λb.λc.(a b c)")
+  , ("(@ADD @C2 @C2)", "λa.λb.(a (a (a (a b))))")
+  , ("(@ADD @C4 @C1)", "λa.λb.(a (a (a (a (a b)))))")
+  , ("(@ADD @C1 @C4)", "λa.λb.(a (a (a (a (a b)))))")
+  , ("(@ADD @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
+  , ("(@ADD @C1 @C4 @NOT @T)", "λa.λb.b")
+  , ("(@ADD @C4 @C1 @NOT @T)", "λa.λb.b")
+  , ("(@ADD @C2 @C4 @NOT @T)", "λa.λb.a")
+  , ("(@ADD @C4 @C2 @NOT @T)", "λa.λb.a")
   ]
 
 run :: String -> String -> IO ()
