@@ -194,6 +194,15 @@ lexeme p = skipSpaces *> p
 #include "./parse/nam.hs"
 #include "./parse/func.hs"
 #include "./parse/book.hs"
+#include "./wnf/enter.hs"
+#include "./wnf/unwind.hs"
+#include "./wnf/sub.hs"
+#include "./wnf/dup.hs"
+#include "./wnf/app.hs"
+#include "./wnf/and.hs"
+#include "./wnf/eql.hs"
+#include "./wnf/ref.hs"
+#include "test.hs"
 
 read_term :: String -> Term
 read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
@@ -293,15 +302,6 @@ wnf = wnf_enter
 type WnfDup    = Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
 type WnfEql    = Env -> Stack -> Term -> Term -> IO Term
 type WnfGuaSwi = Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
-
-#include "./wnf/enter.hs"
-#include "./wnf/unwind.hs"
-#include "./wnf/sub.hs"
-#include "./wnf/dup.hs"
-#include "./wnf/app.hs"
-#include "./wnf/and.hs"
-#include "./wnf/eql.hs"
-#include "./wnf/ref.hs"
 
 -- Allocation
 -- ==========
@@ -473,7 +473,7 @@ snf e d x = do
       return $ Dp1 k
 
     Era -> do
-      return Era
+      return $ Era
 
     Sup l a b -> do
       a' <- snf e d a
@@ -488,8 +488,8 @@ snf e d x = do
       return $ Dup d l v' t'
 
     Set -> do
-      return Set
-      
+      return $ Set
+
     All a b -> do
       a' <- snf e d a
       b' <- snf e d b
@@ -506,10 +506,10 @@ snf e d x = do
       return $ App f' x'
 
     Nat -> do
-      return Nat
+      return $ Nat
 
     Zer -> do
-      return Zer
+      return $ Zer
 
     Suc p -> do
       p' <- snf e d p
@@ -543,7 +543,7 @@ snf e d x = do
 
     Gua f g -> do
       g' <- snf e d g
-      return g'
+      return $ g'
 
     Sig a b -> do
       a' <- snf e d a
@@ -560,29 +560,29 @@ snf e d x = do
       return $ Get c'
 
     Emp -> do
-      return Emp
+      return $ Emp
 
     Efq -> do
-      return Efq
+      return $ Efq
 
     Uni -> do
-      return Uni
+      return $ Uni
 
     One -> do
-      return One
+      return $ One
 
     Use u -> do
       u' <- snf e d u
       return $ Use u'
 
     Bol -> do
-      return Bol
+      return $ Bol
 
     Fal -> do
-      return Fal
+      return $ Fal
 
     Tru -> do
-      return Tru
+      return $ Tru
 
     If f t -> do
       f' <- snf e d f
@@ -594,7 +594,7 @@ snf e d x = do
       return $ Lst t'
 
     Nil -> do
-      return Nil
+      return $ Nil
 
     Con h t -> do
       h' <- snf e d h
@@ -810,11 +810,5 @@ run book_src term_src = do
   printf "- Time: %.3f seconds\n" (dt :: Double)
   printf "- Perf: %.2f M interactions/s\n" (ips / 1000000 :: Double)
 
-#include "test.hs"
-
 main :: IO ()
 main = test
-
--- refactor alloc so that ALL clauses of the 'go' function use the do notation
--- no clause should use <$> or <*>
--- do not align the = sign
