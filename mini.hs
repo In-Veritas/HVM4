@@ -1,3 +1,23 @@
+-- Calculus of Interactions - Mini
+-- ===============================
+-- 
+-- Term ::=
+-- | Ref ::= "@" Name
+-- | Var ::= Name
+-- | Dp0 ::= Name "₀"
+-- | Dp1 ::= Name "₁"
+-- | Era ::= "&{}"
+-- | Sup ::= "&" Name "{" Term "," Term "}"
+-- | Dup ::= "!" Name "&" Name "=" Term ";"? Term
+-- | Lam ::= "λ" Name "." Term
+-- | App ::= "(" Term " " Term ")"
+-- | Ctr ::= "#" Name "{" [Term] "}"
+-- | Mat ::= "λ" "{" "#" Name ":" Term ";"? Term "}"
+-- 
+-- Where:
+-- - `Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $`
+-- - `[X]  ::= "" | X ","? [X]
+
 {-# LANGUAGE BangPatterns #-}
 
 import Control.Monad (forM_, when)
