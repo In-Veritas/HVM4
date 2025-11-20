@@ -539,21 +539,11 @@ fresh e = do
   writeIORef (env_new_id e) (n + 1)
   return ((n `shiftL` 6) + 63)
 
-taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
-taker ref k = do
-  !m <- readIORef ref
-  case IM.lookup k m of
-    Nothing -> do
-      return Nothing
-    Just v  -> do
-      writeIORef ref (IM.delete k m)
-      return (Just v)
-
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e k = taker (env_dup_map e) k
+take_dup e k = atomicModifyIORef' (env_dup_map e) $ \m -> (IM.delete k m, IM.lookup k m)
 
 take_sub :: Env -> Name -> IO (Maybe Term)
-take_sub e k = taker (env_sub_map e) k
+take_sub e k = atomicModifyIORef' (env_sub_map e) $ \m -> (IM.delete k m, IM.lookup k m)
 
 make_dup :: Env -> Name -> Lab -> Term -> IO ()
 make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
