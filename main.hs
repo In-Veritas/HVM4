@@ -500,6 +500,71 @@ read_book s = case readP_to_S parse_book s of
   [(b, "")] -> b
   _         -> error "bad-parse"
 
+-- Environment
+-- ===========
+
+new_env :: Book -> IO Env
+new_env bk = do
+  itr <- newIORef 0
+  ids <- newIORef 1
+  sub <- newIORef IM.empty
+  dm  <- newIORef IM.empty
+  return $ Env bk itr ids sub dm
+
+inc_inters :: Env -> IO ()
+inc_inters e = do
+  !n <- readIORef (env_inters e)
+  writeIORef (env_inters e) (n + 1)
+
+fresh :: Env -> IO Name
+fresh e = do
+  !n <- readIORef (env_new_id e)
+  writeIORef (env_new_id e) (n + 1)
+  return ((n `shiftL` 6) + 63)
+
+taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
+taker ref k = do
+  !m <- readIORef ref
+  case IM.lookup k m of
+    Nothing -> do
+      return Nothing
+    Just v  -> do
+      writeIORef ref (IM.delete k m)
+      return (Just v)
+
+take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
+take_dup e k = taker (env_dup_map e) k
+
+take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
+take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
+
+make_dup :: Env -> Name -> Lab -> Term -> IO ()
+make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+
+make_auto_dup :: Env -> Name -> Lab -> Term -> IO ()
+make_auto_dup e k l v = do
+  k <- fresh e
+  make_dup e k l v
+
+subst :: Kind -> Env -> Name -> Term -> IO ()
+subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
+
+-- Cloning
+-- =======
+
+clone :: Env -> Lab -> Term -> IO (Term, Term)
+clone e l v = do
+  k <- fresh e
+  make_dup e k l v
+  return $ (Dp0 k , Dp1 k)
+
+clone_list :: Env -> Lab -> [Term] -> IO ([Term],[Term])
+clone_list e l []       = return $ ([],[])
+clone_list e l (x : xs) = do
+  (x0  , x1 ) <- clone e l x
+  (xs0 , xs1) <- clone_list e l xs
+  return $ (x0 : xs0 , x1 : xs1)
+
 -- WNF: Weak Normal Form
 -- =====================
 
@@ -1335,71 +1400,6 @@ wnf_ref e s k = do
       g <- alloc e f
       wnf_enter e s g
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
-
--- Environment
--- ===========
-
-new_env :: Book -> IO Env
-new_env bk = do
-  itr <- newIORef 0
-  ids <- newIORef 1
-  sub <- newIORef IM.empty
-  dm  <- newIORef IM.empty
-  return $ Env bk itr ids sub dm
-
-inc_inters :: Env -> IO ()
-inc_inters e = do
-  !n <- readIORef (env_inters e)
-  writeIORef (env_inters e) (n + 1)
-
-fresh :: Env -> IO Name
-fresh e = do
-  !n <- readIORef (env_new_id e)
-  writeIORef (env_new_id e) (n + 1)
-  return ((n `shiftL` 6) + 63)
-
-taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
-taker ref k = do
-  !m <- readIORef ref
-  case IM.lookup k m of
-    Nothing -> do
-      return Nothing
-    Just v  -> do
-      writeIORef ref (IM.delete k m)
-      return (Just v)
-
-take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e k = taker (env_dup_map e) k
-
-take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
-take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
-
-make_dup :: Env -> Name -> Lab -> Term -> IO ()
-make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
-
-make_auto_dup :: Env -> Name -> Lab -> Term -> IO ()
-make_auto_dup e k l v = do
-  k <- fresh e
-  make_dup e k l v
-
-subst :: Kind -> Env -> Name -> Term -> IO ()
-subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
-
--- Cloning
--- =======
-
-clone :: Env -> Lab -> Term -> IO (Term, Term)
-clone e l v = do
-  k <- fresh e
-  make_dup e k l v
-  return $ (Dp0 k , Dp1 k)
-
-clone_list :: Env -> Lab -> [Term] -> IO ([Term],[Term])
-clone_list e l []       = return $ ([],[])
-clone_list e l (x : xs) = do
-  (x0  , x1 ) <- clone e l x
-  (xs0 , xs1) <- clone_list e l xs
-  return $ (x0 : xs0 , x1 : xs1)
 
 -- Allocation
 -- ==========

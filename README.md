@@ -658,7 +658,7 @@ SupGen Interactions
 
 ```
 ?L : ∀𝔹.b = f ~ fs & xs
---------------------- gen-all-bol
+----------------------- gen-all-bol
 ! B  &L = b
 ! F  &L = f
 ! FS &L = FS
