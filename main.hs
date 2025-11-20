@@ -56,7 +56,8 @@ data Term
   | And !Term !Term
   | Eql !Term !Term
   | Gua !Term !Term
-  | Gen !Name !Term !Term !Term !Term
+  | Ctr !Name ![Term]
+  | Pat !Name !Term !Term
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -108,6 +109,13 @@ instance Show Term where
   show (And a b)     = show a ++ "&&" ++ show b
   show (Eql a b)     = show a ++ "==" ++ show b
   show (Gua f g)     = show f ++ "~>" ++ show g
+  show (Ctr k args)  = "#" ++ int_to_name k ++ "{" ++ show_terms args ++ "}"
+  show (Pat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
+
+show_terms :: [Term] -> String
+show_terms []     = ""
+show_terms [t]    = show t
+show_terms (t:ts) = show t ++ "," ++ show_terms ts
 
 show_add :: Int -> Term -> String
 show_add n Zer     = show n
@@ -278,6 +286,7 @@ parse_lam_brace = do
     , parse_if
     , parse_swi
     , parse_mat
+    , parse_pat
     , return Efq
     ]
   lexeme (char '}')
@@ -341,6 +350,16 @@ parse_mat = do
   c <- parse_term
   optional (lexeme (char ';'))
   return (Mat n c)
+
+parse_pat :: ReadP Term
+parse_pat = do
+  lexeme (char '#')
+  k <- parse_name
+  lexeme (char ':')
+  h <- parse_term
+  optional (lexeme (char ';'))
+  m <- parse_term
+  return (Pat (name_to_int k) h m)
 
 parse_dup :: ReadP Term
 parse_dup = do
@@ -433,9 +452,17 @@ parse_bol = lexeme (char '𝔹') >> return Bol
 parse_ctr :: ReadP Term
 parse_ctr = do
   lexeme (char '#')
+  k <- parse_name
   choice
-    [ char 'F' >> return Fal
-    , char 'T' >> return Tru
+    [ do
+        lexeme (char '{')
+        args <- sepBy parse_term (lexeme (char ','))
+        lexeme (char '}')
+        return (Ctr (name_to_int k) args)
+    , case k of
+        "F" -> return Fal
+        "T" -> return Tru
+        _   -> pfail
     ]
 
 parse_nil :: ReadP Term
@@ -531,11 +558,6 @@ take_sub e k = taker (env_sub_map e) k
 make_dup :: Env -> Name -> Lab -> Term -> IO ()
 make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
 
-make_auto_dup :: Env -> Name -> Lab -> Term -> IO ()
-make_auto_dup e k l v = do
-  k <- fresh e
-  make_dup e k l v
-
 subst :: Env -> Name -> Term -> IO ()
 subst e k v = modifyIORef' (env_sub_map e) (IM.insert k v)
 
@@ -547,6 +569,13 @@ clone e l v = do
   k <- fresh e
   make_dup e k l v
   return $ (Cop 0 k , Cop 1 k)
+
+clone_list :: Env -> Lab -> [Term] -> IO ([Term], [Term])
+clone_list e l []     = return ([], [])
+clone_list e l (t:ts) = do
+  (t0, t1)   <- clone e l t
+  (ts0, ts1) <- clone_list e l ts
+  return (t0:ts0, t1:ts1)
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -595,6 +624,8 @@ wnf e term = do
             Nil   -> wnf_dup_nil s e k l v
             Con{} -> wnf_dup_con s e k l v
             Mat{} -> wnf_dup_mat s e k l v
+            Ctr{} -> wnf_dup_ctr s e k l v
+            Pat{} -> wnf_dup_pat s e k l v
             _     -> return (Dup k l v (Cop s k))
         Nothing     -> do
           wnf_cop s e k
@@ -650,6 +681,13 @@ wnf e term = do
             Nil   -> wnf_app_mat_nil e f x
             Con{} -> wnf_app_mat_con e f x
             _     -> return (App f x)
+        Pat k h m -> do
+          x <- wnf e x
+          case x of
+            Era      -> wnf_app_pat_era e f x
+            Sup{}    -> wnf_app_pat_sup e f x
+            Ctr k' a -> wnf_app_pat_ctr e f k h m k' a
+            _        -> return (App f x)
         Gua f g  -> do
           g <- wnf e g
           case g of
@@ -672,14 +710,14 @@ wnf e term = do
                 Sup{} -> wnf_app_gua_get_sup e f c x
                 Tup{} -> wnf_app_gua_get_tup e f c x
                 Gua{} -> wnf_app_gua_gua e f g x
-                _     -> return (App (Gua f g) x)
+                _     -> return (App f x)
             Efq     -> do
               x <- wnf e x
               case x of
                 Era   -> wnf_app_gua_efq_era e f x
                 Sup{} -> wnf_app_gua_efq_sup e f x
                 Gua{} -> wnf_app_gua_gua e f g x
-                _     -> return (App (Gua f g) x)
+                _     -> return (App f x)
             Use u   -> do
               x <- wnf e x
               case x of
@@ -687,7 +725,7 @@ wnf e term = do
                 Sup{} -> wnf_app_gua_use_sup e f u x
                 One   -> wnf_app_gua_use_one e f u x
                 Gua{} -> wnf_app_gua_gua e f g x
-                _     -> return (App (Gua f g) x)
+                _     -> return (App f x)
             If ft ff -> do
               x <- wnf e x
               case x of
@@ -696,7 +734,7 @@ wnf e term = do
                 Fal   -> wnf_app_gua_if_fal e f ft ff x
                 Tru   -> wnf_app_gua_if_tru e f ft ff x
                 Gua{} -> wnf_app_gua_gua e f g x
-                _     -> return (App (Gua f g) x)
+                _     -> return (App f x)
             Mat n c  -> do
               x <- wnf e x
               case x of
@@ -705,9 +743,17 @@ wnf e term = do
                 Nil   -> wnf_app_gua_mat_nil e f n c x
                 Con{} -> wnf_app_gua_mat_con e f n c x
                 Gua{} -> wnf_app_gua_gua e f g x
-                _     -> return (App (Gua f g) x)
+                _     -> return (App f x)
+            Pat k h m -> do
+              x <- wnf e x
+              case x of
+                Era      -> wnf_app_gua_pat_era e f x
+                Sup{}    -> wnf_app_gua_pat_sup e f k h m x
+                Ctr k' a -> wnf_app_gua_pat_ctr e f k h m k' a
+                Gua{}    -> wnf_app_gua_gua e f g x
+                _        -> return (App f x)
             Gua{}    -> wnf_app_gua_gua e f g x
-            _        -> return (App (Gua f g) x)
+            _        -> return (App f x)
         _       -> return (App f x)
     And a b -> do
       a <- wnf e a
@@ -753,6 +799,8 @@ wnf e term = do
               (Nil    , Nil)     -> wnf_eql_nil_nil e a b
               (Con{}  , Con{})   -> wnf_eql_con_con e a b
               (Mat{}  , Mat{})   -> wnf_eql_mat_mat e a b
+              (Ctr{}  , Ctr{})   -> wnf_eql_ctr_ctr e a b
+              (Pat{}  , Pat{})   -> wnf_eql_pat_pat e a b
               (Nam{}  , Nam{})   -> wnf_eql_nam_nam e a b
               (Dry{}  , Dry{})   -> wnf_eql_dry_dry e a b
               _                  -> wnf_eql_default e a b
@@ -921,6 +969,29 @@ wnf_dup_con i e k l (Con h tr) = wnf_dup_2 i e k l h tr Con
 wnf_dup_mat :: WnfDup
 wnf_dup_mat i e k l (Mat n c) = wnf_dup_2 i e k l n c Mat
 
+wnf_dup_ctr :: WnfDup
+wnf_dup_ctr i e k l (Ctr kn args) = do
+  inc_inters e
+  (argsA, argsB) <- clone_list e l args
+  if i == 0 then do
+    subst e k (Ctr kn argsB)
+    wnf e (Ctr kn argsA)
+  else do
+    subst e k (Ctr kn argsA)
+    wnf e (Ctr kn argsB)
+
+wnf_dup_pat :: WnfDup
+wnf_dup_pat i e k l (Pat kn h m) = do
+  inc_inters e
+  (hA, hB) <- clone e l h
+  (mA, mB) <- clone e l m
+  if i == 0 then do
+    subst e k (Pat kn hB mB)
+    wnf e (Pat kn hA mA)
+  else do
+    subst e k (Pat kn hA mA)
+    wnf e (Pat kn hB mB)
+
 wnf_app_era :: Env -> Term -> Term -> IO Term
 wnf_app_era e Era v = do
   inc_inters e
@@ -1053,6 +1124,26 @@ wnf_app_mat_con :: Env -> Term -> Term -> IO Term
 wnf_app_mat_con e (Mat n c) (Con h t) = do
   inc_inters e
   wnf e (App (App c h) t)
+
+wnf_app_pat_era :: Env -> Term -> Term -> IO Term
+wnf_app_pat_era e f Era = do
+  inc_inters e
+  wnf e Era
+
+wnf_app_pat_sup :: Env -> Term -> Term -> IO Term
+wnf_app_pat_sup e (Pat k h m) (Sup l x y) = do
+  inc_inters e
+  (h0, h1) <- clone e l h
+  (m0, m1) <- clone e l m
+  wnf e (Sup l (App (Pat k h0 m0) x) (App (Pat k h1 m1) y))
+
+wnf_app_pat_ctr :: Env -> Term -> Int -> Term -> Term -> Int -> [Term] -> IO Term
+wnf_app_pat_ctr e f k h m k' args = do
+  inc_inters e
+  if k == k' then do
+    wnf e (foldl' App h args)
+  else do
+    wnf e (App m (Ctr k' args))
 
 wnf_app_gua_era :: Env -> Term -> Term -> Term -> IO Term
 wnf_app_gua_era e f Era a = do
@@ -1201,6 +1292,31 @@ wnf_app_gua_mat_con e f n c (Con h t) = do
   tV <- fresh e
   let fn = Lam hV (Lam tV (App f (Con (Var hV) (Var tV))))
   wnf e (App (App (Gua fn c) h) t)
+
+wnf_app_gua_pat_era :: Env -> Term -> Term -> IO Term
+wnf_app_gua_pat_era e f x = do
+  inc_inters e
+  wnf e Era
+
+wnf_app_gua_pat_sup :: Env -> Term -> Int -> Term -> Term -> Term -> IO Term
+wnf_app_gua_pat_sup e f k h m (Sup l x y) = do
+  inc_inters e
+  (f0, f1) <- clone e l f
+  (h0, h1) <- clone e l h
+  (m0, m1) <- clone e l m
+  wnf e (Sup l (App (Gua f0 (Pat k h0 m0)) x) (App (Gua f1 (Pat k h1 m1)) y))
+
+wnf_app_gua_pat_ctr :: Env -> Term -> Int -> Term -> Term -> Int -> [Term] -> IO Term
+wnf_app_gua_pat_ctr e f k h m k' args = do
+  inc_inters e
+  vars <- mapM (\_ -> fresh e) args
+  let vs = map Var vars
+  let fn = foldr Lam (App f (Ctr k' vs)) vars
+  if k == k' then do
+    wnf e (foldl' App (Gua fn h) args)
+  else do
+    let mn = foldr Lam (App m (Ctr k' vs)) vars
+    wnf e (foldl' App (Gua fn mn) args)
 
 wnf_and_era :: Env -> Term -> Term -> IO Term
 wnf_and_era e Era b = do
@@ -1374,6 +1490,24 @@ wnf_eql_mat_mat :: WnfEql
 wnf_eql_mat_mat e (Mat an ac) (Mat bn bc) = do
   inc_inters e
   wnf e (And (Eql an bn) (Eql ac bc))
+
+wnf_eql_ctr_ctr :: WnfEql
+wnf_eql_ctr_ctr e (Ctr k args1) (Ctr l args2) = do
+  inc_inters e
+  if k == l && length args1 == length args2 then do
+    let pairs = zip args1 args2
+    let term = foldr (\(a,b) acc -> And (Eql a b) acc) Tru pairs
+    wnf e term
+  else
+    wnf e Fal
+
+wnf_eql_pat_pat :: WnfEql
+wnf_eql_pat_pat e (Pat k h1 m1) (Pat l h2 m2) = do
+  inc_inters e
+  if k == l then
+    wnf e (And (Eql h1 h2) (Eql m1 m2))
+  else
+    wnf e Fal
 
 wnf_eql_nam_nam :: WnfEql
 wnf_eql_nam_nam e (Nam x) (Nam y) = do
@@ -1550,6 +1684,15 @@ alloc e term = go IM.empty term where
     k' <- fresh e
     f' <- go (IM.insert k k' m) f
     return $ Lam k' f'
+    
+  go m (Ctr k args) = do
+    args' <- mapM (go m) args
+    return $ Ctr k args'
+
+  go m (Pat k h miss) = do
+    h' <- go m h
+    miss' <- go m miss
+    return $ Pat k h' miss'
 
 -- Normalization
 -- =============
@@ -1699,6 +1842,15 @@ snf e d x = do
       n' <- snf e d n
       c' <- snf e d c
       return $ Mat n' c'
+      
+    Ctr k args -> do
+      args' <- mapM (snf e d) args
+      return $ Ctr k args'
+
+    Pat k h m -> do
+      h' <- snf e d h
+      m' <- snf e d m
+      return $ Pat k h' m'
 
 -- Collapsing
 -- ==========
@@ -1856,6 +2008,18 @@ collapse e x = do
       n' <- collapse e n
       c' <- collapse e c
       inject e (Lam nV (Lam cV (Mat (Var nV) (Var cV)))) (Con n' (Con c' Nil))
+      
+    Ctr k args -> do
+      vs <- mapM (\_ -> fresh e) args
+      as <- mapM (collapse e) args
+      inject e (foldr Lam (Ctr k (map Var vs)) vs) (foldr Con Nil as)
+
+    Pat k h m -> do
+      hV <- fresh e
+      mV <- fresh e
+      h' <- collapse e h
+      m' <- collapse e m
+      inject e (Lam hV (Lam mV (Pat k (Var hV) (Var mV)))) (Con h' (Con m' Nil))
 
     x -> do
       return $ x
@@ -1886,8 +2050,9 @@ flatten :: Term -> [Term]
 flatten term = bfs [term] [] where
   bfs []     acc = reverse acc
   bfs (t:ts) acc = case t of
-    Sup _ a b -> bfs (ts ++ [a, b]) acc
-    _         -> bfs ts (t : acc)
+    Sup _ a b  -> bfs (ts ++ [a, b]) acc
+    Ctr _ args -> bfs (ts ++ args) acc
+    _          -> bfs ts (t : acc)
 
 -- Tests
 -- =====
@@ -1899,32 +2064,133 @@ f n = "λf." ++ dups ++ final where
   dup i = "!F" ++ pad i ++ "&A=λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));"
   final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
   pad x = if x < 10 then "0" ++ show x else show x
+-- 
+-- book :: String
+-- book = unlines
+--   [ "@T   = λt. λf. t"
+--   , "@F   = λt. λf. f"
+--   , "@NOT = λb. λt. λf. (b f t)"
+--   , "@ADD = λa. λb. λs. λz. !S&B=s; (a S₀ (b S₁ z))"
+--   , "@MUL = λa. λb. λs. λz. (a (b s) z)"
+--   , "@EXP = λa. λb. (b a)"
+--   , "@C1  = λs. λx. (s x)"
+--   , "@K1  = λs. λx. (s x)"
+--   , "@C2  = λs. !S0&C=s; λx0.(S0₀ (S0₁ x0))"
+--   , "@K2  = λs. !S0&K=s; λx0.(S0₀ (S0₁ x0))"
+--   , "@C4  = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); λx1.(S1₀ (S1₁ x1))"
+--   , "@K4  = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+--   , "@C8  = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); !S2&C=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+--   , "@K8  = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+--   , "@id  = ^id ~> λa.a"
+--   , "@not = ^not ~> λ{0:1+0;1+:λp.0}"
+--   , "@dbl = ^dbl ~> λ{0:0;1+:λp.1+1+(@dbl p)}"
+--   , "@and = ^and ~> λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
+--   , "@add = ^add ~> λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
+--   , "@sum = ^sum ~> λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
+--   , "@foo = ^foo ~> &L{λx.x,λ{0:0;1+:λp.p}}"
+--   , "@gen = ^gen ~> !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
+--   , "@prd = ^prd ~> λ{0:0;1+:λp.p}"
+--   ]
+-- 
+-- tests :: [(String,String)]
+-- tests =
+--   [ ("0", "0")
+--   , ("(@not 0)", "1")
+--   , ("(@not 1+0)", "0")
+--   , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
+--   , ("(@and 0 0)", "0")
+--   , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
+--   , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
+--   , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
+--   , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
+--   , ("λx.(@and 0 x)", "λa.(and 0 a)")
+--   , ("λx.(@and x 0)", "λa.(and a 0)")
+--   , ("(@sum 1+1+1+0)", "6")
+--   , ("λx.(@sum 1+1+1+x)", "λa.3+(add a 2+(add a 1+(add a (sum a))))")
+--   , ("(@foo 0)", "&L{0,0}")
+--   , ("(@foo 1+1+1+0)", "&L{3,2}")
+--   , ("λx.(@dbl 1+1+x)", "λa.4+(dbl a)")
+--   , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
+--   , ("1+&L{0,1}", "&L{1,2}")
+--   , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+--   , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+--   , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+--   , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+--   , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+--   , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+--   , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+--   , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(gen a)},&E{λ{0:0;1+:λa.1+(gen a)},λ{0:0;1+:λa.2+(gen a)}}},&D{λ{0:1;1+:λa.(gen a)},&E{λ{0:1;1+:λa.1+(gen a)},λ{0:1;1+:λa.2+(gen a)}}}}}")
+--   , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(gen a),&E{λa.2+(gen a),λa.4+(gen a)}}}")
+--   , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
+--   , ("!f&DUP=@prd; (f₀ (f₁ 0))", "0")
+--   , ("2 == 2", "#T")
+--   , ("3 == 2", "#F")
+--   , ("(λa.λb.a) == (λx.λy.x)", "#T")
+--   , ("(λa.λb.a) == (λx.λy.y)", "#F")
+--   , ("(λx.2+x) == (λy.2+y)", "#T")
+--   , ("(λx.3+x) == (λy.2+y)", "#F")
+--   , ("#F && #F", "#F")
+--   , ("#F && #T", "#F")
+--   , ("#T && #F", "#F")
+--   , ("#T && #T", "#T")
+--   , ("(λt.(t (λa.2+a) (λb.2+b))) == (λu.(u (λx.2+x) (λy.2+y)))", "#T")
+--   , ("(λt.(t (λa.2+a) (λb.2+b))) == (λu.(u (λx.2+x) (λy.3+y)))", "#F")
+--   , ("(@NOT @T)", "λa.λb.b")
+--   , ("(@NOT (@NOT @T))", "λa.λb.a")
+--   , ("(@C2 @NOT @T)", "λa.λb.a")
+--   , ("@C2", "λa.λb.(a (a b))")
+--   , ("(@ADD @C2 @C1)", "λa.λb.(a (a (a b)))")
+--   , ("(@ADD @C1 λf.λx.(f x) @NOT)", "λa.λb.λc.(a b c)")
+--   , ("(@ADD @C1 @C1 @NOT)", "λa.λb.λc.(a b c)")
+--   , ("(@ADD @C2 @C2)", "λa.λb.(a (a (a (a b))))")
+--   , ("(@ADD @C4 @C1)", "λa.λb.(a (a (a (a (a b)))))")
+--   , ("(@ADD @C1 @C4)", "λa.λb.(a (a (a (a (a b)))))")
+--   , ("(@ADD @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
+--   , ("(@ADD @C1 @C4 @NOT @T)", "λa.λb.b")
+--   , ("(@ADD @C4 @C1 @NOT @T)", "λa.λb.b")
+--   , ("(@ADD @C2 @C4 @NOT @T)", "λa.λb.a")
+--   , ("(@ADD @C4 @C2 @NOT @T)", "λa.λb.a")
+--   , ("(@MUL @C4 @C2)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
+--   , ("(@MUL @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
+--   , ("(@MUL @C4 @C2 @NOT @T)", "λa.λb.a")
+--   , ("(@MUL @C4 @C4 @NOT @T)", "λa.λb.a")
+--   , ("(@EXP @C4 @K2)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
+--   , ("(@C8 @K8 @NOT @T)", "λa.λb.a")
+--   ]
+
+-- TODO: include new tests for Pat/Ctr tests. implement the exact same
+-- algorithms we implemented using native constructors, but now with Ctr.
+-- keep the old tests as they were
 
 book :: String
 book = unlines
-  [ "@T   = λt. λf. t"
-  , "@F   = λt. λf. f"
-  , "@NOT = λb. λt. λf. (b f t)"
-  , "@ADD = λa. λb. λs. λz. !S&B=s; (a S₀ (b S₁ z))"
-  , "@MUL = λa. λb. λs. λz. (a (b s) z)"
-  , "@EXP = λa. λb. (b a)"
-  , "@C1  = λs. λx. (s x)"
-  , "@K1  = λs. λx. (s x)"
-  , "@C2  = λs. !S0&C=s; λx0.(S0₀ (S0₁ x0))"
-  , "@K2  = λs. !S0&K=s; λx0.(S0₀ (S0₁ x0))"
-  , "@C4  = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); λx1.(S1₀ (S1₁ x1))"
-  , "@K4  = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@C8  = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); !S2&C=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@K8  = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@id  = ^id ~> λa.a"
-  , "@not = ^not ~> λ{0:1+0;1+:λp.0}"
-  , "@dbl = ^dbl ~> λ{0:0;1+:λp.1+1+(@dbl p)}"
-  , "@and = ^and ~> λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
-  , "@add = ^add ~> λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
-  , "@sum = ^sum ~> λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
-  , "@foo = ^foo ~> &L{λx.x,λ{0:0;1+:λp.p}}"
-  , "@gen = ^gen ~> !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
-  , "@prd = ^prd ~> λ{0:0;1+:λp.p}"
+  [ "@T    = λt. λf. t"
+  , "@F    = λt. λf. f"
+  , "@NOT  = λb. λt. λf. (b f t)"
+  , "@ADD  = λa. λb. λs. λz. !S&B=s; (a S₀ (b S₁ z))"
+  , "@MUL  = λa. λb. λs. λz. (a (b s) z)"
+  , "@EXP  = λa. λb. (b a)"
+  , "@C1   = λs. λx. (s x)"
+  , "@K1   = λs. λx. (s x)"
+  , "@C2   = λs. !S0&C=s; λx0.(S0₀ (S0₁ x0))"
+  , "@K2   = λs. !S0&K=s; λx0.(S0₀ (S0₁ x0))"
+  , "@C4   = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); λx1.(S1₀ (S1₁ x1))"
+  , "@K4   = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+  , "@C8   = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); !S2&C=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+  , "@K8   = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
+  , "@id   = ^id ~> λa.a"
+  , "@not  = ^not ~> λ{0:1+0;1+:λp.0}"
+  , "@dbl  = ^dbl ~> λ{0:0;1+:λp.1+1+(@dbl p)}"
+  , "@and  = ^and ~> λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}"
+  , "@add  = ^add ~> λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
+  , "@sum  = ^sum ~> λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
+  , "@foo  = ^foo ~> &L{λx.x,λ{0:0;1+:λp.p}}"
+  , "@gen  = ^gen ~> !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
+  , "@prd  = ^prd ~> λ{0:0;1+:λp.p}"
+  , "@ZN   = #Z{}"
+  , "@SN   = λn. #S{n}"
+  , "@addC = ^addC ~> λ{#Z:λb.b;λ{#S:λa.λb.#S{(@addC a b)}&{}}}"
+  , "@sumC = ^sumC ~> λ{#Z:#Z{};λ{#S:λp.!P&S=p;#S{(@addC P₀ (@sumC P₁))};&{}}}"
   ]
 
 tests :: [(String,String)]
@@ -1991,6 +2257,9 @@ tests =
   , ("(@MUL @C4 @C4 @NOT @T)", "λa.λb.a")
   , ("(@EXP @C4 @K2)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
   , ("(@C8 @K8 @NOT @T)", "λa.λb.a")
+  , ("(@addC #S{#S{#Z{}}} #S{#S{#Z{}}})", "#S{#S{#S{#S{#Z{}}}}}")
+  , ("(@sumC #S{#S{#S{#Z{}}}})", "#S{#S{#S{#S{#S{#S{#Z{}}}}}}}")
+  , ("λx.(@sumC #S{#S{#S{x}}})", "λa.#S{#S{#S{(addC a #S{#S{(addC a #S{(addC a (sumC a))})}})}}}")
   ]
 
 test :: IO ()
