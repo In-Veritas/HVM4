@@ -1,3 +1,3 @@
 #import "_book_.hvm4"
-@main = @c_8(@c_8b, @c_not, @c_tru)
+@main = @c8(@c8b, @cnot, @ctru)
 //λa.λb.a

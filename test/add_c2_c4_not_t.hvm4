@@ -1,3 +1,0 @@
-#import "_book_.hvm4"
-@main = @c_add(@c_2, @c_4, @c_not, @c_tru)
-//λa.λb.a
