@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns, CPP #-}
+
 #include "hvm4.hs"
 
 -- Evaluation
