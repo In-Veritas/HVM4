@@ -270,10 +270,16 @@ parse_declaration = choice
   , uncurry Define <$> parse_function
   ]
 
+do_parse :: ReadP a -> String -> Maybe a
+do_parse parser code =
+  case readP_to_S (parser <* skip <* eof) code of
+    (x, "") : _ -> Just x
+    _           -> Nothing
+
 read_term :: String -> Term
-read_term s = case readP_to_S (parse_term <* skip <* eof) s of
-  [(t, "")] -> bruijn t
-  _         -> error "bad-parse"
+read_term s = case do_parse parse_term s of
+  Just t  -> bruijn t
+  Nothing -> error "bad-parse"
 
 read_book :: FilePath -> IO Book
 read_book path = do
@@ -287,9 +293,9 @@ load_book visited path = do
     return M.empty
   else do
     code <- readFile path
-    decs <- case readP_to_S (many parse_declaration <* skip <* eof) code of
-      ((x, ""):_) -> return x
-      _           -> fail $ "Parse error in " ++ path
+    decs <- case do_parse (many parse_declaration) code of
+      Just x  -> return x
+      Nothing -> fail $ "Parse error in " ++ path
     foldM go M.empty decs
   where
     go defs (Define k v) = do
