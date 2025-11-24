@@ -392,6 +392,32 @@ static int is_name_char(char c) {
 // Stringifier
 // ===========
 
+typedef struct {
+  u32 loc;
+  u32 name;
+} SBind;
+
+static SBind SHOW_STACK_BUF[16384];
+static u32   SHOW_STACK_LEN = 0;
+static u32   SHOW_VAR_DEPTH = 1;
+
+static void show_bind_push(u32 loc, u32 name) {
+  SHOW_STACK_BUF[SHOW_STACK_LEN++] = (SBind){loc, name};
+}
+
+static void show_bind_pop() {
+  SHOW_STACK_LEN--;
+}
+
+static u32 show_bind_lookup(u32 loc) {
+  for (int i = SHOW_STACK_LEN - 1; i >= 0; i--) {
+    if (SHOW_STACK_BUF[i].loc == loc) {
+      return SHOW_STACK_BUF[i].name;
+    }
+  }
+  return 0;
+}
+
 static void print_name(u32 n) {
   if (n < 64) {
     putchar(alphabet[n]);
@@ -401,10 +427,18 @@ static void print_name(u32 n) {
   }
 }
 
+static void print_term_go(Term term);
+
 static void print_term(Term term) {
+  SHOW_STACK_LEN = 0;
+  SHOW_VAR_DEPTH = 1;
+  print_term_go(term);
+}
+
+static void print_term_go(Term term) {
   switch (tag_of(term)) {
     case VAR: {
-      print_name(val_of(term));
+      print_name(show_bind_lookup(val_of(term)));
       break;
     }
     case REF: {
@@ -422,21 +456,24 @@ static void print_term(Term term) {
       break;
     }
     case CO0: {
-      print_name(val_of(term));
+      print_name(show_bind_lookup(val_of(term)));
       printf("₀");
       break;
     }
     case CO1: {
-      print_name(val_of(term));
+      print_name(show_bind_lookup(val_of(term)));
       printf("₁");
       break;
     }
     case LAM: {
-      u32 loc = val_of(term);
+      u32 loc  = val_of(term);
+      u32 name = SHOW_VAR_DEPTH++;
       printf("λ");
-      print_name(lab_of(term));
+      print_name(name);
       printf(".");
-      print_term(HEAP[loc]);
+      show_bind_push(loc, name);
+      print_term_go(HEAP[loc]);
+      show_bind_pop();
       break;
     }
     case APP:
@@ -451,15 +488,15 @@ static void print_term(Term term) {
       }
       if (tag_of(curr) == LAM) {
         printf("(");
-        print_term(curr);
+        print_term_go(curr);
         printf(")");
       } else {
-        print_term(curr);
+        print_term_go(curr);
       }
       printf("(");
       for (u32 i = 0; i < len; i++) {
         if (i > 0) printf(",");
-        print_term(spine[len - 1 - i]);
+        print_term_go(spine[len - 1 - i]);
       }
       printf(")");
       break;
@@ -469,20 +506,25 @@ static void print_term(Term term) {
       printf("&");
       print_name(lab_of(term));
       printf("{");
-      print_term(HEAP[loc]);
+      print_term_go(HEAP[loc]);
       printf(",");
-      print_term(HEAP[loc+1]);
+      print_term_go(HEAP[loc+1]);
       printf("}");
       break;
     }
     case DUP: {
       u32 loc = val_of(term);
-      printf("!_&");
+      u32 name = SHOW_VAR_DEPTH++;
+      printf("!");
+      print_name(name);
+      printf("&");
       print_name(lab_of(term));
       printf("=");
-      print_term(HEAP[loc]);
+      print_term_go(HEAP[loc]);
       printf(";");
-      print_term(HEAP[loc+1]);
+      show_bind_push(loc, name);
+      print_term_go(HEAP[loc+1]);
+      show_bind_pop();
       break;
     }
     case MAT: {
@@ -490,9 +532,9 @@ static void print_term(Term term) {
       printf("λ{#");
       print_name(lab_of(term));
       printf(":");
-      print_term(HEAP[loc]);
+      print_term_go(HEAP[loc]);
       printf(";");
-      print_term(HEAP[loc+1]);
+      print_term_go(HEAP[loc+1]);
       printf("}");
       break;
     }
@@ -508,7 +550,7 @@ static void print_term(Term term) {
       printf("{");
       for (u32 i = 0; i < arity; i++) {
         if (i > 0) printf(",");
-        print_term(HEAP[loc+i]);
+        print_term_go(HEAP[loc+i]);
       }
       printf("}");
       break;
@@ -528,11 +570,11 @@ static void print_term(Term term) {
         u64 pair = HEAP[loc+1+idx];
         u32 bind = (i % 2 == 0) ? (pair & 0xFFFFFFFF) : (pair >> 32);
         if (bind != 0 || i < size - 1) {
-          print_name(bind);
+          print_name(show_bind_lookup(bind));
         }
       }
       printf("}");
-      print_term(HEAP[loc]);
+      print_term_go(HEAP[loc]);
       break;
     }
   }
@@ -557,24 +599,24 @@ typedef struct {
   u32 name;
   u32 loc;
   u32 lab;
-} Bind;
+} PBind;
 
-static Bind BIND_STACK[65536];
+static PBind BIND_STACK[65536];
 static u32  BIND_TOP = 0;
 
 static void bind_push(u32 name, u32 loc, u32 lab) {
-  BIND_STACK[BIND_TOP++] = (Bind){name, loc, lab};
+  BIND_STACK[BIND_TOP++] = (PBind){name, loc, lab};
 }
 
 static void bind_pop() {
   BIND_TOP--;
 }
 
-static Bind bind_lookup(u32 name) {
+static PBind bind_lookup(u32 name) {
   for (int i = BIND_TOP - 1; i >= 0; i--) {
     if (BIND_STACK[i].name == name) return BIND_STACK[i];
   }
-  return (Bind){0, (u32)-1, 0};
+  return (PBind){0, (u32)-1, 0};
 }
 
 static void parse_error(State *s, const char *expected, char detected) {
@@ -787,7 +829,7 @@ static Term parse_par(State *s) {
 static Term parse_var(State *s) {
   skip(s);
   u32 name = parse_name(s);
-  Bind bind = bind_lookup(name);
+  PBind bind = bind_lookup(name);
   u32 loc = bind.loc != (u32)-1 ? bind.loc : name;
   skip(s);
   if (match(s, "₀")) {
@@ -1056,11 +1098,11 @@ int main() {
   BOOK      = calloc(BOOK_CAP, sizeof(Term));
   STACK_BUF = calloc(STACK_CAP, sizeof(Term));
   STACK_TAG = calloc(STACK_CAP, sizeof(u8));
-  
+
   if (!HEAP || !BOOK || !STACK_BUF || !STACK_TAG) {
     error("Memory allocation failed");
   }
-  
+
   // The source code with all definitions
   const char *source = 
     "@ctru = λt. λf. t\n"
@@ -1080,8 +1122,8 @@ int main() {
     "@mul2 = λ{#Z:#Z{}; λ{#S:λp.#S{#S{@mul2(p)}}; &{}}}\n"
     "@add  = λ{#Z:λb.b; λ{#S:λa.λb.#S{@add(a, b)}; &{}}}\n"
     "@sum  = λ{#Z:#Z{}; λ{#S:λp.!P&S=p;#S{@add(P₀, @sum(P₁))}; &{}}}\n"
-    "@main = (@c2 @c2b)\n";
-  
+    "@main = @c2(@c2b)\n";
+
   // Create a parser state
   State s = {
     .file = "inline",
@@ -1091,10 +1133,10 @@ int main() {
     .line = 1,
     .col = 1
   };
-  
+
   // Parse all definitions
   parse_def(&s);
-  
+
   // Print all definitions
   const char *names[] = {
     "ctru",
@@ -1116,27 +1158,25 @@ int main() {
     "sum",
     "main"
   };
-  
+
   for (int i = 0; i < sizeof(names)/sizeof(names[0]); i++) {
     u32 name_val = 0;
     for (const char *p = names[i]; *p; p++) {
       name_val = ((name_val << 6) + char_to_b64(*p)) & LAB_MASK;
     }
-    
+
     if (BOOK[name_val] != 0) {
       printf("@%s = ", names[i]);
       print_term(BOOK[name_val]);
       printf("\n");
     }
   }
-  
+
   // Clean up
   free(HEAP);
   free(BOOK);
   free(STACK_BUF);
   free(STACK_TAG);
-  
+
   return 0;
 }
-
-
