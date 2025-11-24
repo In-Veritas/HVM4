@@ -1,102 +1,83 @@
-// Your goal is to port HVM4 from Haskell (as above) to C, including:
-// - a stringifier for HVM4 terms, fully compatible with the Haskell version
-// - a parser for HVM4 terms, fully compatible with the Haskell version
-// - a stack-based wnf function for HVM4 terms (important: don't use recursion on wnf)
-// - all interactions: app_lam, app_sup, dup_lam, etc.
+// HVM4 Runtime Implementation in C
+// =================================
 //
-// the bit layout of the Term pointer must be:
-// - 1 bit  : sub (is this heap slot a substitution entry?)
-// - 7 bit  : tag (the constructor variant: APP, LAM, etc.)
-// - 24 bit : ext (the dup label, or the ctr name)
-// - 32 bit : val (the node address on the heap, or unboxed value)
+// This file implements the HVM4, an Interaction Calculus runtime, ported from
+// Haskell. It includes parsing, stringification, and a stack-based weak normal
+// form (WNF) evaluator with all interaction rules.
 //
-// for Cop, use two tags: CO0 (meaning COP 0) and CO1 (meaning COP 1)
-// 
-// notes:
+// Term Pointer Layout (64-bit)
+// ----------------------------
+// | SUB  (1 bit)   ::= marks heap slot as containing a substitution
+// | TAG  (7 bits)  ::= constructor variant (APP, LAM, SUP, etc.)
+// | EXT  (24 bits) ::= dup label, ctr name, or ref name
+// | VAL  (32 bits) ::= heap address or unboxed value
 //
-// - on Ctr, we store the constructor name on the Ext field, and we store the
-// arity on the TAG field itself, using CTR+0, CTR+1, CTR+2, etc., up to 16
-// 
-// - variable names use 6 letters strings in the base64 alphabet (thus, 24-bit,
-// which fits in the Ext field of a Term). same for constructor names. note that
-// var names are used just for parsing; they're removed entirely from the
-// runtime (i.e., post bruijn()). the EXT field of a LAM/VAR is 0, the EXT field
-// of a CO0/CO1/DUP is the dup label. the val field of a VAR/CO0/CO1's points to
-// the binding LAM/DUP node on the heap.
-// 
-// - we do NOT include a 'dups' map or a 'subs' map. instead, we just store dup
-// nodes directly on the heap (so, for example, CO0 and CO1 point to a "dup
-// node", which holds just 1 slot, the dup'd expression (the label is stored on
-// CO0/CO1). similarly, we store subsitutions directly on the heap: when we do
-// an app_lam interaction, we store the substitution where the lam's body; when
-// we do a dup interaction, we store the substitution where the dup'd expr was;
-// to distinguish substitutions and actual terms (otherwise a VAR/CO0/CO1
-// wouldn't be able to tell whether the term it is pointing to is its binding
-// LAM/DUP node, or a substitution that took place), we reserve a bit on the
-// Term pointer, the SUB bit, for that)
-// 
-// - Alo terms have 2 fields: the allocated Term, and the bind map, which maps
-// bruijn levels to the index of the binding LAM or DUP. so, for example, if
-// bind_map[3] = 123, that means that the VAR with bruijn level 3 is related to
-// a LAM, whose body is stored on index 123. we store bind_map directly on the
-// heap, compacting two 32-bit locations per 64-bit HEAP word. we store the len
-// of the bind_map on the ext field of the ALO Term pointer.
-// 
-// - we do de bruijn conversion before storing on Book, so, there will never be
-// a naming conflict (stored book terms are always sanitized with fresh vars).
-// 
-// - a clarification about the match syntax: when parsing `λ{#A:x; #B:y; z}`,
-// the parser must construct a nested chain of `Mat` nodes on the heap (e.g.,
-// `Mat A x (Mat B y z)`), and the final term (last default case), if absent, is
-// filled with just Era. see the Haskell parser for a reference
-// ex: Mat parses λ{#A:x;#B:y;#C:z} as λ{#A:x;λ{#B:y;λ{#C:z;&{}}}}
-//     Mat parses λ{#A:x;#B:y;#C:z;d} as λ{#A:x;λ{#B:y;λ{#C:z;d}}}
-//     (and so on)
-// 
-// - to avoid recursion on the WNF, we just use a stack.
-// - we alloc, in the stack, the Term we passed through
-// - u32   S_POS: the length of stack
-// - Term* STACK: the stack itself
-// - we add frames for the following terms:
-//   | APP ::= (_ x)
-//   | MAT ::= (λ{#A:h;m} _)
-//   | CO0 ::= F₀ where ! F &L = _
-//   | CO1 ::= F₁ where ! F &L = _
-//   where '_' is the term we enter
-// - we split wnf in two phases:
-// - REDUCE: matches eliminators (like App), pushes to the stack
-// - UNWIND: dispatches interactions (like app_lam) and rebuilds
-// note that in eliminators like Dup and Alo, no stack step is needed, since
-// they immediatelly trigger their respective interactions without sub wnf's
-// 
-// - when matching on term tags, cover the CTR/ALO cases with 'case' expressions;
-// do not use a default to cover them!
-// 
-// - ctrs have a max len of 16 fields
-// 
-// - ALO / NAM / DRY are NOT parseable (they're internal constructs)
-// 
-// - we store entries on the book by their 6-letter, 24-bit names, as parsed.
-// equivalently, the REF pointer stores the name in the 24-bit ext field.
-// 
-// - regarding Alo evaluation: remember that Book entries are Terms. note that
-// book terms are immutable and can't interact with anything, or be copied. an
-// Alo Term points to a Book Term as an immutable pointer. when an Alo
-// interaction takes place, it extracts a layer of the immutable Book Term,
-// converting it into a proper runtime term, and adding the binder to the subst
-// map if it is a Lam/Dup, and generating new Alo's that point to the fields of
-// the original Book Term (without mutating it).
-// 
-// On the BOOK:
-// - VAR: stores 0 on ext, and the bruijn index on the val
-// - CO0/CO1: store the label on ext, and the bruijn index on the val
-// - LAM: stores the bruijn index on the ext, and the lam node index on the val
-// - DUP: stores the bruijn index on the ext, and the dup node index on the val
-// On the RUNTIME (after alloc interactions):
-// - VAR: stores 0 on ext, and the index of the binding lambda's body on the val
-// - CO0/CO1: store the label on ext, and the index of the binding lambda's body on the val
-// - LAM: stores 0 on ext, and the lam node index on the val
-// - DUP: stores 0 on ext, and the dup node index on the val
+// Tag Encoding
+// ------------
+// - CO0/CO1: Two tags for Cop (copy) nodes, representing sides 0 and 1
+// - CT0-CTG: Constructor tags encode arity directly (CT0+n for n fields, max 16)
+// - Names (variable, constructor, reference) use 6-char base64 strings encoded
+//   as 24-bit integers fitting in the EXT field
+//
+// Memory Model (No Separate Maps)
+// -------------------------------
+// Unlike the Haskell version which uses IntMaps for 'dups' and 'subs', this
+// implementation stores everything directly on the heap:
+//
+// - DUP nodes: Stored inline on heap. CO0/CO1 point to a dup node holding the
+//   duplicated expression (label stored in CO0/CO1's EXT field).
+//
+// - Substitutions: Stored where the lambda's body, or duplicator expression,
+//   was. When app_lam fires, the argument replaces the lambda body slot. The
+//   SUB bit distinguishes actual terms from substitutions, allowing VAR, CO0
+//   and CO1 to detect whether their target is a binding node or a subst.
+//
+// Book vs Runtime Term Representation
+// -----------------------------------
+// Book terms (parsed definitions) use de Bruijn indices and are immutable:
+//   - VAR: ext = 0         ; val = bru_index
+//   - CO_: ext = dup_label ; val = bru_index
+//   - LAM: ext = bru_depth ; val = body_location
+//   - DUP: ext = dup_label ; val = expr_location
+//
+// Runtime terms (after ALO allocation) use heap locations:
+//   - VAR : ext = 0         ; val = binding_lam_body_location
+//   - CO_ : ext = dup_label ; val = binding_dup_expr_location
+//   - LAM : ext = 0         ; val = expr_location
+//   - DUP : ext = 0         ; val = expr_location
+//
+// ALO (Allocation) Nodes
+// ----------------------
+// ALO terms reference immutable book entries and lazily convert them to
+// runtime terms. Each ALO stores a pair (bind_list, book_term_loc) packed
+// into a single 64-bit heap word:
+//   - Low 32 bits: book term location
+//   - High 32 bits: bind list head (linked list of binder locations)
+//
+// The bind list maps de Bruijn levels to runtime heap locations of binding
+// LAM/DUP nodes. When an ALO interaction occurs, one layer of the book term
+// is extracted and converted to a runtime term.
+//
+// Stack-Based WNF Evaluator
+// -------------------------
+//   To avoid stack overflow, WNF uses an explicit stack with two phases:
+//
+//   REDUCE phase: Push eliminators onto stack and descend into their targets
+//     - APP: push frame, enter function
+//     - MAT: push frame, enter scrutinee (after MAT reaches head position)
+//     - CO0/CO1: push frame, enter dup'd expression
+//
+//   APPLY phase: Pop frames and dispatch interactions based on WHNF result
+//
+//   DUP and ALO don't push stack frames since they immediately trigger their
+//   respective interactions without requiring sub-WNF results first.
+//
+// Internal-Only Constructs
+// ------------------------
+// These nodes are internal and not parseable:
+// - ALO: lazy alloc
+// - NAM: stuck var
+// - DRY: stuck app
 
 #include <stdio.h>
 #include <stdlib.h>
