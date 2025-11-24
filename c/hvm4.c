@@ -590,7 +590,7 @@ typedef struct {
   u32   len;
   u32   line;
   u32   col;
-} State;
+} PState;
 
 static char *SEEN_FILES[1024];
 static u32   SEEN_COUNT = 0;
@@ -619,7 +619,7 @@ static PBind bind_lookup(u32 name) {
   return (PBind){0, (u32)-1, 0};
 }
 
-static void parse_error(State *s, const char *expected, char detected) {
+static void parse_error(PState *s, const char *expected, char detected) {
   fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
   fprintf(stderr, "- expected: %s\n", expected);
   if (detected == 0) {
@@ -630,9 +630,9 @@ static void parse_error(State *s, const char *expected, char detected) {
   exit(1);
 }
 
-static void parse_def(State *s);
+static void parse_def(PState *s);
 
-static char peek(State *s) {
+static char peek(PState *s) {
   if (s->pos < s->len) {
     return s->src[s->pos];
   } else {
@@ -640,7 +640,7 @@ static char peek(State *s) {
   }
 }
 
-static void next(State *s) {
+static void next(PState *s) {
   if (s->pos < s->len) {
     if (s->src[s->pos] == '\n') {
       s->line++;
@@ -652,7 +652,7 @@ static void next(State *s) {
   }
 }
 
-static int match(State *s, const char *str) {
+static int match(PState *s, const char *str) {
   u32 pos = s->pos;
   const char *pat = str;
   while (*pat) {
@@ -665,7 +665,7 @@ static int match(State *s, const char *str) {
   return 1;
 }
 
-static void skip(State *s) {
+static void skip(PState *s) {
   while (1) {
     char c = peek(s);
     if (isspace(c)) {
@@ -682,14 +682,14 @@ static void skip(State *s) {
   }
 }
 
-static void consume(State *s, const char *str) {
+static void consume(PState *s, const char *str) {
   skip(s);
   if (!match(s, str)) {
     parse_error(s, str, peek(s));
   }
 }
 
-static u32 parse_name(State *s) {
+static u32 parse_name(PState *s) {
   skip(s);
   char c = peek(s);
   if (!is_name_start(c)) {
@@ -705,17 +705,17 @@ static u32 parse_name(State *s) {
   return k;
 }
 
-static Term parse_term(State *s);
-static Term parse_lam(State *s);
-static Term parse_dup(State *s);
-static Term parse_sup(State *s);
-static Term parse_ctr(State *s);
-static Term parse_ref(State *s);
-static Term parse_par(State *s);
-static Term parse_var(State *s);
-static Term parse_app(Term f, State *s);
+static Term parse_term(PState *s);
+static Term parse_lam(PState *s);
+static Term parse_dup(PState *s);
+static Term parse_sup(PState *s);
+static Term parse_ctr(PState *s);
+static Term parse_ref(PState *s);
+static Term parse_par(PState *s);
+static Term parse_var(PState *s);
+static Term parse_app(Term f, PState *s);
 
-static Term parse_mat_body(State *s) {
+static Term parse_mat_body(PState *s) {
   skip(s);
   char c = peek(s);
   if (c == '}') {
@@ -737,7 +737,7 @@ static Term parse_mat_body(State *s) {
   return val;
 }
 
-static Term parse_lam(State *s) {
+static Term parse_lam(PState *s) {
   skip(s);
   if (peek(s) == '{') {
     consume(s, "{");
@@ -754,7 +754,7 @@ static Term parse_lam(State *s) {
   }
 }
 
-static Term parse_dup(State *s) {
+static Term parse_dup(PState *s) {
   u32 name = parse_name(s);
   consume(s, "&");
   u32 lab = parse_name(s);
@@ -771,7 +771,7 @@ static Term parse_dup(State *s) {
   return new_term(0, DUP, lab, (u32)loc);
 }
 
-static Term parse_sup(State *s) {
+static Term parse_sup(PState *s) {
   skip(s);
   if (peek(s) == '{') {
     consume(s, "{");
@@ -789,7 +789,7 @@ static Term parse_sup(State *s) {
   }
 }
 
-static Term parse_ctr(State *s) {
+static Term parse_ctr(PState *s) {
   u32 name = parse_name(s);
   consume(s, "{");
   Term args[16];
@@ -811,7 +811,7 @@ static Term parse_ctr(State *s) {
   return Ctr(name, cnt, args);
 }
 
-static Term parse_ref(State *s) {
+static Term parse_ref(PState *s) {
   skip(s);
   if (peek(s) == '{') {
     parse_error(s, "reference name", peek(s));
@@ -820,13 +820,13 @@ static Term parse_ref(State *s) {
   return Ref(name);
 }
 
-static Term parse_par(State *s) {
+static Term parse_par(PState *s) {
   Term term = parse_term(s);
   consume(s, ")");
   return term;
 }
 
-static Term parse_var(State *s) {
+static Term parse_var(PState *s) {
   skip(s);
   u32 name = parse_name(s);
   PBind bind = bind_lookup(name);
@@ -836,16 +836,15 @@ static Term parse_var(State *s) {
     return new_term(0, CO0, bind.lab, loc);
   } else if (match(s, "₁")) {
     return new_term(0, CO1, bind.lab, loc);
+  } else if (bind.loc != (u32)-1) {
+    return new_term(0, VAR, 0, loc);
   } else {
-    if (bind.loc == (u32)-1) {
-      return Var(name);
-    } else {
-      return new_term(0, VAR, 0, loc);
-    }
+    printf("unbound variable\n");
+    abort();
   }
 }
 
-static Term parse_app(Term f, State *s) {
+static Term parse_app(Term f, PState *s) {
   if (peek(s) != '(') {
     return f;
   }
@@ -878,7 +877,7 @@ static Term parse_app(Term f, State *s) {
   return parse_app(f, s);
 }
 
-static Term parse_term(State *s) {
+static Term parse_term(PState *s) {
   skip(s);
   Term t;
   if (match(s, "λ")) {
@@ -899,9 +898,9 @@ static Term parse_term(State *s) {
   return parse_app(t, s);
 }
 
-static void parse_def(State *s);
+static void parse_def(PState *s);
 
-static void do_include(State *s, char *file) {
+static void do_include(PState *s, char *file) {
   // Resolve relative paths against the including file's directory
   char full_path[1024];
   if (file[0] == '/') {
@@ -917,8 +916,8 @@ static void do_include(State *s, char *file) {
         error("Include path too long");
       }
       memcpy(full_path, s->file, dir_len);
-      full_path[dir_len] = '/';
-      full_path[dir_len + 1] = 0;
+      full_path[dir_len+0] = '/';
+      full_path[dir_len+1] = 0;
       strncat(full_path, file, sizeof(full_path) - dir_len - 1);
     } else {
       snprintf(full_path, sizeof(full_path), "%s", file);
@@ -944,12 +943,12 @@ static void do_include(State *s, char *file) {
   src[len] = 0;
   fclose(fp);
 
-  State new_s = { .file = full_path, .src = src, .pos = 0, .len = len, .line = 1, .col = 1 };
+  PState new_s = { .file = full_path, .src = src, .pos = 0, .len = len, .line = 1, .col = 1 };
   parse_def(&new_s);
   free(src);
 }
 
-static void parse_def(State *s) {
+static void parse_def(PState *s) {
   skip(s);
   if (s->pos >= s->len) {
     return;
@@ -1125,7 +1124,7 @@ int main() {
     "@main = @c2(@c2b)\n";
 
   // Create a parser state
-  State s = {
+  PState s = {
     .file = "inline",
     .src = (char*)source,
     .pos = 0,
