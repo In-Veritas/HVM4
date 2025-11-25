@@ -162,6 +162,27 @@ fn u32 val_of(Term t) {
   return (t >> VAL_SHIFT) & VAL_MASK;
 }
 
+fn u32 arity_of(Term t) {
+  switch (tag_of(t)) {
+    case LAM: {
+      return 1;
+    }
+    case APP:
+    case SUP:
+    case DUP:
+    case MAT:
+    case DRY: {
+      return 2;
+    }
+    case CT0 ... CTG: {
+      return tag_of(t) - CT0;
+    }
+    default: {
+      return 0;
+    }
+  }
+}
+
 fn Term mark_sub(Term t) {
   return t | ((u64)1 << SUB_SHIFT);
 }
@@ -981,54 +1002,25 @@ fn Term dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   }
 }
 
-fn Term dup_ctr(u32 lab, u32 loc, u8 side, Term ctr) {
+fn Term dup_node(u32 lab, u32 loc, u8 side, Term term) {
   ITRS++;
-  u32  ari     = tag_of(ctr) - CT0;
-  u32  ctr_nam = ext_of(ctr);
-  u32  ctr_loc = val_of(ctr);
-  Term args0[16], args1[16];
-  for (u32 i = 0; i < ari; i++) {
-    Copy A    = clone(lab, HEAP[ctr_loc + i]);
-    args0[i]  = A.k0;
-    args1[i]  = A.k1;
+  u32 ari = arity_of(term);
+  if (ari == 0) {
+    HEAP[loc] = mark_sub(term);
+    return term;
   }
-  Term r0 = Ctr(ctr_nam, ari, args0);
-  Term r1 = Ctr(ctr_nam, ari, args1);
-  return subst_dup(side, loc, r0, r1);
-}
-
-fn Term dup_bin(u32 lab, u32 loc, u8 side, Term term) {
-  ITRS++;
   u32  t_loc = val_of(term);
   u32  t_ext = ext_of(term);
   u8   t_tag = tag_of(term);
-  Copy A = clone(lab, HEAP[t_loc + 0]);
-  Copy B = clone(lab, HEAP[t_loc + 1]);
-  Term r0, r1;
-  switch (t_tag) {
-    case MAT: {
-      r0 = Mat(t_ext, A.k0, B.k0);
-      r1 = Mat(t_ext, A.k1, B.k1);
-      break;
-    }
-    case DRY: {
-      r0 = Dry(A.k0, B.k0);
-      r1 = Dry(A.k1, B.k1);
-      break;
-    }
-    default: {
-      r0 = Dry(A.k0, B.k0);
-      r1 = Dry(A.k1, B.k1);
-      break;
-    }
+  Term args0[16], args1[16];
+  for (u32 i = 0; i < ari; i++) {
+    Copy A   = clone(lab, HEAP[t_loc + i]);
+    args0[i] = A.k0;
+    args1[i] = A.k1;
   }
+  Term r0 = New(t_tag, t_ext, ari, args0);
+  Term r1 = New(t_tag, t_ext, ari, args1);
   return subst_dup(side, loc, r0, r1);
-}
-
-fn Term dup_nam(u32 lab, u32 loc, u8 side, Term nam) {
-  ITRS++;
-  HEAP[loc] = mark_sub(nam);
-  return nam;
 }
 
 // Alloc Helpers
@@ -1089,26 +1081,12 @@ fn Term alo_lam(u32 ls_loc, u32 book_body_loc) {
   return new_term(0, LAM, 0, lam_body);
 }
 
-fn Term alo_bin(u32 ls_loc, u32 loc, u8 tag, u32 ext) {
-  Term a = make_alo(ls_loc, loc + 0);
-  Term b = make_alo(ls_loc, loc + 1);
-  switch (tag) {
-    case APP: {
-      return App(a, b);
-    }
-    case SUP: {
-      return Sup(ext, a, b);
-    }
-    case MAT: {
-      return Mat(ext, a, b);
-    }
-    case DRY: {
-      return Dry(a, b);
-    }
-    default: {
-      return App(a, b);
-    }
+fn Term alo_node(u32 ls_loc, u32 loc, u8 tag, u32 ext, u32 ari) {
+  Term args[16];
+  for (u32 i = 0; i < ari; i++) {
+    args[i] = make_alo(ls_loc, loc + i);
   }
+  return New(tag, ext, ari, args);
 }
 
 fn Term alo_dup(u32 ls_loc, u32 book_loc, u32 lab) {
@@ -1116,14 +1094,6 @@ fn Term alo_dup(u32 ls_loc, u32 book_loc, u32 lab) {
   u32 new_bind  = make_bind(ls_loc, (u32)dup_val, lab);
   HEAP[dup_val] = make_alo(ls_loc, book_loc + 0);
   return Dup(lab, make_alo(ls_loc, book_loc + 0), make_alo(new_bind, book_loc + 1));
-}
-
-fn Term alo_ctr(u32 ls_loc, u32 ctr_loc, u32 nam, u32 ari) {
-  Term args[16];
-  for (u32 i = 0; i < ari; i++) {
-    args[i] = make_alo(ls_loc, ctr_loc + i);
-  }
-  return Ctr(nam, ari, args);
 }
 
 // WNF
@@ -1222,16 +1192,13 @@ fn Term wnf(Term term) {
           case APP:
           case SUP:
           case MAT:
-          case DRY: {
-            result = alo_bin(ls_loc, val_of(book), tag_of(book), ext_of(book));
+          case DRY:
+          case CT0 ... CTG: {
+            result = alo_node(ls_loc, val_of(book), tag_of(book), ext_of(book), arity_of(book));
             break;
           }
           case DUP: {
             result = alo_dup(ls_loc, val_of(book), ext_of(book));
-            break;
-          }
-          case CT0 ... CTG: {
-            result = alo_ctr(ls_loc, val_of(book), ext_of(book), tag_of(book) - CT0);
             break;
           }
           case REF:
@@ -1369,20 +1336,16 @@ fn Term wnf(Term term) {
               next = whnf;
               goto enter;
             }
-            case CT0 ... CTG: {
-              whnf = dup_ctr(lab, loc, side, whnf);
-              next = whnf;
-              goto enter;
+            case NAM: {
+              whnf = dup_node(lab, loc, side, whnf);
+              continue;
             }
             case MAT:
-            case DRY: {
-              whnf = dup_bin(lab, loc, side, whnf);
+            case DRY:
+            case CT0 ... CTG: {
+              whnf = dup_node(lab, loc, side, whnf);
               next = whnf;
               goto enter;
-            }
-            case NAM: {
-              whnf = dup_nam(lab, loc, side, whnf);
-              continue;
             }
             default: {
               u64 new_loc   = heap_alloc(1);
