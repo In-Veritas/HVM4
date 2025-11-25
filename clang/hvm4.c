@@ -79,6 +79,97 @@
 // - NAM: stuck var
 // - DRY: stuck app
 //
+// Collapse Function
+// -----------------
+// The collapse function extracts superpositions (SUP) to the top level of a
+// term. This is essential for observing all branches of a superposition.
+//
+// ### Algorithm Overview
+//
+// For each term type, collapse:
+// 1. Recursively collapses subterms
+// 2. Builds a "template" - a nested lambda structure that reconstructs the term
+// 3. Calls inject(template, [collapsed_subterms...])
+//
+// The inject function applies arguments to the template. When an argument is a
+// SUP, it clones the template and distributes the SUP branches, recursively
+// processing each branch.
+//
+// ### Template Construction (Critical!)
+//
+// Templates are nested lambdas where VARs point to lambda body locations.
+// This is the trickiest part - getting the VAR references wrong breaks everything.
+//
+// In Haskell, a lambda `Lam k body` has a binding key `k`, and `Var k` refers
+// to it by name. In C, we use heap locations: a lambda `LAM` has `val = body_loc`,
+// and a VAR bound by it has `val = body_loc` (same location).
+//
+// Example for LAM case - template `λfV. (λk. fV)`:
+//
+//   Haskell: Lam fV (Lam k (Var fV))
+//   - fV is the outer lambda's binding key
+//   - k is the original lambda's binding key
+//   - Var fV in the inner body refers to the outer binding
+//
+//   C equivalent:
+//     u64 outer_loc = heap_alloc(1);           // outer lambda body location
+//     HEAP[lam_loc] = VAR(outer_loc);          // inner body = Var pointing to outer
+//     Term inner_lam = LAM(lam_loc);           // inner lambda reuses original lam_loc
+//     HEAP[outer_loc] = inner_lam;             // outer body = inner lambda
+//     Term template = LAM(outer_loc);          // outer lambda
+//
+//   Key insight: VAR(outer_loc) points to outer_loc, which is the outer lambda's
+//   body slot. When the template is applied, app_lam writes the argument to
+//   outer_loc as a substitution, so VAR(outer_loc) resolves to that argument.
+//
+// Example for APP case - template `λfV. λxV. (fV xV)`:
+//
+//     u64 fV_loc = heap_alloc(1);              // outer lambda body location
+//     u64 xV_loc = heap_alloc(1);              // inner lambda body location
+//     Term inner_app = App(VAR(fV_loc), VAR(xV_loc));
+//     HEAP[xV_loc] = inner_app;                // innermost body = (fV xV)
+//     Term inner_lam = LAM(xV_loc);            // λxV. (fV xV)
+//     HEAP[fV_loc] = inner_lam;                // outer body = inner lambda
+//     Term template = LAM(fV_loc);             // λfV. λxV. (fV xV)
+//
+// ### Common Mistakes to Avoid
+//
+// 1. DO NOT use mark_sub() when building templates. Substitutions are only
+//    created by app_lam during reduction, not during template construction.
+//
+// 2. DO NOT allocate a separate location for VAR and then try to link it.
+//    VARs must point directly to the lambda body location they're bound to.
+//
+//    WRONG: u64 fV_loc = heap_alloc(1);
+//           HEAP[lam_loc] = VAR(fV_loc);  // VAR points to fV_loc
+//           HEAP[fV_loc] = mark_sub(LAM(outer_loc));  // fV_loc has subst??
+//
+//    RIGHT: u64 outer_loc = heap_alloc(1);
+//           HEAP[lam_loc] = VAR(outer_loc);  // VAR points to outer lambda's body loc
+//           HEAP[outer_loc] = inner_lam;     // no mark_sub needed
+//
+// 3. For LAM, the inner lambda MUST reuse the original lam_loc so that
+//    existing VARs in the collapsed body (which point to lam_loc) remain
+//    correctly bound to the inner lambda after distribution.
+//
+// ### How Variable Binding Survives Distribution
+//
+// When inject clones a template containing λk (where k uses lam_loc), the
+// dup_lam interaction:
+// 1. Creates two new lambdas λx0 and λx1
+// 2. Sets HEAP[lam_loc] = mark_sub(SUP(VAR(x0_loc), VAR(x1_loc)))
+//
+// Now any VAR(lam_loc) in the collapsed body resolves to this SUP. If that
+// SUP has the same label as the dup, dup_sup fires with same-label semantics,
+// routing each copy to its corresponding lambda's binding.
+//
+// Example: collapse(λa.!A&L=a;&L{A₀,A₁})
+// 1. Body collapses to &L{CO0, CO1} where CO0/CO1 point to VAR(lam_loc)
+// 2. inject distributes SUP, cloning template (which clones λk via dup_lam)
+// 3. dup_lam sets HEAP[lam_loc] = mark_sub(&L{VAR(x0_loc), VAR(x1_loc)})
+// 4. CO0 eventually evaluates: VAR(lam_loc) → &L{x0,x1} → dup_sup same label → x0
+// 5. Result: &L{λx0.x0, λx1.x1}
+//
 // Style Guide
 // -----------
 // Abide to the guidelines below strictly!
@@ -379,7 +470,7 @@ fn u64 heap_alloc(u64 size) {
 // Names
 // =====
 
-static const char *alphabet = "_abcdefghijklmnopqrstuvwxyzABCfnGHIJKLMNOPQRSTUVWXYZ0123456789$";
+static const char *alphabet = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$";
 
 fn int char_to_b64(char c) {
   if (c == '_') {
@@ -481,6 +572,14 @@ fn Copy clone(u32 lab, Term val) {
     new_term(0, CO0, lab, loc),
     new_term(0, CO1, lab, loc)
   };
+}
+
+fn void clone_many(u32 lab, Term *src, u32 n, Term *dst0, Term *dst1) {
+  for (u32 i = 0; i < n; i++) {
+    Copy c  = clone(lab, src[i]);
+    dst0[i] = c.k0;
+    dst1[i] = c.k1;
+  }
 }
 
 // Dup Substitution Helper
@@ -1180,13 +1279,32 @@ fn Term dup_dry(u32 lab, u32 loc, u8 side, Term dry) {
 
 // Alloc Helpers
 // =============
+//
+// Bind list entries use 2 heap words:
+//   Word 0: heap location (low 32 bits), label (high 32 bits)
+//   Word 1: parent pointer (low 32 bits), unused (high 32 bits)
 
 fn u32 bind_at(u32 ls_loc, u32 idx) {
   u32 cur = ls_loc;
   for (u32 i = 0; i < idx && cur != 0; i++) {
-    cur = (u32)(HEAP[cur] >> 32);
+    cur = (u32)(HEAP[cur + 1] & 0xFFFFFFFF);  // parent is in word 1
   }
-  return (cur != 0) ? (u32)(HEAP[cur] & 0xFFFFFFFF) : 0;
+  return (cur != 0) ? (u32)(HEAP[cur] & 0xFFFFFFFF) : 0;  // location is in word 0
+}
+
+fn u32 bind_lab_at(u32 ls_loc, u32 idx) {
+  u32 cur = ls_loc;
+  for (u32 i = 0; i < idx && cur != 0; i++) {
+    cur = (u32)(HEAP[cur + 1] & 0xFFFFFFFF);  // parent is in word 1
+  }
+  return (cur != 0) ? (u32)(HEAP[cur] >> 32) : 0;  // label is in high bits of word 0
+}
+
+fn u32 make_bind(u32 parent, u32 loc, u32 lab) {
+  u64 new_bind     = heap_alloc(2);
+  HEAP[new_bind+0] = ((u64)lab << 32) | loc;  // word 0: label + location
+  HEAP[new_bind+1] = parent;                   // word 1: parent pointer
+  return (u32)new_bind;
 }
 
 fn Term make_alo(u32 ls_loc, u32 tm_loc) {
@@ -1203,20 +1321,21 @@ fn Term alo_var(u32 ls_loc, u32 idx) {
   return bind ? Var(bind) : new_term(0, VAR, 0, idx);
 }
 
-fn Term alo_co0(u32 ls_loc, u32 lab, u32 idx) {
+fn Term alo_co0(u32 ls_loc, u32 idx) {
   u32 bind = bind_at(ls_loc, idx);
-  return bind ? Co0(lab, bind) : new_term(0, CO0, lab, idx);
+  u32 lab  = bind_lab_at(ls_loc, idx);
+  return bind ? Co0(lab, bind) : new_term(0, CO0, 0, idx);
 }
 
-fn Term alo_co1(u32 ls_loc, u32 lab, u32 idx) {
+fn Term alo_co1(u32 ls_loc, u32 idx) {
   u32 bind = bind_at(ls_loc, idx);
-  return bind ? Co1(lab, bind) : new_term(0, CO1, lab, idx);
+  u32 lab  = bind_lab_at(ls_loc, idx);
+  return bind ? Co1(lab, bind) : new_term(0, CO1, 0, idx);
 }
 
 fn Term alo_lam(u32 ls_loc, u32 book_body_loc) {
-  u64 lam_body   = heap_alloc(1);
-  u64 new_bind   = heap_alloc(1);
-  HEAP[new_bind] = ((u64)ls_loc << 32) | (u32)lam_body;
+  u64  lam_body = heap_alloc(1);
+  u32  new_bind = make_bind(ls_loc, (u32)lam_body, 0);  // label 0 for lambda bindings
   HEAP[lam_body] = make_alo(new_bind, book_body_loc);
   return new_term(0, LAM, 0, lam_body);
 }
@@ -1226,10 +1345,9 @@ fn Term alo_app(u32 ls_loc, u32 app_loc) {
 }
 
 fn Term alo_dup(u32 ls_loc, u32 book_loc, u32 lab) {
-  u64 dup_val    = heap_alloc(1);
-  u64 new_bind   = heap_alloc(1);
-  HEAP[new_bind] = ((u64)ls_loc << 32) | (u32)dup_val;
-  HEAP[dup_val]  = make_alo(ls_loc, book_loc + 0);
+  u64 dup_val   = heap_alloc(1);
+  u32 new_bind  = make_bind(ls_loc, (u32)dup_val, lab);  // store the dup label!
+  HEAP[dup_val] = make_alo(ls_loc, book_loc + 0);
   return Dup(lab, make_alo(ls_loc, book_loc + 0), make_alo(new_bind, book_loc + 1));
 }
 
@@ -1320,70 +1438,85 @@ fn Term wnf(Term term) {
       case ALO: {
         u32 alo_loc = val_of(next);
         u64 pair    = HEAP[alo_loc];
+
+        // Check if already expanded (SUB bit set means we have a cached result)
+        if (sub_of(pair)) {
+          next = clear_sub(pair);
+          goto enter;
+        }
+
         u32 tm_loc  = (u32)(pair & 0xFFFFFFFF);
         u32 ls_loc  = (u32)(pair >> 32);
         Term book   = HEAP[tm_loc];
+        Term result;
 
         switch (tag_of(book)) {
           case VAR: {
-            next = alo_var(ls_loc, val_of(book));
-            goto enter;
+            result = alo_var(ls_loc, val_of(book));
+            break;
           }
           case CO0: {
-            next = alo_co0(ls_loc, ext_of(book), val_of(book));
-            goto enter;
+            result = alo_co0(ls_loc, val_of(book));
+            break;
           }
           case CO1: {
-            next = alo_co1(ls_loc, ext_of(book), val_of(book));
-            goto enter;
+            result = alo_co1(ls_loc, val_of(book));
+            break;
           }
           case LAM: {
-            next = alo_lam(ls_loc, val_of(book));
-            goto enter;
+            result = alo_lam(ls_loc, val_of(book));
+            break;
           }
           case APP: {
-            next = alo_app(ls_loc, val_of(book));
-            goto enter;
+            result = alo_app(ls_loc, val_of(book));
+            break;
           }
           case DUP: {
-            next = alo_dup(ls_loc, val_of(book), ext_of(book));
-            goto enter;
+            result = alo_dup(ls_loc, val_of(book), ext_of(book));
+            break;
           }
           case SUP: {
-            next = alo_sup(ls_loc, val_of(book), ext_of(book));
-            goto enter;
+            result = alo_sup(ls_loc, val_of(book), ext_of(book));
+            break;
           }
           case MAT: {
-            next = alo_mat(ls_loc, val_of(book), ext_of(book));
-            goto enter;
+            result = alo_mat(ls_loc, val_of(book), ext_of(book));
+            break;
           }
           case CT0 ... CTG: {
-            next = alo_ctr(ls_loc, val_of(book), ext_of(book), tag_of(book) - CT0);
-            goto enter;
+            result = alo_ctr(ls_loc, val_of(book), ext_of(book), tag_of(book) - CT0);
+            break;
           }
           case REF: {
-            next = book;
-            goto enter;
+            result = book;
+            break;
           }
           case ERA: {
-            whnf = Era();
-            goto apply;
+            result = Era();
+            break;
           }
           case NAM: {
-            whnf = book;
-            goto apply;
+            result = book;
+            break;
           }
           case DRY: {
-            next = alo_dry(ls_loc, val_of(book));
-            goto enter;
+            result = alo_dry(ls_loc, val_of(book));
+            break;
           }
           case ALO: {
             whnf = next;
             goto apply;
           }
+          default: {
+            whnf = next;
+            goto apply;
+          }
         }
-        whnf = next;
-        goto apply;
+
+        // Memoize the result
+        HEAP[alo_loc] = mark_sub(result);
+        next = result;
+        goto enter;
       }
 
       case NAM:
@@ -1591,23 +1724,415 @@ fn Term snf(Term term, u32 depth) {
   }
 }
 
-// Main
-// ====
+// Collapse
+// ========
+//
+// Collapse brings all SUPs to the top level of a term. This is needed for
+// observing superpositions (e.g., enumerating all possibilities).
+//
+// The algorithm works as follows:
+// 1. WNF the term first
+// 2. For SUP: recursively collapse both branches, keep SUP at top
+// 3. For other compound terms: collapse all subterms, then use inject
+//    to distribute any SUPs that appear in subterms
+//
+// inject(template, [args]) applies args to template using App nodes.
+// When an arg is a SUP, it clones the template and remaining args,
+// distributing the SUP to create two branches.
 
-int main(void) {
-  BOOK  = calloc(BOOK_CAP, sizeof(u32));
-  HEAP  = calloc(HEAP_CAP, sizeof(Term));
-  STACK = calloc(STACK_CAP, sizeof(Term));
+// Forward declarations
+fn Term collapse(Term term);
+fn Term inject(Term template, Term *args, u32 n_args);
 
-  if (!BOOK || !HEAP || !STACK) {
-    error("Memory allocation failed");
+// inject: Apply a list of collapsed arguments to a template.
+// If any argument is a SUP, clone template and remaining args, distribute SUP.
+fn Term inject(Term template, Term *args, u32 n_args) {
+  if (n_args == 0) {
+    return template;
   }
 
-  const char *source =
-    "@ctru = λt. λf. t\n"
-    "@cfal = λt. λf. f\n"
-    "@cnot = λb. λt. λf. b(f, t)\n"
-    "@main = @cnot(@cnot(@ctru))\n";
+  Term head = wnf(args[0]);
+
+  if (tag_of(head) == SUP) {
+    // SUP found - distribute it
+    u32  lab      = ext_of(head);
+    u64  sup_loc  = val_of(head);
+    Term sup_a    = HEAP[sup_loc + 0];
+    Term sup_b    = HEAP[sup_loc + 1];
+
+    // Clone the template
+    Copy T = clone(lab, template);
+
+    // Clone remaining arguments (args[1..n_args-1])
+    Term args0[16], args1[16];
+    args0[0] = sup_a;
+    args1[0] = sup_b;
+    if (n_args > 1) {
+      clone_many(lab, args + 1, n_args - 1, args0 + 1, args1 + 1);
+    }
+
+    // Recursively inject both branches
+    Term r0 = inject(T.k0, args0, n_args);
+    Term r1 = inject(T.k1, args1, n_args);
+
+    return Sup(lab, r0, r1);
+  } else {
+    // Not a SUP - apply it and continue with remaining args
+    Term applied = App(template, head);
+    return inject(applied, args + 1, n_args - 1);
+  }
+}
+
+// collapse: Bring all SUPs to the top level
+fn Term collapse(Term term) {
+  term = wnf(term);
+
+  switch (tag_of(term)) {
+    case ERA:
+    case VAR:
+    case REF:
+    case NAM:
+    case CO0:
+    case CO1: {
+      return term;
+    }
+
+    case SUP: {
+      // Recursively collapse both branches, keep SUP at top
+      u64  loc = val_of(term);
+      Term a   = collapse(HEAP[loc + 0]);
+      Term b   = collapse(HEAP[loc + 1]);
+      return Sup(ext_of(term), a, b);
+    }
+
+    case LAM: {
+      // Haskell: fV <- fresh; f' <- collapse f; inject (Lam fV (Lam k (Var fV))) [f']
+      u64  lam_loc = val_of(term);
+      Term body    = HEAP[lam_loc];
+
+      // Collapse the body
+      Term body_collapsed = collapse(body);
+
+      // Build template: λfV. (λk. fV)
+      // - outer lambda binds fV, body location = outer_loc
+      // - inner lambda binds k (original), body location = lam_loc
+      // - inner body = Var fV = VAR(outer_loc)
+      u64 outer_loc = heap_alloc(1);
+      HEAP[lam_loc] = new_term(0, VAR, 0, outer_loc);  // inner body = Var fV
+      Term inner_lam = new_term(0, LAM, 0, lam_loc);   // inner lambda (Lam k ...)
+      HEAP[outer_loc] = inner_lam;                     // outer body = inner lambda
+      Term template = new_term(0, LAM, 0, outer_loc);  // outer lambda (Lam fV ...)
+
+      Term args[1] = { body_collapsed };
+      return inject(template, args, 1);
+    }
+
+    case APP: {
+      // Haskell: inject (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f', x']
+      u64  loc = val_of(term);
+      Term f   = collapse(HEAP[loc + 0]);
+      Term x   = collapse(HEAP[loc + 1]);
+
+      // Template: λfV. λxV. (fV xV)
+      u64 fV_loc = heap_alloc(1);  // outer lambda body location
+      u64 xV_loc = heap_alloc(1);  // inner lambda body location
+      Term fV_var = new_term(0, VAR, 0, fV_loc);
+      Term xV_var = new_term(0, VAR, 0, xV_loc);
+      Term inner_app = App(fV_var, xV_var);
+      HEAP[xV_loc] = inner_app;                        // innermost body = (fV xV)
+      Term inner_lam = new_term(0, LAM, 0, xV_loc);    // λxV. (fV xV)
+      HEAP[fV_loc] = inner_lam;                        // outer body = inner lambda
+      Term template = new_term(0, LAM, 0, fV_loc);     // λfV. λxV. (fV xV)
+
+      Term args[2] = { f, x };
+      return inject(template, args, 2);
+    }
+
+    case DRY: {
+      // Haskell: inject (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
+      u64  loc = val_of(term);
+      Term f   = collapse(HEAP[loc + 0]);
+      Term x   = collapse(HEAP[loc + 1]);
+
+      u64 fV_loc = heap_alloc(1);
+      u64 xV_loc = heap_alloc(1);
+      Term fV_var = new_term(0, VAR, 0, fV_loc);
+      Term xV_var = new_term(0, VAR, 0, xV_loc);
+      Term inner_dry = Dry(fV_var, xV_var);
+      HEAP[xV_loc] = inner_dry;
+      Term inner_lam = new_term(0, LAM, 0, xV_loc);
+      HEAP[fV_loc] = inner_lam;
+      Term template = new_term(0, LAM, 0, fV_loc);
+
+      Term args[2] = { f, x };
+      return inject(template, args, 2);
+    }
+
+    case MAT: {
+      // Haskell: inject (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
+      u64  loc = val_of(term);
+      u32  nam = ext_of(term);
+      Term h   = collapse(HEAP[loc + 0]);
+      Term m   = collapse(HEAP[loc + 1]);
+
+      u64 hV_loc = heap_alloc(1);
+      u64 mV_loc = heap_alloc(1);
+      Term hV_var = new_term(0, VAR, 0, hV_loc);
+      Term mV_var = new_term(0, VAR, 0, mV_loc);
+      Term inner_mat = Mat(nam, hV_var, mV_var);
+      HEAP[mV_loc] = inner_mat;
+      Term inner_lam = new_term(0, LAM, 0, mV_loc);
+      HEAP[hV_loc] = inner_lam;
+      Term template = new_term(0, LAM, 0, hV_loc);
+
+      Term args[2] = { h, m };
+      return inject(template, args, 2);
+    }
+
+    case CT0 ... CTG: {
+      // Haskell: inject (foldr Lam (Ctr k (map Var vs)) vs) as
+      // Template: λv0. λv1. ... Ctr(Var v0, Var v1, ...)
+      u32 ari = tag_of(term) - CT0;
+      u32 nam = ext_of(term);
+      u64 loc = val_of(term);
+
+      if (ari == 0) {
+        return term;
+      }
+
+      // Collapse all fields
+      Term collapsed[16];
+      for (u32 i = 0; i < ari; i++) {
+        collapsed[i] = collapse(HEAP[loc + i]);
+      }
+
+      // Allocate lambda body locations (these are also the var binding points)
+      u64 lam_locs[16];
+      for (u32 i = 0; i < ari; i++) {
+        lam_locs[i] = heap_alloc(1);
+      }
+
+      // Build vars pointing to their respective lambda body locations
+      Term vars[16];
+      for (u32 i = 0; i < ari; i++) {
+        vars[i] = new_term(0, VAR, 0, lam_locs[i]);
+      }
+
+      // Build the Ctr with vars
+      Term ctr = Ctr(nam, ari, vars);
+
+      // Build nested lambdas from inside out
+      // λv0. (λv1. (... (Ctr ...)))
+      // Last lambda (innermost) has body = ctr
+      // Each outer lambda has body = the lambda inside it
+      Term body = ctr;
+      for (int32_t i = ari - 1; i >= 0; i--) {
+        HEAP[lam_locs[i]] = body;
+        body = new_term(0, LAM, 0, lam_locs[i]);
+      }
+      Term template = body;
+
+      return inject(template, collapsed, ari);
+    }
+
+    default: {
+      return term;
+    }
+  }
+}
+
+// Term to String
+// ===============
+
+static char *TERM_BUF      = NULL;
+static u32   TERM_BUF_POS  = 0;
+static u32   TERM_BUF_CAP  = 0;
+
+fn void term_buf_init(void) {
+  TERM_BUF_CAP = 65536;
+  TERM_BUF     = malloc(TERM_BUF_CAP);
+  TERM_BUF_POS = 0;
+}
+
+fn void term_buf_free(void) {
+  free(TERM_BUF);
+  TERM_BUF     = NULL;
+  TERM_BUF_POS = 0;
+  TERM_BUF_CAP = 0;
+}
+
+fn void term_buf_putc(char c) {
+  if (TERM_BUF_POS + 1 >= TERM_BUF_CAP) {
+    TERM_BUF_CAP *= 2;
+    TERM_BUF = realloc(TERM_BUF, TERM_BUF_CAP);
+  }
+  TERM_BUF[TERM_BUF_POS++] = c;
+  TERM_BUF[TERM_BUF_POS]   = 0;
+}
+
+fn void term_buf_puts(const char *s) {
+  while (*s) {
+    term_buf_putc(*s++);
+  }
+}
+
+fn void term_buf_name(u32 n) {
+  if (n < 64) {
+    term_buf_putc(alphabet[n]);
+  } else {
+    term_buf_name(n / 64);
+    term_buf_putc(alphabet[n % 64]);
+  }
+}
+
+fn void term_to_str_go(Term term, u32 depth);
+
+fn void term_to_str_go(Term term, u32 depth) {
+  switch (tag_of(term)) {
+    case VAR: {
+      term_buf_name(val_of(term));
+      break;
+    }
+    case REF: {
+      term_buf_putc('@');
+      term_buf_name(ext_of(term));
+      break;
+    }
+    case NAM: {
+      term_buf_name(val_of(term));
+      break;
+    }
+    case ERA: {
+      term_buf_puts("&{}");
+      break;
+    }
+    case CO0: {
+      term_buf_name(val_of(term));
+      term_buf_puts("₀");
+      break;
+    }
+    case CO1: {
+      term_buf_name(val_of(term));
+      term_buf_puts("₁");
+      break;
+    }
+    case LAM: {
+      u32 loc = val_of(term);
+      u32 nam = depth + 1;
+      term_buf_puts("λ");
+      term_buf_name(nam);
+      term_buf_putc('.');
+      term_to_str_go(HEAP[loc], depth + 1);
+      break;
+    }
+    case APP:
+    case DRY: {
+      Term spine[256];
+      u32  len  = 0;
+      Term curr = term;
+      while ((tag_of(curr) == APP || tag_of(curr) == DRY) && len < 256) {
+        u32 loc = val_of(curr);
+        spine[len++] = HEAP[loc + 1];
+        curr = HEAP[loc];
+      }
+      if (tag_of(curr) == LAM) {
+        term_buf_putc('(');
+        term_to_str_go(curr, depth);
+        term_buf_putc(')');
+      } else {
+        term_to_str_go(curr, depth);
+      }
+      term_buf_putc('(');
+      for (u32 i = 0; i < len; i++) {
+        if (i > 0) {
+          term_buf_putc(',');
+        }
+        term_to_str_go(spine[len - 1 - i], depth);
+      }
+      term_buf_putc(')');
+      break;
+    }
+    case SUP: {
+      u32 loc = val_of(term);
+      term_buf_putc('&');
+      term_buf_name(ext_of(term));
+      term_buf_putc('{');
+      term_to_str_go(HEAP[loc + 0], depth);
+      term_buf_putc(',');
+      term_to_str_go(HEAP[loc + 1], depth);
+      term_buf_putc('}');
+      break;
+    }
+    case DUP: {
+      u32 loc = val_of(term);
+      u32 nam = depth + 1;
+      term_buf_putc('!');
+      term_buf_name(nam);
+      term_buf_putc('&');
+      term_buf_name(ext_of(term));
+      term_buf_putc('=');
+      term_to_str_go(HEAP[loc + 0], depth);
+      term_buf_putc(';');
+      term_to_str_go(HEAP[loc + 1], depth + 1);
+      break;
+    }
+    case MAT: {
+      u32 loc = val_of(term);
+      term_buf_puts("λ{#");
+      term_buf_name(ext_of(term));
+      term_buf_putc(':');
+      term_to_str_go(HEAP[loc + 0], depth);
+      term_buf_putc(';');
+      term_to_str_go(HEAP[loc + 1], depth);
+      term_buf_putc('}');
+      break;
+    }
+    case CT0 ... CTG: {
+      u32 ari = tag_of(term) - CT0;
+      u32 loc = val_of(term);
+      term_buf_putc('#');
+      term_buf_name(ext_of(term));
+      term_buf_putc('{');
+      for (u32 i = 0; i < ari; i++) {
+        if (i > 0) {
+          term_buf_putc(',');
+        }
+        term_to_str_go(HEAP[loc + i], depth);
+      }
+      term_buf_putc('}');
+      break;
+    }
+    case ALO: {
+      term_buf_puts("<ALO>");
+      break;
+    }
+  }
+}
+
+fn char *term_to_str(Term term) {
+  TERM_BUF_POS = 0;
+  term_to_str_go(term, 0);
+  return TERM_BUF;
+}
+
+// Test Framework
+// ==============
+
+fn void reset_state(void) {
+  memset(BOOK, 0, BOOK_CAP * sizeof(u32));
+  memset(HEAP, 0, HEAP_CAP * sizeof(Term));
+  S_POS = 1;
+  ALLOC = 1;
+  ITRS  = 0;
+  PARSE_BINDS_LEN = 0;
+  for (u32 i = 0; i < PARSE_SEEN_FILES_LEN; i++) {
+    free(PARSE_SEEN_FILES[i]);
+  }
+  PARSE_SEEN_FILES_LEN = 0;
+}
+
+fn int run_test_impl(const char *name, const char *source, const char *expected, int use_collapse) {
+  reset_state();
 
   PState s = {
     .file = "inline",
@@ -1627,30 +2152,382 @@ int main(void) {
   }
 
   if (BOOK[main_name] == 0) {
-    error("@main not found");
+    printf("FAIL %s: @main not found\n", name);
+    return 0;
   }
 
-  Term main_term = HEAP[BOOK[main_name]];
-
-  clock_t start = clock();
-  Term result   = snf(main_term, 0);
-  clock_t end   = clock();
-
-  double time_sec = (double)(end - start) / CLOCKS_PER_SEC;
-
-  print_term(result);
-  printf("\n");
-  printf("- Itrs: %llu interactions\n", (unsigned long long)ITRS);
-  printf("- Time: %.6f seconds\n", time_sec);
-  if (time_sec > 0) {
-    printf("- Perf: %.0f interactions/second\n", (double)ITRS / time_sec);
+  // Use Ref(@main) so ALO handles the book-to-runtime conversion
+  Term main_ref = Ref(main_name);
+  Term result;
+  if (use_collapse) {
+    result = snf(collapse(main_ref), 0);
   } else {
-    printf("- Perf: N/A (too fast to measure)\n");
+    result = snf(main_ref, 0);
+  }
+  char *got = term_to_str(result);
+
+  if (strcmp(got, expected) == 0) {
+    printf("PASS %s\n", name);
+    return 1;
+  } else {
+    printf("FAIL %s\n", name);
+    printf("  expected: %s\n", expected);
+    printf("  got:      %s\n", got);
+    return 0;
+  }
+}
+
+fn int run_test(const char *name, const char *source, const char *expected) {
+  return run_test_impl(name, source, expected, 0);
+}
+
+fn int run_test_collapse(const char *name, const char *source, const char *expected) {
+  return run_test_impl(name, source, expected, 1);
+}
+
+// Main
+// ====
+
+int main(void) {
+  BOOK  = calloc(BOOK_CAP, sizeof(u32));
+  HEAP  = calloc(HEAP_CAP, sizeof(Term));
+  STACK = calloc(STACK_CAP, sizeof(Term));
+
+  if (!BOOK || !HEAP || !STACK) {
+    error("Memory allocation failed");
   }
 
+  term_buf_init();
+
+  int passed = 0;
+  int total  = 0;
+
+  // Book definitions used by multiple tests
+  const char *book =
+    "@ctru = λt. λf. t\n"
+    "@cfal = λt. λf. f\n"
+    "@cnot = λb. λt. λf. b(f, t)\n"
+    "@cadd = λa. λb. λs. λz. !S&B=s; a(S₀, b(S₁, z))\n"
+    "@cmul = λa. λb. λs. λz. a(b(s), z)\n"
+    "@cexp = λa. λb. b(a)\n"
+    "@c1   = λs. λx. s(x)\n"
+    "@c1b  = λs. λx. s(x)\n"
+    "@c2   = λs. !S0&C=s; λx0.S0₀(S0₁(x0))\n"
+    "@c2b  = λs. !S0&K=s; λx0.S0₀(S0₁(x0))\n"
+    "@c4   = λs. !S0&C=s; !S1&C=λx0.S0₀(S0₁(x0)); λx1.S1₀(S1₁(x1))\n"
+    "@c4b  = λs. !S0&K=s; !S1&K=λx0.S0₀(S0₁(x0)); !S2&K=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
+    "@c8   = λs. !S0&C=s; !S1&C=λx0.S0₀(S0₁(x0)); !S2&C=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
+    "@c8b  = λs. !S0&K=s; !S1&K=λx0.S0₀(S0₁(x0)); !S2&K=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
+    "@mul2 = λ{#Z:#Z{}; λ{#S:λp.#S{#S{@mul2(p)}}; &{}}}\n"
+    "@add  = λ{#Z:λb.b; λ{#S:λa.λb.#S{@add(a, b)}; &{}}}\n"
+    "@sum  = λ{#Z:#Z{}; λ{#S:λp.!P&S=p;#S{@add(P₀, @sum(P₁))}; &{}}}\n";
+
+  // Test: cnot_true
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cnot(@ctru)\n", book);
+    total++;
+    passed += run_test("cnot_true", src, "λa.λb.b");
+  }
+
+  // Test: cnot_not
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cnot(@cnot(@ctru))\n", book);
+    total++;
+    passed += run_test("cnot_not", src, "λa.λb.a");
+  }
+
+  // Test: pair_swap
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@swap = λ{ #P: λa.λb. #P{b, a} }\n@main = @swap(#P{#Z{}, #S{#Z{}}})\n", book);
+    total++;
+    passed += run_test("pair_swap", src, "#P{#S{#Z{}},#Z{}}");
+  }
+
+  // Test: mul2_4
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @mul2(#S{#S{#S{#S{#Z{}}}}})\n", book);
+    total++;
+    passed += run_test("mul2_4", src, "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}");
+  }
+
+  // Test: sum_4
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @sum(#S{#S{#S{#S{#Z{}}}}})\n", book);
+    total++;
+    passed += run_test("sum_4", src, "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}");
+  }
+
+  // Test: cadd_c1_c1_not
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c1, @c1, @cnot)\n", book);
+    total++;
+    passed += run_test("cadd_c1_c1_not", src, "λa.λb.λc.a(b,c)");
+  }
+
+  // Test: cadd_c1_c4
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c1, @c4)\n", book);
+    total++;
+    passed += run_test("cadd_c1_c4", src, "λa.λb.a(a(a(a(a(b)))))");
+  }
+
+  // Test: cadd_c2_c1
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c2, @c1)\n", book);
+    total++;
+    passed += run_test("cadd_c2_c1", src, "λa.λb.a(a(a(b)))");
+  }
+
+  // Test: cadd_c2_c2
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c2, @c2)\n", book);
+    total++;
+    passed += run_test("cadd_c2_c2", src, "λa.λb.a(a(a(a(b))))");
+  }
+
+  // Test: cadd_c4_c1
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c4, @c1)\n", book);
+    total++;
+    passed += run_test("cadd_c4_c1", src, "λa.λb.a(a(a(a(a(b)))))");
+  }
+
+  // Test: cadd_c4_c4
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c4, @c4)\n", book);
+    total++;
+    passed += run_test("cadd_c4_c4", src, "λa.λb.a(a(a(a(a(a(a(a(b))))))))");
+  }
+
+  // Test: cmul_c4_c2
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cmul(@c4, @c2)\n", book);
+    total++;
+    passed += run_test("cmul_c4_c2", src, "λa.λb.a(a(a(a(a(a(a(a(b))))))))");
+  }
+
+  // Test: cmul_c4_c4
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cmul(@c4, @c4)\n", book);
+    total++;
+    passed += run_test("cmul_c4_c4", src, "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))");
+  }
+
+  // Test: fibo
+  {
+    const char *fibo_src =
+      "@add = λ{ #Z: λb.b ; #S: λp.λb. #S{@add(p, b)}; }\n"
+      "@fib = λ{ #Z: #Z{} ; #S: λ{ #Z: #S{#Z{}} ; #S: λp. !P&L=p ; @add(@fib(#S{P₀}), @fib(P₁))}}\n"
+      "@two = #S{#S{#Z{}}}\n"
+      "@three = #S{#S{#S{#Z{}}}}\n"
+      "@main = @fib(@add(@three, @three))\n";
+    total++;
+    passed += run_test("fibo", fibo_src, "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}");
+  }
+
+  // Test: factorial
+  {
+    char src[8192];
+    snprintf(src, sizeof(src),
+      "%s"
+      "@one = #S{#Z{}}\n"
+      "@two = #S{#S{#Z{}}}\n"
+      "@add2 = λ{ #Z: λb.b ; #S: λp.λb.#S{@add2(p, b)}; }\n"
+      "@mul = λ{ #Z: λb.#Z{} ; #S: λp.λb. !B&A=b ; @add2(B₀, @mul(p, B₁)); }\n"
+      "@fac = λ{ #Z: #S{#Z{}} ; #S: λp. !P&A=p ; @mul(#S{P₀}, @fac(P₁)); }\n"
+      "@main = @fac(@add2(@two, @one))\n",
+      book);
+    total++;
+    passed += run_test("factorial", src, "#S{#S{#S{#S{#S{#S{#Z{}}}}}}}");
+  }
+
+  // Test: map
+  {
+    char src[8192];
+    snprintf(src, sizeof(src),
+      "%s"
+      "@inc = λx.#S{x}\n"
+      "@map = λf.λ{#Nil: #Nil{} ; #Cons: λh.λt. !F&L=f ; #Cons{F₀(h), @map(F₁, t)} }\n"
+      "@main = @map(@inc, #Cons{#Z{}, #Cons{#S{#Z{}}, #Nil{}}})\n",
+      book);
+    total++;
+    passed += run_test("map", src, "#Cons{#S{#Z{}},#Cons{#S{#S{#Z{}}},#Nil{}}}");
+  }
+
+  // Test: enum_bits
+  // Note: The superposition order differs from Haskell due to dup evaluation order,
+  // but both represent the same semantic content: all 2-bit binary numbers.
+  {
+    char src[8192];
+    snprintf(src, sizeof(src),
+      "%s"
+      "@two = #S{#S{#Z{}}}\n"
+      "@bits = λ{ #Z: #E{} ; #S: λp.!P&L=p ; &L{ #O{@bits(P₀)}, #I{@bits(P₁)} } }\n"
+      "@main = @bits(@two)\n",
+      book);
+    total++;
+    passed += run_test("enum_bits", src, "&L{#O{&L{#O{#E{}},#I{#E{}}}},#I{&L{#O{#E{}},#I{#E{}}}}}");
+  }
+
+  // Test: c2_not_t - c2(cnot, ctru) = ctru
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @c2(@cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("c2_not_t", src, "λa.λb.a");
+  }
+
+  // Test: simple_dup - basic dup test
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = !x&A=@c1; @cadd(x₀, x₁)\n", book);
+    total++;
+    passed += run_test("simple_dup", src, "λa.λb.a(a(b))");
+  }
+
+  // Test: c8_k8_not_t - c8(c8b, cnot, ctru) = ctru
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @c8(@c8b, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("c8_k8_not_t", src, "λa.λb.a");
+  }
+
+  // Test: cexp_c4_c2b - 4^2 = 16
+  // This test involves duping c4 with K labels
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cexp(@c4, @c2b)\n", book);
+    total++;
+    passed += run_test("cexp_c4_c2b", src, "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))");
+  }
+
+  // Test: cadd_c1_c4_not_t - (1+4) not true = false
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c1, @c4, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cadd_c1_c4_not_t", src, "λa.λb.b");
+  }
+
+  // Test: cadd_c2_c4_not_t - (2+4) not true = true
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c2, @c4, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cadd_c2_c4_not_t", src, "λa.λb.a");
+  }
+
+  // Test: cadd_c4_c1_not_t - (4+1) not true = false
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c4, @c1, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cadd_c4_c1_not_t", src, "λa.λb.b");
+  }
+
+  // Test: cadd_c4_c2_not_t - (4+2) not true = true
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cadd(@c4, @c2, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cadd_c4_c2_not_t", src, "λa.λb.a");
+  }
+
+  // Test: cmul_c4_c2_not_t - (4*2) not true = true
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cmul(@c4, @c2, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cmul_c4_c2_not_t", src, "λa.λb.a");
+  }
+
+  // Test: cmul_c4_c4_not_t - (4*4) not true = true
+  {
+    char src[4096];
+    snprintf(src, sizeof(src), "%s@main = @cmul(@c4, @c4, @cnot, @ctru)\n", book);
+    total++;
+    passed += run_test("cmul_c4_c4_not_t", src, "λa.λb.a");
+  }
+
+  // Collapse tests
+  // ==============
+
+  // Test: collapse_0 - λt.t(&A{1,2}, 3) -> &A{λa.a(1,3), λa.a(2,3)}
+  {
+    const char *src = "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, #S{#S{#S{#Z{}}}})\n";
+    total++;
+    passed += run_test_collapse("collapse_0", src, "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}})}");
+  }
+
+  // Test: collapse_1 - λt.t(&A{1,2}, &A{3,4}) -> &A{λa.a(1,3), λa.a(2,4)}
+  {
+    const char *src = "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, &A{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n";
+    total++;
+    passed += run_test_collapse("collapse_1", src, "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}");
+  }
+
+  // Test: collapse_2 - λt.t(&A{1,2}, &B{3,4}) -> &A{&B{..}, &B{..}}
+  {
+    const char *src = "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, &B{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n";
+    total++;
+    passed += run_test_collapse("collapse_2", src, "&A{&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})},&B{λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}}");
+  }
+
+  // Test: collapse_3 - λt.t(1, &B{3,4}) -> &B{λa.a(1,3), λa.a(1,4)}
+  {
+    const char *src = "@main = λt.t(#S{#Z{}}, &B{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n";
+    total++;
+    passed += run_test_collapse("collapse_3", src, "&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})}");
+  }
+
+  // Test: collapse_4 - λa.!A&L=a;&L{A₀,A₁} -> &L{λa.a, λa.a}
+  {
+    const char *src = "@main = λa.!A&L=a;&L{A₀,A₁}\n";
+    total++;
+    passed += run_test_collapse("collapse_4", src, "&L{λa.a,λa.a}");
+  }
+
+  // Test: collapse_5 - λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)} -> &L{λa.λb.λc.c(a,b), ...}
+  {
+    const char *src = "@main = λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)}\n";
+    total++;
+    passed += run_test_collapse("collapse_5", src, "&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}");
+  }
+
+  // Test: collapse_6 - #S{&A{&B{0,1},&C{2,3}}} -> &A{&B{#S{0},#S{1}},&C{#S{2},#S{3}}}
+  {
+    const char *src = "@main = #S{&A{&B{#Z{},#S{#Z{}}},&C{#S{#S{#Z{}}},#S{#S{#S{#Z{}}}}}}}\n";
+    total++;
+    passed += run_test_collapse("collapse_6", src, "&A{&B{#S{#Z{}},#S{#S{#Z{}}}},&C{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}}}");
+  }
+
+  // Test: collapse_7 - #S{&L{0,1}} -> &L{#S{0},#S{1}}
+  {
+    const char *src = "@main = #S{&L{#Z{},#S{#Z{}}}}\n";
+    total++;
+    passed += run_test_collapse("collapse_7", src, "&L{#S{#Z{}},#S{#S{#Z{}}}}");
+  }
+
+  printf("\n%d/%d tests passed\n", passed, total);
+
+  term_buf_free();
   free(HEAP);
   free(BOOK);
   free(STACK);
 
-  return 0;
+  return (passed == total) ? 0 : 1;
 }
