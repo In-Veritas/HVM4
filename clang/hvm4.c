@@ -1,213 +1,3 @@
-// HVM4 Runtime Implementation in C
-// =================================
-//
-// This file implements the HVM4, an Interaction Calculus runtime, ported from
-// Haskell. It includes parsing, stringification, and a stack-based weak normal
-// form (WNF) evaluator with all interaction rules.
-//
-// Term Pointer Layout (64-bit)
-// ----------------------------
-// | SUB  (1 bit)   ::= marks heap slot as containing a substitution
-// | TAG  (7 bits)  ::= constructor variant (APP, LAM, SUP, etc.)
-// | EXT  (24 bits) ::= dup label, ctr name, or ref name
-// | VAL  (32 bits) ::= heap address or unboxed value
-//
-// Tag Encoding
-// ------------
-// - CO0/CO1: Two tags for Cop (copy) nodes, representing sides 0 and 1
-// - CT0-CTG: Constructor tags encode arity directly (CT0+n for n fields, max 16)
-// - Names (variable, constructor, reference) use 6-char base64 strings encoded
-//   as 24-bit integers fitting in the EXT field
-//
-// Memory Model (No Separate Maps)
-// -------------------------------
-// Unlike the Haskell version which uses IntMaps for 'dups' and 'subs', this
-// implementation stores everything directly on the heap:
-//
-// - DUP nodes: Stored inline on heap. CO0/CO1 point to a dup node holding the
-//   duplicated expression (label stored in CO0/CO1's EXT field).
-//
-// - Substitutions: Stored where the lambda's body, or duplicator expression,
-//   was. When app_lam fires, the argument replaces the lambda body slot. The
-//   SUB bit distinguishes actual terms from substitutions, allowing VAR, CO0
-//   and CO1 to detect whether their target is a binding node or a subst.
-//
-// Book vs Runtime Term Representation
-// -----------------------------------
-// Book terms (parsed definitions) use de Bruijn indices and are immutable:
-//   - VAR: ext = 0         ; val = bru_index
-//   - CO_: ext = dup_label ; val = bru_index
-//   - LAM: ext = bru_depth ; val = body_location
-//   - DUP: ext = dup_label ; val = expr_location
-//
-// Runtime terms (after ALO allocation) use heap locations:
-//   - VAR : ext = 0         ; val = binding_lam_body_location
-//   - CO_ : ext = dup_label ; val = binding_dup_expr_location
-//   - LAM : ext = 0         ; val = expr_location
-//   - DUP : ext = 0         ; val = expr_location
-//
-// ALO (Allocation) Nodes
-// ----------------------
-// ALO terms reference immutable book entries and lazily convert them to
-// runtime terms. Each ALO stores a pair (bind_list, book_term_loc) packed
-// into a single 64-bit heap word:
-//   - Low 32 bits: book term location
-//   - High 32 bits: bind list head (linked list of binder locations)
-//
-// The bind list maps de Bruijn levels to runtime heap locations of binding
-// LAM/DUP nodes. When an ALO interaction occurs, one layer of the book term
-// is extracted and converted to a runtime term.
-//
-// Stack-Based WNF Evaluator
-// -------------------------
-//   To avoid stack overflow, WNF uses an explicit stack with two phases:
-//
-//   REDUCE phase: Push eliminators onto stack and descend into their targets
-//     - APP: push frame, enter function
-//     - MAT: push frame, enter scrutinee (after MAT reaches head position)
-//     - CO0/CO1: push frame, enter dup'd expression
-//
-//   APPLY phase: Pop frames and dispatch interactions based on WHNF result
-//
-//   DUP and ALO don't push stack frames since they immediately trigger their
-//   respective interactions without requiring sub-WNF results first.
-//
-// Internal-Only Constructs
-// ------------------------
-// These nodes are internal and not parseable:
-// - ALO: lazy alloc
-// - NAM: stuck var
-// - DRY: stuck app
-//
-// Collapse Function
-// -----------------
-// Extracts superpositions (SUP) to the top level. For each term type:
-// 1. Collapse subterms recursively
-// 2. Build a template: nested lambdas that reconstruct the term
-// 3. Call inject(template, collapsed_subterms)
-//
-// inject applies args to template; when an arg is SUP, clone and distribute.
-//
-// Key: VARs in templates must point to their binding lambda's body location.
-// For LAM, the inner lambda MUST reuse lam_loc so existing VARs stay bound.
-// Never use mark_sub() when building templates - only app_lam creates substs.
-//
-// Style Guide
-// -----------
-// Abide to the guidelines below strictly!
-//
-// > NEVER write single-line ifs, loops, statements, functions.
-//
-//   Don't:
-//     if { ... }
-//     while { ... }
-//     u32 foo(x) { ... }
-//     foo(); bar();
-//
-//   Do:
-//     if {
-//       ...
-//     }
-//     while {
-//       ...
-//     }
-//     u32 foo(x) {
-//       ...
-//     }
-//     foo();
-//     bar();
-//
-// > ALWAYS use switch for Term pattern matching.
-//
-//   Don't:
-//     if (tag == FOO) {
-//       ...
-//     } else if (tag == BAR) {
-//       ...
-//     } ...
-//
-//   Do:
-//     switch (tag) {
-//       case FOO: {
-//         ...
-//       }
-//       case BAR: {
-//         ...
-//       }
-//     }
-//
-// > Aggressively abstract common patterns (DRY).
-//
-//   When a pattern is repeated in multiple places:
-//
-//   Don't:
-//     fn Term <many_fns>(...) {
-//       ...
-//       if (side == 0) {
-//         HEAP[loc] = mark_sub(res1);
-//         return res0;
-//       } else {
-//         HEAP[loc] = mark_sub(res0);
-//         return res1;
-//       }
-//    }
-//
-//   Do:
-//     fn Term subst_dup(u8 side, u32 loc, Term r0, Term r1) {
-//       HEAP[loc] = mark_sub(side == 0 ? r1 : r0);
-//       return side == 0 ? r0 : r1;
-//     }
-//     fn Term <many_fns>(...) {
-//       ...
-//       return subst_dup(side, loc, res0, res1);
-//     }
-//
-//   In general, spend some time reasoning about opportunities to apply the DRY
-//   principle, extracting common patterns out to reduce code size. We greatly
-//   appreciate simplicity brought by good abstractions!
-//
-// > Align columns whenever reasonable; adjust names as needed.
-//
-//   Don't:
-//
-//   Term abc = foo;
-//   u32 x = 123;
-//   Term the_amazing_cat = bar;
-//
-//   Do:
-//
-//   Term abc = foo;
-//   u32  x   = 123;
-//   Term cat = bar;
-//
-//   Don't:
-//
-//   foo[x] = 123;
-//   foo[x+1] = 456;
-//
-//   Do:
-//
-//   foo[x+0] = 123;
-//   foo[x+1] = 456;
-//
-// > Separate sessions with markdown-inspired headers.
-//
-//   Don't:
-//
-//   ---------------------------------
-//   File Session
-//   ---------------------------------
-//
-//   Do:
-//
-//   File Session
-//   ============
-//
-//   File Sub-Session
-//   ----------------
-//
-//   ### File Sub-Sub-Session
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -1212,13 +1002,25 @@ fn Term dup_bin(u32 lab, u32 loc, u8 side, Term term) {
   u32  t_loc = val_of(term);
   u32  t_ext = ext_of(term);
   u8   t_tag = tag_of(term);
-  Copy A     = clone(lab, HEAP[t_loc + 0]);
-  Copy B     = clone(lab, HEAP[t_loc + 1]);
+  Copy A = clone(lab, HEAP[t_loc + 0]);
+  Copy B = clone(lab, HEAP[t_loc + 1]);
   Term r0, r1;
   switch (t_tag) {
-    case MAT: r0 = Mat(t_ext, A.k0, B.k0); r1 = Mat(t_ext, A.k1, B.k1); break;
-    case DRY: r0 = Dry(A.k0, B.k0);        r1 = Dry(A.k1, B.k1);        break;
-    default:  r0 = Dry(A.k0, B.k0);        r1 = Dry(A.k1, B.k1);        break;
+    case MAT: {
+      r0 = Mat(t_ext, A.k0, B.k0);
+      r1 = Mat(t_ext, A.k1, B.k1);
+      break;
+    }
+    case DRY: {
+      r0 = Dry(A.k0, B.k0);
+      r1 = Dry(A.k1, B.k1);
+      break;
+    }
+    default: {
+      r0 = Dry(A.k0, B.k0);
+      r1 = Dry(A.k1, B.k1);
+      break;
+    }
   }
   return subst_dup(side, loc, r0, r1);
 }
@@ -1291,11 +1093,21 @@ fn Term alo_bin(u32 ls_loc, u32 loc, u8 tag, u32 ext) {
   Term a = make_alo(ls_loc, loc + 0);
   Term b = make_alo(ls_loc, loc + 1);
   switch (tag) {
-    case APP: return App(a, b);
-    case SUP: return Sup(ext, a, b);
-    case MAT: return Mat(ext, a, b);
-    case DRY: return Dry(a, b);
-    default:  return App(a, b);
+    case APP: {
+      return App(a, b);
+    }
+    case SUP: {
+      return Sup(ext, a, b);
+    }
+    case MAT: {
+      return Mat(ext, a, b);
+    }
+    case DRY: {
+      return Dry(a, b);
+    }
+    default: {
+      return App(a, b);
+    }
   }
 }
 
@@ -1762,10 +1574,22 @@ fn Term collapse(Term term) {
 
       Term inner;
       switch (tag_of(term)) {
-        case APP: inner = App(aV, bV); break;
-        case DRY: inner = Dry(aV, bV); break;
-        case MAT: inner = Mat(ext_of(term), aV, bV); break;
-        default:  inner = App(aV, bV); break;
+        case APP: {
+          inner = App(aV, bV);
+          break;
+        }
+        case DRY: {
+          inner = Dry(aV, bV);
+          break;
+        }
+        case MAT: {
+          inner = Mat(ext_of(term), aV, bV);
+          break;
+        }
+        default: {
+          inner = App(aV, bV);
+          break;
+        }
       }
 
       HEAP[bV_loc] = inner;
@@ -1832,46 +1656,54 @@ fn Term collapse(Term term) {
 // Test Framework
 // ==============
 
-fn void reset_state(void) {
-  memset(BOOK, 0, BOOK_CAP * sizeof(u32));
-  memset(HEAP, 0, HEAP_CAP * sizeof(Term));
-  S_POS = 1;
-  ALLOC = 1;
-  ITRS  = 0;
-  PARSE_BINDS_LEN = 0;
-  for (u32 i = 0; i < PARSE_SEEN_FILES_LEN; i++) {
-    free(PARSE_SEEN_FILES[i]);
+static u32  TEST_MAIN_NAME = 0;
+static int  TEST_PASSED    = 0;
+static int  TEST_TOTAL     = 0;
+static u64  TEST_HEAP_BASE = 0;
+
+fn void test_init(const char *book) {
+  // Compute @main name hash once
+  const char *p = "main";
+  while (*p) {
+    TEST_MAIN_NAME = ((TEST_MAIN_NAME << 6) + char_to_b64(*p)) & EXT_MASK;
+    p++;
   }
-  PARSE_SEEN_FILES_LEN = 0;
-}
 
-fn int run_test_impl(const char *name, const char *source, const char *expected, int use_collapse) {
-  reset_state();
-
+  // Parse the book once
   PState s = {
-    .file = "inline",
-    .src  = (char*)source,
+    .file = "book",
+    .src  = (char*)book,
     .pos  = 0,
-    .len  = strlen(source),
+    .len  = strlen(book),
     .line = 1,
     .col  = 1
   };
   parse_def(&s);
 
-  u32 main_name = 0;
-  const char *p = "main";
-  while (*p) {
-    main_name = ((main_name << 6) + char_to_b64(*p)) & EXT_MASK;
-    p++;
-  }
+  // Remember heap position after book parsing
+  TEST_HEAP_BASE = ALLOC;
+}
 
-  if (BOOK[main_name] == 0) {
-    printf("FAIL %s: @main not found\n", name);
-    return 0;
-  }
+fn void test(const char *name, const char *main_def, const char *expected, int use_collapse) {
+  TEST_TOTAL++;
 
-  // Use Ref(@main) so ALO handles the book-to-runtime conversion
-  Term main_ref = Ref(main_name);
+  // Reset heap to after-book state (keeps book definitions)
+  ALLOC = TEST_HEAP_BASE;
+  S_POS = 1;
+
+  // Parse the @main definition
+  PState s = {
+    .file = "test",
+    .src  = (char*)main_def,
+    .pos  = 0,
+    .len  = strlen(main_def),
+    .line = 1,
+    .col  = 1
+  };
+  parse_def(&s);
+
+  // Run
+  Term main_ref = Ref(TEST_MAIN_NAME);
   Term result;
   if (use_collapse) {
     result = snf(collapse(main_ref), 0);
@@ -1882,33 +1714,13 @@ fn int run_test_impl(const char *name, const char *source, const char *expected,
 
   if (strcmp(got, expected) == 0) {
     printf("PASS %s\n", name);
-    return 1;
+    TEST_PASSED++;
   } else {
     printf("FAIL %s\n", name);
     printf("  expected: %s\n", expected);
     printf("  got:      %s\n", got);
-    return 0;
   }
 }
-
-fn int run_test(const char *name, const char *source, const char *expected) {
-  return run_test_impl(name, source, expected, 0);
-}
-
-fn int run_test_collapse(const char *name, const char *source, const char *expected) {
-  return run_test_impl(name, source, expected, 1);
-}
-
-// Helper for tests that use book + @main = expr
-fn int run_book_test(const char *name, const char *book, const char *main_expr, const char *expected) {
-  char src[8192];
-  snprintf(src, sizeof(src), "%s@main = %s\n", book, main_expr);
-  return run_test(name, src, expected);
-}
-
-#define TEST_BOOK(name, expr, expect) do { total++; passed += run_book_test(name, book, expr, expect); } while(0)
-#define TEST_RAW(name, src, expect)   do { total++; passed += run_test(name, src, expect); } while(0)
-#define TEST_COLL(name, src, expect)  do { total++; passed += run_test_collapse(name, src, expect); } while(0)
 
 // Main
 // ====
@@ -1924,123 +1736,94 @@ int main(void) {
 
   term_buf_init();
 
-  int passed = 0;
-  int total  = 0;
-
-  // Book definitions used by multiple tests
+  // Book with all definitions needed by tests
   const char *book =
-    "@ctru = λt. λf. t\n"
-    "@cfal = λt. λf. f\n"
-    "@cnot = λb. λt. λf. b(f, t)\n"
-    "@cadd = λa. λb. λs. λz. !S&B=s; a(S₀, b(S₁, z))\n"
-    "@cmul = λa. λb. λs. λz. a(b(s), z)\n"
-    "@cexp = λa. λb. b(a)\n"
-    "@c1   = λs. λx. s(x)\n"
-    "@c1b  = λs. λx. s(x)\n"
-    "@c2   = λs. !S0&C=s; λx0.S0₀(S0₁(x0))\n"
-    "@c2b  = λs. !S0&K=s; λx0.S0₀(S0₁(x0))\n"
-    "@c4   = λs. !S0&C=s; !S1&C=λx0.S0₀(S0₁(x0)); λx1.S1₀(S1₁(x1))\n"
-    "@c4b  = λs. !S0&K=s; !S1&K=λx0.S0₀(S0₁(x0)); !S2&K=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
-    "@c8   = λs. !S0&C=s; !S1&C=λx0.S0₀(S0₁(x0)); !S2&C=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
-    "@c8b  = λs. !S0&K=s; !S1&K=λx0.S0₀(S0₁(x0)); !S2&K=λx1.S1₀(S1₁(x1)); λx3.S2₀(S2₁(x3))\n"
-    "@mul2 = λ{#Z:#Z{}; λ{#S:λp.#S{#S{@mul2(p)}}; &{}}}\n"
-    "@add  = λ{#Z:λb.b; λ{#S:λa.λb.#S{@add(a, b)}; &{}}}\n"
-    "@sum  = λ{#Z:#Z{}; λ{#S:λp.!P&S=p;#S{@add(P₀, @sum(P₁))}; &{}}}\n";
+    // Church booleans
+    "@true = λt.λf.t\n"
+    "@fals = λt.λf.f\n"
+    "@not  = λb.λt.λf.b(f,t)\n"
+    // Church numerals
+    "@c1 = λs.λx.s(x)\n"
+    "@c2 = λs.!S&C=s;λx.S₀(S₁(x))\n"
+    "@c4 = λs.!S&C=s;!T&C=λx.S₀(S₁(x));λy.T₀(T₁(y))\n"
+    "@c8 = λs.!S&C=s;!T&C=λx.S₀(S₁(x));!U&C=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@k2 = λs.!S&K=s;λx.S₀(S₁(x))\n"
+    "@k4 = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@k8 = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@add = λa.λb.λs.λz.!S&B=s;a(S₀,b(S₁,z))\n"
+    "@mul = λa.λb.λs.λz.a(b(s),z)\n"
+    "@exp = λa.λb.b(a)\n"
+    // Scott naturals
+    "@n0 = #Z{}\n"
+    "@n1 = #S{#Z{}}\n"
+    "@n2 = #S{#S{#Z{}}}\n"
+    "@n3 = #S{#S{#S{#Z{}}}}\n"
+    "@n4 = #S{#S{#S{#S{#Z{}}}}}\n"
+    "@nadd = λ{#Z:λb.b; #S:λp.λb.#S{@nadd(p,b)}; &{}}\n"
+    "@nmul = λ{#Z:λb.#Z{}; #S:λp.λb.!B&M=b;@nadd(B₀,@nmul(p,B₁)); &{}}\n"
+    "@ndbl = λ{#Z:#Z{}; #S:λp.#S{#S{@ndbl(p)}}; &{}}\n"
+    "@nsum = λ{#Z:#Z{}; #S:λp.!P&S=p;#S{@nadd(P₀,@nsum(P₁))}; &{}}\n"
+    "@fib  = λ{#Z:#Z{}; #S:λ{#Z:#S{#Z{}}; #S:λp.!P&F=p;@nadd(@fib(#S{P₀}),@fib(P₁)); &{}}; &{}}\n"
+    "@fac  = λ{#Z:#S{#Z{}}; #S:λp.!P&F=p;@nmul(#S{P₀},@fac(P₁)); &{}}\n"
+    // Other
+    "@swap = λ{#P:λa.λb.#P{b,a}; &{}}\n"
+    "@inc  = λx.#S{x}\n"
+    "@map  = λf.λ{#Nil:#Nil{}; #Cons:λh.λt.!F&M=f;#Cons{F₀(h),@map(F₁,t)}; &{}}\n"
+    "@bits = λ{#Z:#E{}; #S:λp.!P&B=p;&B{#O{@bits(P₀)},#I{@bits(P₁)}}; &{}}\n";
 
-  TEST_BOOK("cnot_true",     "@cnot(@ctru)",                 "λa.λb.b");
-  TEST_BOOK("cnot_not",      "@cnot(@cnot(@ctru))",          "λa.λb.a");
-  TEST_BOOK("mul2_4",        "@mul2(#S{#S{#S{#S{#Z{}}}}})",  "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}");
-  TEST_BOOK("sum_4",         "@sum(#S{#S{#S{#S{#Z{}}}}})",   "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}");
-  TEST_BOOK("cadd_c1_c1_not","@cadd(@c1, @c1, @cnot)",       "λa.λb.λc.a(b,c)");
-  TEST_BOOK("cadd_c1_c4",    "@cadd(@c1, @c4)",              "λa.λb.a(a(a(a(a(b)))))");
-  TEST_BOOK("cadd_c2_c1",    "@cadd(@c2, @c1)",              "λa.λb.a(a(a(b)))");
-  TEST_BOOK("cadd_c2_c2",    "@cadd(@c2, @c2)",              "λa.λb.a(a(a(a(b))))");
-  TEST_BOOK("cadd_c4_c1",    "@cadd(@c4, @c1)",              "λa.λb.a(a(a(a(a(b)))))");
-  TEST_BOOK("cadd_c4_c4",    "@cadd(@c4, @c4)",              "λa.λb.a(a(a(a(a(a(a(a(b))))))))");
-  TEST_BOOK("cmul_c4_c2",    "@cmul(@c4, @c2)",              "λa.λb.a(a(a(a(a(a(a(a(b))))))))");
-  TEST_BOOK("cmul_c4_c4",    "@cmul(@c4, @c4)",              "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))");
+  test_init(book);
 
-  // pair_swap needs extra definition
-  {
-    char src[8192];
-    snprintf(src, sizeof(src), "%s@swap = λ{ #P: λa.λb. #P{b, a} }\n@main = @swap(#P{#Z{}, #S{#Z{}}})\n", book);
-    TEST_RAW("pair_swap", src, "#P{#S{#Z{}},#Z{}}");
-  }
+  // Church boolean tests
+  test("not_true",  "@main = @not(@true)", "λa.λb.b", 0);
+  test("not_not",   "@main = @not(@not(@true))", "λa.λb.a", 0);
+  test("c2_not",    "@main = @c2(@not,@true)", "λa.λb.a", 0);
+  test("c8_k8_not", "@main = @c8(@k8,@not,@true)", "λa.λb.a", 0);
 
-  // fibo: self-contained test
-  TEST_RAW("fibo",
-    "@add = λ{ #Z: λb.b ; #S: λp.λb. #S{@add(p, b)}; }\n"
-    "@fib = λ{ #Z: #Z{} ; #S: λ{ #Z: #S{#Z{}} ; #S: λp. !P&L=p ; @add(@fib(#S{P₀}), @fib(P₁))}}\n"
-    "@two = #S{#S{#Z{}}}\n"
-    "@three = #S{#S{#S{#Z{}}}}\n"
-    "@main = @fib(@add(@three, @three))\n",
-    "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}");
+  // Church arithmetic tests
+  test("add_c1_c1_not", "@main = @add(@c1,@c1,@not)", "λa.λb.λc.a(b,c)", 0);
+  test("add_c1_c4",     "@main = @add(@c1,@c4)", "λa.λb.a(a(a(a(a(b)))))", 0);
+  test("add_c2_c1",     "@main = @add(@c2,@c1)", "λa.λb.a(a(a(b)))", 0);
+  test("add_c2_c2",     "@main = @add(@c2,@c2)", "λa.λb.a(a(a(a(b))))", 0);
+  test("add_c4_c1",     "@main = @add(@c4,@c1)", "λa.λb.a(a(a(a(a(b)))))", 0);
+  test("add_c4_c4",     "@main = @add(@c4,@c4)", "λa.λb.a(a(a(a(a(a(a(a(b))))))))", 0);
+  test("mul_c4_c2",     "@main = @mul(@c4,@c2)", "λa.λb.a(a(a(a(a(a(a(a(b))))))))", 0);
+  test("mul_c4_c4",     "@main = @mul(@c4,@c4)", "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))", 0);
+  test("exp_c4_k2",     "@main = @exp(@c4,@k2)", "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))", 0);
+  test("add_c1_c4_not", "@main = @add(@c1,@c4,@not,@true)", "λa.λb.b", 0);
+  test("add_c2_c4_not", "@main = @add(@c2,@c4,@not,@true)", "λa.λb.a", 0);
+  test("add_c4_c1_not", "@main = @add(@c4,@c1,@not,@true)", "λa.λb.b", 0);
+  test("add_c4_c2_not", "@main = @add(@c4,@c2,@not,@true)", "λa.λb.a", 0);
+  test("mul_c4_c2_not", "@main = @mul(@c4,@c2,@not,@true)", "λa.λb.a", 0);
+  test("mul_c4_c4_not", "@main = @mul(@c4,@c4,@not,@true)", "λa.λb.a", 0);
+  test("dup_add",       "@main = !x&A=@c1;@add(x₀,x₁)", "λa.λb.a(a(b))", 0);
 
-  // factorial: needs extra defs
-  {
-    char src[8192];
-    snprintf(src, sizeof(src), "%s"
-      "@one = #S{#Z{}}\n@two = #S{#S{#Z{}}}\n"
-      "@add2 = λ{ #Z: λb.b ; #S: λp.λb.#S{@add2(p, b)}; }\n"
-      "@mul = λ{ #Z: λb.#Z{} ; #S: λp.λb. !B&A=b ; @add2(B₀, @mul(p, B₁)); }\n"
-      "@fac = λ{ #Z: #S{#Z{}} ; #S: λp. !P&A=p ; @mul(#S{P₀}, @fac(P₁)); }\n"
-      "@main = @fac(@add2(@two, @one))\n", book);
-    TEST_RAW("factorial", src, "#S{#S{#S{#S{#S{#S{#Z{}}}}}}}");
-  }
+  // Scott natural tests
+  test("ndbl_4", "@main = @ndbl(@n4)", "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}", 0);
+  test("nsum_4", "@main = @nsum(@n4)", "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}", 0);
+  test("fib_6",  "@main = @fib(@nadd(@n3,@n3))", "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}", 0);
+  test("fac_3",  "@main = @fac(@n3)", "#S{#S{#S{#S{#S{#S{#Z{}}}}}}}", 0);
 
-  // map: needs extra defs
-  {
-    char src[8192];
-    snprintf(src, sizeof(src), "%s"
-      "@inc = λx.#S{x}\n"
-      "@map = λf.λ{#Nil: #Nil{} ; #Cons: λh.λt. !F&L=f ; #Cons{F₀(h), @map(F₁, t)} }\n"
-      "@main = @map(@inc, #Cons{#Z{}, #Cons{#S{#Z{}}, #Nil{}}})\n", book);
-    TEST_RAW("map", src, "#Cons{#S{#Z{}},#Cons{#S{#S{#Z{}}},#Nil{}}}");
-  }
-
-  // enum_bits: needs extra defs
-  {
-    char src[8192];
-    snprintf(src, sizeof(src), "%s"
-      "@two = #S{#S{#Z{}}}\n"
-      "@bits = λ{ #Z: #E{} ; #S: λp.!P&L=p ; &L{ #O{@bits(P₀)}, #I{@bits(P₁)} } }\n"
-      "@main = @bits(@two)\n", book);
-    TEST_RAW("enum_bits", src, "&L{#O{&L{#O{#E{}},#I{#E{}}}},#I{&L{#O{#E{}},#I{#E{}}}}}");
-  }
-
-  TEST_BOOK("c2_not_t",        "@c2(@cnot, @ctru)",              "λa.λb.a");
-  TEST_BOOK("simple_dup",      "!x&A=@c1; @cadd(x₀, x₁)",        "λa.λb.a(a(b))");
-  TEST_BOOK("c8_k8_not_t",     "@c8(@c8b, @cnot, @ctru)",        "λa.λb.a");
-  TEST_BOOK("cexp_c4_c2b",     "@cexp(@c4, @c2b)",               "λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))");
-  TEST_BOOK("cadd_c1_c4_not_t","@cadd(@c1, @c4, @cnot, @ctru)",  "λa.λb.b");
-  TEST_BOOK("cadd_c2_c4_not_t","@cadd(@c2, @c4, @cnot, @ctru)",  "λa.λb.a");
-  TEST_BOOK("cadd_c4_c1_not_t","@cadd(@c4, @c1, @cnot, @ctru)",  "λa.λb.b");
-  TEST_BOOK("cadd_c4_c2_not_t","@cadd(@c4, @c2, @cnot, @ctru)",  "λa.λb.a");
-  TEST_BOOK("cmul_c4_c2_not_t","@cmul(@c4, @c2, @cnot, @ctru)",  "λa.λb.a");
-  TEST_BOOK("cmul_c4_c4_not_t","@cmul(@c4, @c4, @cnot, @ctru)",  "λa.λb.a");
+  // Other tests
+  test("swap",   "@main = @swap(#P{@n0,@n1})", "#P{#S{#Z{}},#Z{}}", 0);
+  test("map",    "@main = @map(@inc,#Cons{@n0,#Cons{@n1,#Nil{}}})", "#Cons{#S{#Z{}},#Cons{#S{#S{#Z{}}},#Nil{}}}", 0);
+  test("bits_2", "@main = @bits(@n2)", "&B{#O{&B{#O{#E{}},#I{#E{}}}},#I{&B{#O{#E{}},#I{#E{}}}}}", 0);
 
   // Collapse tests
-  TEST_COLL("collapse_0", "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, #S{#S{#S{#Z{}}}})\n",
-    "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}})}");
-  TEST_COLL("collapse_1", "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, &A{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n",
-    "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}");
-  TEST_COLL("collapse_2", "@main = λt.t(&A{#S{#Z{}},#S{#S{#Z{}}}}, &B{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n",
-    "&A{&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})},&B{λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}}");
-  TEST_COLL("collapse_3", "@main = λt.t(#S{#Z{}}, &B{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}})\n",
-    "&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})}");
-  TEST_COLL("collapse_4", "@main = λa.!A&L=a;&L{A₀,A₁}\n", "&L{λa.a,λa.a}");
-  TEST_COLL("collapse_5", "@main = λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)}\n",
-    "&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}");
-  TEST_COLL("collapse_6", "@main = #S{&A{&B{#Z{},#S{#Z{}}},&C{#S{#S{#Z{}}},#S{#S{#S{#Z{}}}}}}}\n",
-    "&A{&B{#S{#Z{}},#S{#S{#Z{}}}},&C{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}}}");
-  TEST_COLL("collapse_7", "@main = #S{&L{#Z{},#S{#Z{}}}}\n", "&L{#S{#Z{}},#S{#S{#Z{}}}}");
+  test("col_0", "@main = λt.t(&A{@n1,@n2},@n3)", "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}})}", 1);
+  test("col_1", "@main = λt.t(&A{@n1,@n2},&A{@n3,@n4})", "&A{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}", 1);
+  test("col_2", "@main = λt.t(&A{@n1,@n2},&B{@n3,@n4})", "&A{&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})},&B{λa.a(#S{#S{#Z{}}},#S{#S{#S{#Z{}}}}),λa.a(#S{#S{#Z{}}},#S{#S{#S{#S{#Z{}}}}})}}", 1);
+  test("col_3", "@main = λt.t(@n1,&B{@n3,@n4})", "&B{λa.a(#S{#Z{}},#S{#S{#S{#Z{}}}}),λa.a(#S{#Z{}},#S{#S{#S{#S{#Z{}}}}})}", 1);
+  test("col_4", "@main = λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}", 1);
+  test("col_5", "@main = λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)}", "&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}", 1);
+  test("col_6", "@main = #S{&A{&B{@n0,@n1},&C{@n2,@n3}}}", "&A{&B{#S{#Z{}},#S{#S{#Z{}}}},&C{#S{#S{#S{#Z{}}}},#S{#S{#S{#S{#Z{}}}}}}}", 1);
+  test("col_7", "@main = #S{&L{@n0,@n1}}", "&L{#S{#Z{}},#S{#S{#Z{}}}}", 1);
 
-  printf("\n%d/%d tests passed\n", passed, total);
+  printf("\n%d/%d tests passed\n", TEST_PASSED, TEST_TOTAL);
 
   term_buf_free();
   free(HEAP);
   free(BOOK);
   free(STACK);
 
-  return (passed == total) ? 0 : 1;
+  return (TEST_PASSED == TEST_TOTAL) ? 0 : 1;
 }
