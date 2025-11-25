@@ -1701,34 +1701,30 @@ int main(void) {
 
   // Book with all definitions needed by tests
   const char *book =
-    // Church booleans
     "@true = λt.λf.t\n"
     "@fals = λt.λf.f\n"
     "@not  = λb.λt.λf.b(f,t)\n"
-    // Church numerals
-    "@c1 = λs.λx.s(x)\n"
-    "@c2 = λs.!S&C=s;λx.S₀(S₁(x))\n"
-    "@c4 = λs.!S&C=s;!T&C=λx.S₀(S₁(x));λy.T₀(T₁(y))\n"
-    "@c8 = λs.!S&C=s;!T&C=λx.S₀(S₁(x));!U&C=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
-    "@k2 = λs.!S&K=s;λx.S₀(S₁(x))\n"
-    "@k4 = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
-    "@k8 = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
-    "@add = λa.λb.λs.λz.!S&B=s;a(S₀,b(S₁,z))\n"
-    "@mul = λa.λb.λs.λz.a(b(s),z)\n"
-    "@exp = λa.λb.b(a)\n"
-    // Scott naturals
-    "@n0 = #Z{}\n"
-    "@n1 = #S{#Z{}}\n"
-    "@n2 = #S{#S{#Z{}}}\n"
-    "@n3 = #S{#S{#S{#Z{}}}}\n"
-    "@n4 = #S{#S{#S{#S{#Z{}}}}}\n"
+    "@c1   = λs.λx.s(x)\n"
+    "@c2   = λs.!S&C=s;λx.S₀(S₁(x))\n"
+    "@c4   = λs.!S&C=s;!T&C=λx.S₀(S₁(x));λy.T₀(T₁(y))\n"
+    "@c8   = λs.!S&C=s;!T&C=λx.S₀(S₁(x));!U&C=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@k2   = λs.!S&K=s;λx.S₀(S₁(x))\n"
+    "@k4   = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@k8   = λs.!S&K=s;!T&K=λx.S₀(S₁(x));!U&K=λy.T₀(T₁(y));λz.U₀(U₁(z))\n"
+    "@add  = λa.λb.λs.λz.!S&B=s;a(S₀,b(S₁,z))\n"
+    "@mul  = λa.λb.λs.λz.a(b(s),z)\n"
+    "@exp  = λa.λb.b(a)\n"
+    "@n0   = #Z{}\n"
+    "@n1   = #S{#Z{}}\n"
+    "@n2   = #S{#S{#Z{}}}\n"
+    "@n3   = #S{#S{#S{#Z{}}}}\n"
+    "@n4   = #S{#S{#S{#S{#Z{}}}}}\n"
     "@nadd = λ{#Z:λb.b; #S:λp.λb.#S{@nadd(p,b)}; &{}}\n"
     "@nmul = λ{#Z:λb.#Z{}; #S:λp.λb.!B&M=b;@nadd(B₀,@nmul(p,B₁)); &{}}\n"
     "@ndbl = λ{#Z:#Z{}; #S:λp.#S{#S{@ndbl(p)}}; &{}}\n"
     "@nsum = λ{#Z:#Z{}; #S:λp.!P&S=p;#S{@nadd(P₀,@nsum(P₁))}; &{}}\n"
     "@fib  = λ{#Z:#Z{}; #S:λ{#Z:#S{#Z{}}; #S:λp.!P&F=p;@nadd(@fib(#S{P₀}),@fib(P₁)); &{}}; &{}}\n"
     "@fac  = λ{#Z:#S{#Z{}}; #S:λp.!P&F=p;@nmul(#S{P₀},@fac(P₁)); &{}}\n"
-    // Other
     "@swap = λ{#P:λa.λb.#P{b,a}; &{}}\n"
     "@inc  = λx.#S{x}\n"
     "@map  = λf.λ{#Nil:#Nil{}; #Cons:λh.λt.!F&M=f;#Cons{F₀(h),@map(F₁,t)}; &{}}\n"
@@ -1763,7 +1759,7 @@ int main(void) {
   // Scott natural tests
   test("ndbl_4", "@main = @ndbl(@n4)", "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}", 0);
   test("nsum_4", "@main = @nsum(@n4)", "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}", 0);
-  test("fib_6",  "@main = @fib(@nadd(@n3,@n3))", "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}", 0);
+  test("fib_6",  "@main = @fib(@nadd(@n3,@n4))", "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}}}}", 0);
   test("fac_3",  "@main = @fac(@n3)", "#S{#S{#S{#S{#S{#S{#Z{}}}}}}}", 0);
 
   // Other tests
