@@ -123,7 +123,7 @@ run_tests() {
 hs_status=0
 c_status=0
 
-# run_tests "$HS_BIN" "Haskell" || hs_status=1
+run_tests "$HS_BIN" "Haskell" || hs_status=1
 run_tests "$C_BIN" "C" || c_status=1
 
 if [ $hs_status -eq 0 ] && [ $c_status -eq 0 ]; then
