@@ -386,9 +386,9 @@ fn Term clear_sub(Term t) {
 }
 
 fn u64 heap_alloc(u64 size) {
-  if (ALLOC + size >= HEAP_CAP) {
-    error("HEAP_OVERFLOW\n");
-  }
+//  if (ALLOC + size >= HEAP_CAP) {
+//    error("HEAP_OVERFLOW\n");
+//  }
   u64 at = ALLOC;
   ALLOC += size;
   return at;
@@ -1117,14 +1117,39 @@ fn Term app_lam(Term lam, Term arg) {
   return body;
 }
 
-fn Term app_sup(Term sup, Term arg) {
+// (&L{a b} c)
+// --------------------- APP-SUP
+// ! &L{x0 x1} = c
+// &L{(a x0) (b x1)}
+// Memory-optimized: reuses sup_loc for ap0, app_loc for result SUP
+fn Term app_sup(Term app, Term sup) {
   ITRS++;
-  u32  lab = ext(sup);
-  u32  loc = val(sup);
-  Term tm0 = HEAP[loc + 0];
-  Term tm1 = HEAP[loc + 1];
-  Copy A   = clone(lab, arg);
-  return Sup(lab, App(tm0, A.k0), App(tm1, A.k1));
+  u32 app_loc = val(app);
+  u32 sup_loc = val(sup);
+  u32 sup_lab = ext(sup);
+  Term arg    = HEAP[app_loc + 1];
+  Term tm1    = HEAP[sup_loc + 1];
+
+  // Allocate only 3 slots: ap1(2) + dup(1)
+  u64 loc = heap_alloc(3);
+  u32 ap1 = (u32)loc;
+  u32 dup = (u32)loc + 2;
+
+  // Reuse sup_loc as ap0 (tm0 already at sup_loc+0)
+  HEAP[sup_loc + 1] = new_term(0, CO0, sup_lab, dup);
+
+  // Set up new ap1
+  HEAP[ap1 + 0] = tm1;
+  HEAP[ap1 + 1] = new_term(0, CO1, sup_lab, dup);
+
+  // Reuse app_loc as result SUP
+  HEAP[app_loc + 0] = new_term(0, APP, 0, sup_loc);
+  HEAP[app_loc + 1] = new_term(0, APP, 0, ap1);
+
+  // Dup node holds the argument
+  HEAP[dup] = arg;
+
+  return new_term(0, SUP, sup_lab, app_loc);
 }
 
 // Match Interactions
@@ -1157,26 +1182,85 @@ fn Term app_mat_ctr(Term mat, Term ctr) {
 // Dup Interactions
 // ================
 
+// ! &L{r s} = λx(f)
+// ------------------- DUP-LAM
+// ! &L{f0 f1} = f
+// r <- λx0(f0)
+// s <- λx1(f1)
+// x <- &L{x0 x1}
+// Memory-optimized: single contiguous allocation, reuses lam_loc for substitution
 fn Term dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
-  Copy B   = clone(lab, HEAP[val(lam)]);
-  Term l0  = Lam(B.k0);
-  Term l1  = Lam(B.k1);
-  subst_var(val(lam), Sup(lab, Var(val(l0)), Var(val(l1))));
+  u32  lam_loc = val(lam);
+  Term bod     = HEAP[lam_loc];
+
+  // Single contiguous allocation: lm0(1) + lm1(1) + su0(2) + du0(1) = 5 slots
+  u64 alloc = heap_alloc(5);
+  u32 lm0   = (u32)alloc + 0;
+  u32 lm1   = (u32)alloc + 1;
+  u32 su0   = (u32)alloc + 2;
+  u32 du0   = (u32)alloc + 4;
+
+  // Substitute in lam_loc (reuse original lambda body slot)
+  HEAP[lam_loc] = mark_sub(new_term(0, SUP, lab, su0));
+
+  // Set up the two new lambda bodies
+  HEAP[lm0] = new_term(0, CO0, lab, du0);
+  HEAP[lm1] = new_term(0, CO1, lab, du0);
+
+  // Set up the SUP for the variable substitution
+  HEAP[su0 + 0] = new_term(0, VAR, 0, lm0);
+  HEAP[su0 + 1] = new_term(0, VAR, 0, lm1);
+
+  // The dup node holds the original body
+  HEAP[du0] = bod;
+
+  Term l0 = new_term(0, LAM, 0, lm0);
+  Term l1 = new_term(0, LAM, 0, lm1);
+
   return subst_cop(side, loc, l0, l1);
 }
 
+// ! &L{x y} = &R{a b}
+// ------------------- DUP-SUP
+// if L == R:
+//   x <- a
+//   y <- b
+// else:
+//   x <- &R{a0 b0}
+//   y <- &R{a1 b1}
+//   ! &L{a0 a1} = a
+//   ! &L{b0 b1} = b
+// Memory-optimized: reuses sup_loc for dup nodes
 fn Term dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   ITRS++;
-  Term tm0 = HEAP[val(sup) + 0];
-  Term tm1 = HEAP[val(sup) + 1];
-  if (lab == ext(sup)) {
+  u32 sup_loc = val(sup);
+  u32 sup_lab = ext(sup);
+  Term tm0    = HEAP[sup_loc + 0];
+  Term tm1    = HEAP[sup_loc + 1];
+
+  if (lab == sup_lab) {
     return subst_cop(side, loc, tm0, tm1);
   } else {
-    Copy A  = clone(lab, tm0);
-    Copy B  = clone(lab, tm1);
-    Term r0 = Sup(ext(sup), A.k0, B.k0);
-    Term r1 = Sup(ext(sup), A.k1, B.k1);
+    // Reuse sup_loc for dup nodes: tm0 and tm1 are already there!
+    // du0 = sup_loc + 0 (already contains tm0)
+    // du1 = sup_loc + 1 (already contains tm1)
+    u32 du0 = sup_loc + 0;
+    u32 du1 = sup_loc + 1;
+
+    // Only allocate 4 new slots for the two new SUPs
+    u64 alloc = heap_alloc(4);
+    u32 su0   = (u32)alloc + 0;
+    u32 su1   = (u32)alloc + 2;
+
+    HEAP[su0 + 0] = new_term(0, CO0, lab, du0);
+    HEAP[su0 + 1] = new_term(0, CO0, lab, du1);
+    HEAP[su1 + 0] = new_term(0, CO1, lab, du0);
+    HEAP[su1 + 1] = new_term(0, CO1, lab, du1);
+
+    Term r0 = new_term(0, SUP, sup_lab, su0);
+    Term r1 = new_term(0, SUP, sup_lab, su1);
+
     return subst_cop(side, loc, r0, r1);
   }
 }
@@ -1415,7 +1499,7 @@ fn Term wnf(Term term) {
               goto enter;
             }
             case SUP: {
-              whnf = app_sup(whnf, arg);
+              whnf = app_sup(frame, whnf);
               next = whnf;
               goto enter;
             }
