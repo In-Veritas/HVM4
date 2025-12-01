@@ -1,0 +1,9 @@
+fn Term wnf_app_mat_sup(Term mat, Term sup) {
+  ITRS++;
+  u32  lab = term_ext(sup);
+  Copy M   = term_clone(lab, mat);
+  u32  loc = term_val(sup);
+  Term a   = HEAP[loc + 0];
+  Term b   = HEAP[loc + 1];
+  return term_sup(lab, term_app(M.k0, a), term_app(M.k1, b));
+}

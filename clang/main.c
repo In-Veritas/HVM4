@@ -28,12 +28,12 @@ fn void flatten(Term term, int limit) {
   while (head < tail && (limit < 0 || count < limit)) {
     Term t = queue[head++];
 
-    if (tag(t) == SUP) {
-      u32 loc = val(t);
+    if (term_tag(t) == SUP) {
+      u32 loc = term_val(t);
       queue[tail++] = HEAP[loc + 0];
       queue[tail++] = HEAP[loc + 1];
     } else {
-      if (tag(t) != ERA) {
+      if (term_tag(t) != ERA) {
         print_term(t);
         printf("\n");
         count++;
@@ -96,14 +96,14 @@ int main(int argc, char **argv) {
   // Allocate memory
   BOOK  = calloc(BOOK_CAP, sizeof(u32));
   HEAP  = calloc(HEAP_CAP, sizeof(Term));
-  STACK = calloc(STACK_CAP, sizeof(Term));
+  STACK = calloc(WNF_CAP, sizeof(Term));
 
   if (!BOOK || !HEAP || !STACK) {
-    error("Memory allocation failed");
+    sys_error("Memory allocation failed");
   }
 
   // Read and parse file
-  char *src = file_read(opts.file);
+  char *src = sys_file_read(opts.file);
   if (!src) {
     fprintf(stderr, "Error: could not open '%s'\n", opts.file);
     return 1;
@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
   u32 main_name = 0;
   const char *p = "main";
   while (*p) {
-    main_name = ((main_name << 6) + char_to_b64(*p)) & EXT_MASK;
+    main_name = ((main_name << 6) + letter_to_b64(*p)) & EXT_MASK;
     p++;
   }
 
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-  Term main_ref = Ref(main_name);
+  Term main_ref = term_ref(main_name);
   Term result;
   if (opts.do_collapse) {
     result = snf(collapse(main_ref), 0);

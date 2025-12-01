@@ -1,0 +1,15 @@
+fn u32 parse_name(PState *s) {
+  parse_skip(s);
+  char c = parse_peek(s);
+  if (!letter_is_name_init(c)) {
+    parse_error(s, "name", c);
+  }
+  u32 k = 0;
+  while (letter_is_name_char(parse_peek(s))) {
+    c = parse_peek(s);
+    k = ((k << 6) + letter_to_b64(c)) & EXT_MASK;
+    parse_advance(s);
+  }
+  parse_skip(s);
+  return k;
+}

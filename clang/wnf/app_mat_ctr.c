@@ -1,0 +1,13 @@
+fn Term wnf_app_mat_ctr(Term mat, Term ctr) {
+  ITRS++;
+  u32 ari = term_tag(ctr) - C00;
+  if (term_ext(mat) == term_ext(ctr)) {
+    Term res = HEAP[term_val(mat)];
+    for (u32 i = 0; i < ari; i++) {
+      res = term_app(res, HEAP[term_val(ctr) + i]);
+    }
+    return res;
+  } else {
+    return term_app(HEAP[term_val(mat) + 1], ctr);
+  }
+}
