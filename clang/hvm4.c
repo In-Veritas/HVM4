@@ -15,7 +15,7 @@
 // Tag Encoding
 // ------------
 // - CO0/CO1: Two tags for Cop (copy) nodes, representing sides 0 and 1
-// - CTR...CTR+CTR_MAX_ARI: Constructor tags encode arity directly (CTR+n for n fields)
+// - C00...C16: Constructor tags encode arity directly (C00+n for n fields)
 // - Names (variable, constructor, reference) use 6-char base64 strings encoded
 //   as 24-bit integers fitting in the EXT field
 //
@@ -250,8 +250,23 @@ typedef struct {
 #define SUP 10
 #define DUP 11
 #define MAT 12
-#define CTR 13
-#define CTR_MAX_ARI 16
+#define C00 13
+#define C01 14
+#define C02 15
+#define C03 16
+#define C04 17
+#define C05 18
+#define C06 19
+#define C07 20
+#define C08 21
+#define C09 22
+#define C10 23
+#define C11 24
+#define C12 25
+#define C13 26
+#define C14 27
+#define C15 28
+#define C16 29
 #define NUM 30
 
 // Bit Layout
@@ -372,8 +387,8 @@ fn u32 arity_of(Term t) {
     case NUM: {
       return 0;
     }
-    case CTR ... CTR + CTR_MAX_ARI: {
-      return tag(t) - CTR;
+    case C00 ... C16: {
+      return tag(t) - C00;
     }
     default: {
       return 0;
@@ -517,7 +532,7 @@ fn Term Mat(u32 nam, Term val, Term nxt) {
 }
 
 fn Term CtrAt(u32 loc, u32 nam, u32 ari, Term *args) {
-  return NewAt(loc, CTR + ari, nam, ari, args);
+  return NewAt(loc, C00 + ari, nam, ari, args);
 }
 
 fn Term Ctr(u32 nam, u32 ari, Term *args) {
@@ -719,8 +734,8 @@ fn void str_term_go(Term term, u32 depth) {
       str_putc('}');
       break;
     }
-    case CTR ... CTR + CTR_MAX_ARI: {
-      u32 ari = tag(term) - CTR;
+    case C00 ... C16: {
+      u32 ari = tag(term) - C00;
       u32 loc = val(term);
       str_putc('#');
       str_name(ext(term));
@@ -1227,7 +1242,7 @@ fn Term app_mat_sup(Term mat, Term sup) {
 
 fn Term app_mat_ctr(Term mat, Term ctr) {
   ITRS++;
-  u32 ari = tag(ctr) - CTR;
+  u32 ari = tag(ctr) - C00;
   if (ext(mat) == ext(ctr)) {
     Term res = HEAP[val(mat)];
     for (u32 i = 0; i < ari; i++) {
@@ -1442,7 +1457,7 @@ fn Term wnf(Term term) {
           case SUP:
           case MAT:
           case DRY:
-          case CTR ... CTR + CTR_MAX_ARI: {
+          case C00 ... C16: {
             next = alo_node(ls_loc, val(book), tag(book), ext(book), arity_of(book));
             goto enter;
           }
@@ -1470,7 +1485,7 @@ fn Term wnf(Term term) {
       case LAM:
       case NUM:
       case MAT:
-      case CTR ... CTR + CTR_MAX_ARI: {
+      case C00 ... C16: {
         whnf = next;
         goto apply;
       }
@@ -1541,7 +1556,7 @@ fn Term wnf(Term term) {
               next = whnf;
               goto enter;
             }
-            case CTR ... CTR + CTR_MAX_ARI: {
+            case C00 ... C16: {
               whnf = app_mat_ctr(mat, whnf);
               next = whnf;
               goto enter;
@@ -1578,7 +1593,7 @@ fn Term wnf(Term term) {
             }
             case MAT:
             case DRY:
-            case CTR ... CTR + CTR_MAX_ARI: {
+            case C00 ... C16: {
               whnf = dup_node(lab, loc, side, whnf);
               next = whnf;
               goto enter;
