@@ -252,9 +252,7 @@ typedef struct {
 #define MAT 12
 #define CTR 13
 #define CTR_MAX_ARI 16
-#define DSP 30
-#define DDP 31
-#define NUM 32
+#define NUM 30
 
 // Bit Layout
 // ==========
@@ -370,10 +368,6 @@ fn u32 arity_of(Term t) {
     case MAT:
     case DRY: {
       return 2;
-    }
-    case DSP:
-    case DDP: {
-      return 3;
     }
     case NUM: {
       return 0;
@@ -532,14 +526,6 @@ fn Term Ctr(u32 nam, u32 ari, Term *args) {
 
 fn Term Num(u32 n) {
   return new_term(0, NUM, 0, n);
-}
-
-fn Term Dsp(Term lab, Term tm0, Term tm1) {
-  return New(DSP, 0, 3, (Term[]){lab, tm0, tm1});
-}
-
-fn Term Ddp(Term lab, Term val, Term bod) {
-  return New(DDP, 0, 3, (Term[]){lab, val, bod});
 }
 
 // Cloning
@@ -720,32 +706,6 @@ fn void str_term_go(Term term, u32 depth) {
       str_term_go(HEAP[loc + 0], depth);
       str_putc(';');
       str_term_go(HEAP[loc + 1], depth + 1);
-      break;
-    }
-    case DSP: {
-      u32 loc = val(term);
-      str_putc('&');
-      str_putc('(');
-      str_term_go(HEAP[loc + 0], depth);
-      str_putc(')');
-      str_putc('{');
-      str_term_go(HEAP[loc + 1], depth);
-      str_putc(',');
-      str_term_go(HEAP[loc + 2], depth);
-      str_putc('}');
-      break;
-    }
-    case DDP: {
-      u32 loc = val(term);
-      str_putc('!');
-      str_putc('&');
-      str_putc('(');
-      str_term_go(HEAP[loc + 0], depth);
-      str_putc(')');
-      str_putc('=');
-      str_term_go(HEAP[loc + 1], depth);
-      str_putc(';');
-      str_term_go(HEAP[loc + 2], depth);
       break;
     }
     case MAT: {
@@ -999,17 +959,6 @@ fn Term parse_lam(PState *s, u32 depth) {
 
 fn Term parse_dup(PState *s, u32 depth) {
   skip(s);
-  if (match(s, "&(")) {
-    Term lab = parse_term(s, depth);
-    consume(s, ")");
-    consume(s, "=");
-    Term val = parse_term(s, depth);
-    skip(s);
-    match(s, ";");
-    skip(s);
-    Term bod = parse_term(s, depth);
-    return Ddp(lab, val, bod);
-  }
   u32 nam = parse_name(s);
   consume(s, "&");
   u32  lab = parse_name(s);
@@ -1033,19 +982,6 @@ fn Term parse_sup(PState *s, u32 depth) {
     consume(s, "{");
     consume(s, "}");
     return Era();
-  }
-  if (peek(s) == '(') {
-    consume(s, "(");
-    Term lab = parse_term(s, depth);
-    consume(s, ")");
-    consume(s, "{");
-    Term tm0 = parse_term(s, depth);
-    skip(s);
-    match(s, ",");
-    skip(s);
-    Term tm1 = parse_term(s, depth);
-    consume(s, "}");
-    return Dsp(lab, tm0, tm1);
   }
   u32 lab = parse_name(s);
   consume(s, "{");
@@ -1471,14 +1407,6 @@ fn Term wnf(Term term) {
         goto enter;
       }
 
-      case DSP:
-      case DDP: {
-        u32 loc = val(next);
-        STACK[S_POS++] = next;
-        next = HEAP[loc + 0];
-        goto enter;
-      }
-
       case REF: {
         u32 nam = ext(next);
         if (BOOK[nam] != 0) {
@@ -1514,8 +1442,6 @@ fn Term wnf(Term term) {
           case SUP:
           case MAT:
           case DRY:
-          case DSP:
-          case DDP:
           case CTR ... CTR + CTR_MAX_ARI: {
             next = alo_node(ls_loc, val(book), tag(book), ext(book), arity_of(book));
             goto enter;
@@ -1662,84 +1588,6 @@ fn Term wnf(Term term) {
               HEAP[new_loc] = whnf;
               subst_var(loc, new_term(0, side == 0 ? CO1 : CO0, lab, new_loc));
               whnf          = new_term(0, side == 0 ? CO0 : CO1, lab, new_loc);
-              continue;
-            }
-          }
-        }
-
-        case DSP: {
-          u64  loc = val(frame);
-          Term a   = HEAP[loc + 1];
-          Term b   = HEAP[loc + 2];
-          switch (tag(whnf)) {
-            case NUM: {
-              ITRS++;
-              whnf = Sup(val(whnf), a, b);
-              next = whnf;
-              goto enter;
-            }
-            case SUP: {
-              ITRS++;
-              u32  sup_lab = ext(whnf);
-              u64  sup_loc = val(whnf);
-              Term la      = HEAP[sup_loc + 0];
-              Term lb      = HEAP[sup_loc + 1];
-              Copy A       = clone(sup_lab, a);
-              Copy B       = clone(sup_lab, b);
-              whnf         = Sup(sup_lab, Dsp(la, A.k0, B.k0), Dsp(lb, A.k1, B.k1));
-              next         = whnf;
-              goto enter;
-            }
-            case ERA: {
-              ITRS++;
-              whnf = Era();
-              continue;
-            }
-            default: {
-              whnf = Dsp(whnf, a, b);
-              continue;
-            }
-          }
-        }
-
-        case DDP: {
-          u64  loc = val(frame);
-          Term val_tm = HEAP[loc + 1];
-          Term bod    = HEAP[loc + 2];
-          switch (tag(whnf)) {
-            case NUM: {
-              ITRS++;
-              u32 label = val(whnf);
-              u64 dup_loc = heap_alloc(2);
-              HEAP[dup_loc + 0] = val_tm;
-              Term c0 = new_term(0, CO0, label, dup_loc);
-              Term c1 = new_term(0, CO1, label, dup_loc);
-              Term app = App(App(bod, c0), c1);
-              HEAP[dup_loc + 1] = app;
-              whnf = new_term(0, DUP, label, dup_loc);
-              next = whnf;
-              goto enter;
-            }
-            case SUP: {
-              ITRS++;
-              u32  sup_lab = ext(whnf);
-              u64  sup_loc = val(whnf);
-              Term la      = HEAP[sup_loc + 0];
-              Term lb      = HEAP[sup_loc + 1];
-              Copy V       = clone(sup_lab, val_tm);
-              Copy T       = clone(sup_lab, bod);
-              whnf         = Sup(sup_lab, Ddp(la, V.k0, T.k0), Ddp(lb, V.k1, T.k1));
-              next         = whnf;
-              goto enter;
-            }
-            case ERA: {
-              ITRS++;
-              whnf = App(App(bod, Era()), Era());
-              next = whnf;
-              goto enter;
-            }
-            default: {
-              whnf = Ddp(whnf, val_tm, bod);
               continue;
             }
           }

@@ -42,8 +42,6 @@ data Term
   | Ctr Name [Term]
   | Mat Name Term Term
   | Alo [Name] Term
-  | Dsp Term Term Term
-  | Ddp Term Term Term
   | Num Word32
   deriving (Eq)
 
@@ -83,8 +81,6 @@ instance Show Term where
   show (Ctr k xs)    = show_ctr k xs
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
   show (Alo s t)     = "@{" ++ intercalate "," (map int_to_name s) ++ "}" ++ show t
-  show (Dsp l a b)   = "&(" ++ show l ++ "){" ++ show a ++ "," ++ show b ++ "}"
-  show (Ddp l v t)   = "!&(" ++ show l ++ ")=" ++ show v ++ ";" ++ show t
   show (Num n)       = show n
 
 -- Special pretty printing for VAR and APP constructors
@@ -335,26 +331,14 @@ parse_mat_body ps = do
 parse_dup :: IORef PState -> IO Term
 parse_dup ps = do
   consume "!" ps
-  c <- peek ps
-  if c == '&' then do
-    consume "&" ps
-    consume "(" ps
-    lab <- parse_term ps
-    consume ")" ps
-    consume "=" ps
-    val <- parse_term ps
-    consume ";" ps
-    bod <- parse_term ps
-    return (Ddp lab val bod)
-  else do
-    nam <- parse_name ps
-    consume "&" ps
-    lab <- parse_name ps
-    consume "=" ps
-    val <- parse_term ps
-    consume ";" ps
-    bod <- parse_term ps
-    return (Dup nam lab val bod)
+  nam <- parse_name ps
+  consume "&" ps
+  lab <- parse_name ps
+  consume "=" ps
+  val <- parse_term ps
+  consume ";" ps
+  bod <- parse_term ps
+  return (Dup nam lab val bod)
 
 parse_sup :: IORef PState -> IO Term
 parse_sup ps = do
@@ -364,16 +348,6 @@ parse_sup ps = do
     consume "{" ps
     consume "}" ps
     return Era
-  else if c == '(' then do
-    consume "(" ps
-    lab <- parse_term ps
-    consume ")" ps
-    consume "{" ps
-    t1 <- parse_term ps
-    consume "," ps
-    t2 <- parse_term ps
-    consume "}" ps
-    return (Dsp lab t1 t2)
   else do
     lab <- parse_name ps
     consume "{" ps
@@ -553,8 +527,6 @@ bruijn t = go IM.empty 0 t where
     Ctr k xs    -> Ctr k (map (go env d) xs)
     Mat k h m   -> Mat k (go env d h) (go env d m)
     Alo s b     -> Alo s (go env d b)
-    Dsp l a b   -> Dsp (go env d l) (go env d a) (go env d b)
-    Ddp l v b   -> Ddp (go env d l) (go env d v) (go env d b)
     Num n       -> Num n
 
 -- Cloning
@@ -575,6 +547,19 @@ clone_list e l (h:t) = do
 
 -- WNF: Weak Normal Form
 -- =====================
+
+
+
+
+
+
+-- @dup = λ{#: λn. λv. λf. (@DUP n v f)}
+-- @DUP = λn. λv. λf. ! V &L = v; (f V₀ V₁)
+
+
+
+
+
 
 type WnfApp = Env -> Term -> Term -> IO Term
 type WnfDup = Int -> Env -> Name -> Lab -> Term -> IO Term
@@ -633,41 +618,8 @@ wnf e term = do
       App f x     -> wnf e $ App (Alo s f) (Alo s x)
       Ctr k xs    -> wnf e $ Ctr k (map (Alo s) xs)
       Mat k h m   -> wnf e $ Mat k (Alo s h) (Alo s m)
-      Dsp l a b   -> wnf e $ Dsp (Alo s l) (Alo s a) (Alo s b)
-      Ddp l v b   -> wnf e $ Ddp (Alo s l) (Alo s v) (Alo s b)
       Num n       -> wnf e $ Num n
       Alo s' t'   -> error "Nested Alo"
-    Dsp l a b -> do
-      l' <- wnf e l
-      case l' of
-        Num n -> do
-          inc_itrs e
-          wnf e (Sup (fromIntegral n) a b)
-        Sup lL la lb -> do
-          inc_itrs e
-          (a0, a1) <- clone e lL a
-          (b0, b1) <- clone e lL b
-          wnf e (Sup lL (Dsp la a0 b0) (Dsp lb a1 b1))
-        Era -> do
-          inc_itrs e
-          wnf e Era
-        _ -> return (Dsp l' a b)
-    Ddp l v t -> do
-      l' <- wnf e l
-      case l' of
-        Num n -> do
-          inc_itrs e
-          x <- fresh e
-          wnf e (Dup x (fromIntegral n) v (App (App t (Cop 0 x)) (Cop 1 x)))
-        Sup lL la lb -> do
-          inc_itrs e
-          (v0, v1) <- clone e lL v
-          (t0, t1) <- clone e lL t
-          wnf e (Sup lL (Ddp la v0 t0) (Ddp lb v1 t1))
-        Era -> do
-          inc_itrs e
-          wnf e (App (App t Era) Era)
-        _ -> return (Ddp l' v t)
     Num n -> do
       return (Num n)
     t -> do
@@ -861,18 +813,6 @@ snf e d x = unsafeInterleaveIO $ do
 
     Alo s t -> do
       error "Should be gone"
-
-    Dsp l a b -> do
-      l' <- snf e d l
-      a' <- snf e d a
-      b' <- snf e d b
-      return $ Dsp l' a' b'
-
-    Ddp l v t -> do
-      l' <- snf e d l
-      v' <- snf e d v
-      t' <- snf e d t
-      return $ Ddp l' v' t'
 
     Num n -> do
       return $ Num n
