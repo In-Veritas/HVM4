@@ -76,8 +76,9 @@
 // ------------------------
 // These nodes are internal and not parseable:
 // - ALO: lazy alloc
-// - NAM: stuck var
-// - DRY: stuck app
+// Stuck terms use special CTR names:
+// - #VAR{#name{}}: stuck variable (name encoded as 0-arity CTR)
+// - #APP{f,x}: stuck application
 //
 // Collapse Function
 // -----------------
@@ -237,37 +238,41 @@ typedef struct {
 // Tags
 // ====
 
-#define NAM  0
-#define DRY  1
-#define REF  2
-#define ALO  3
-#define ERA  4
-#define CO0  5
-#define CO1  6
-#define VAR  7
-#define LAM  8
-#define APP  9
-#define SUP 10
-#define DUP 11
-#define MAT 12
-#define C00 13
-#define C01 14
-#define C02 15
-#define C03 16
-#define C04 17
-#define C05 18
-#define C06 19
-#define C07 20
-#define C08 21
-#define C09 22
-#define C10 23
-#define C11 24
-#define C12 25
-#define C13 26
-#define C14 27
-#define C15 28
-#define C16 29
-#define NUM 30
+#define REF  0
+#define ALO  1
+#define ERA  2
+#define CO0  3
+#define CO1  4
+#define VAR  5
+#define LAM  6
+#define APP  7
+#define SUP  8
+#define DUP  9
+#define MAT 10
+#define C00 11
+#define C01 12
+#define C02 13
+#define C03 14
+#define C04 15
+#define C05 16
+#define C06 17
+#define C07 18
+#define C08 19
+#define C09 20
+#define C10 21
+#define C11 22
+#define C12 23
+#define C13 24
+#define C14 25
+#define C15 26
+#define C16 27
+#define NUM 28
+
+// Special constructor names for stuck terms
+// =========================================
+
+#define _VAR_ 198380  // name_to_int("VAR")
+#define _APP_ 113322  // name_to_int("APP")
 
 // Bit Layout
 // ==========
@@ -380,8 +385,7 @@ fn u32 arity_of(Term t) {
     case APP:
     case SUP:
     case DUP:
-    case MAT:
-    case DRY: {
+    case MAT: {
       return 2;
     }
     case NUM: {
@@ -467,10 +471,6 @@ fn Term Ref(u32 nam) {
   return new_term(0, REF, nam, 0);
 }
 
-fn Term Nam(u32 nam) {
-  return new_term(0, NAM, 0, nam);
-}
-
 fn Term Era(void) {
   return new_term(0, ERA, 0, 0);
 }
@@ -505,14 +505,6 @@ fn Term SupAt(u32 loc, u32 lab, Term tm0, Term tm1) {
 
 fn Term Sup(u32 lab, Term tm0, Term tm1) {
   return SupAt(heap_alloc(2), lab, tm0, tm1);
-}
-
-fn Term DryAt(u32 loc, Term tm0, Term tm1) {
-  return NewAt(loc, DRY, 0, 2, (Term[]){tm0, tm1});
-}
-
-fn Term Dry(Term tm0, Term tm1) {
-  return DryAt(heap_alloc(2), tm0, tm1);
 }
 
 fn Term DupAt(u32 loc, u32 lab, Term val, Term bod) {
@@ -637,10 +629,39 @@ fn void str_uint(u32 n) {
 
 fn void str_term_go(Term term, u32 depth);
 
+fn int is_app(Term t) {
+  return tag(t) == APP || (tag(t) == C02 && ext(t) == _APP_);
+}
+
+fn void str_app(Term term, u32 depth) {
+  Term spine[256];
+  u32  len  = 0;
+  Term curr = term;
+  while (is_app(curr) && len < 256) {
+    u32 loc = val(curr);
+    spine[len++] = HEAP[loc + 1];
+    curr = HEAP[loc];
+  }
+  if (tag(curr) == LAM) {
+    str_putc('(');
+    str_term_go(curr, depth);
+    str_putc(')');
+  } else {
+    str_term_go(curr, depth);
+  }
+  str_putc('(');
+  for (u32 i = 0; i < len; i++) {
+    if (i > 0) {
+      str_putc(',');
+    }
+    str_term_go(spine[len - 1 - i], depth);
+  }
+  str_putc(')');
+}
+
 fn void str_term_go(Term term, u32 depth) {
   switch (tag(term)) {
-    case VAR:
-    case NAM: {
+    case VAR: {
       str_name(val(term));
       break;
     }
@@ -672,31 +693,8 @@ fn void str_term_go(Term term, u32 depth) {
       str_term_go(HEAP[loc], depth + 1);
       break;
     }
-    case APP:
-    case DRY: {
-      Term spine[256];
-      u32  len  = 0;
-      Term curr = term;
-      while ((tag(curr) == APP || tag(curr) == DRY) && len < 256) {
-        u32 loc = val(curr);
-        spine[len++] = HEAP[loc + 1];
-        curr = HEAP[loc];
-      }
-      if (tag(curr) == LAM) {
-        str_putc('(');
-        str_term_go(curr, depth);
-        str_putc(')');
-      } else {
-        str_term_go(curr, depth);
-      }
-      str_putc('(');
-      for (u32 i = 0; i < len; i++) {
-        if (i > 0) {
-          str_putc(',');
-        }
-        str_term_go(spine[len - 1 - i], depth);
-      }
-      str_putc(')');
+    case APP: {
+      str_app(term, depth);
       break;
     }
     case SUP: {
@@ -737,8 +735,19 @@ fn void str_term_go(Term term, u32 depth) {
     case C00 ... C16: {
       u32 ari = tag(term) - C00;
       u32 loc = val(term);
+      u32 nam = ext(term);
+      // #VAR{#name{}} -> name
+      if (nam == _VAR_ && ari == 1 && tag(HEAP[loc]) == C00) {
+        str_name(ext(HEAP[loc]));
+        break;
+      }
+      // #APP{f,x} -> f(x)
+      if (nam == _APP_ && ari == 2) {
+        str_app(term, depth);
+        break;
+      }
       str_putc('#');
-      str_name(ext(term));
+      str_name(nam);
       str_putc('{');
       for (u32 i = 0; i < ari; i++) {
         if (i > 0) {
@@ -1198,9 +1207,8 @@ fn Term app_era(void) {
   return Era();
 }
 
-fn Term app_stuck(Term fun, Term arg) {
-  ITRS++;
-  return Dry(fun, arg);
+fn Term app_ctr(Term ctr, Term arg) {
+  return Ctr(_APP_, 2, (Term[]){ctr, arg});
 }
 
 fn Term app_lam(Term lam, Term arg) {
@@ -1456,7 +1464,6 @@ fn Term wnf(Term term) {
           case APP:
           case SUP:
           case MAT:
-          case DRY:
           case C00 ... C16: {
             next = alo_node(ls_loc, val(book), tag(book), ext(book), arity_of(book));
             goto enter;
@@ -1470,7 +1477,6 @@ fn Term wnf(Term term) {
             goto enter;
           }
           case REF:
-          case NAM:
           case ERA: {
             next = book;
             goto enter;
@@ -1478,8 +1484,6 @@ fn Term wnf(Term term) {
         }
       }
 
-      case NAM:
-      case DRY:
       case ERA:
       case SUP:
       case LAM:
@@ -1517,11 +1521,6 @@ fn Term wnf(Term term) {
               whnf = app_era();
               continue;
             }
-            case NAM:
-            case DRY: {
-              whnf = app_stuck(whnf, arg);
-              continue;
-            }
             case LAM: {
               whnf = app_lam(whnf, arg);
               next = whnf;
@@ -1536,6 +1535,10 @@ fn Term wnf(Term term) {
               STACK[S_POS++] = whnf;
               next = arg;
               goto enter;
+            }
+            case C00 ... C16: {
+              whnf = app_ctr(whnf, arg);
+              continue;
             }
             default: {
               whnf = App(whnf, arg);
@@ -1586,13 +1589,11 @@ fn Term wnf(Term term) {
               goto enter;
             }
             case ERA:
-            case NAM:
             case NUM: {
               whnf = dup_node(lab, loc, side, whnf);
               continue;
             }
             case MAT:
-            case DRY:
             case C00 ... C16: {
               whnf = dup_node(lab, loc, side, whnf);
               next = whnf;
@@ -1630,7 +1631,9 @@ fn Term snf(Term term, u32 depth) {
   u64 loc = val(term);
   if (tag(term) == LAM) {
     Term body = HEAP[loc];
-    subst_var(loc, Nam(depth + 1));
+    // #VAR{#depth{}} for stuck variable
+    Term name_ctr = Ctr(depth + 1, 0, NULL);
+    subst_var(loc, Ctr(_VAR_, 1, (Term[]){name_ctr}));
     HEAP[loc] = snf(body, depth + 1);
   } else {
     for (u32 i = 0; i < ari; i++) {
@@ -1703,7 +1706,6 @@ fn Term collapse(Term term) {
     case ERA:
     case VAR:
     case REF:
-    case NAM:
     case NUM:
     case CO0:
     case CO1: {
@@ -1741,7 +1743,7 @@ fn Term collapse(Term term) {
     }
 
     default: {
-      // Generic case for APP, DRY, MAT, CTR, etc.
+      // Generic case for APP, MAT, CTR, etc.
       // Template: λv0. λv1. ... T(Var v0, Var v1, ...)
       u32 ari = arity_of(term);
       u64 loc = val(term);
