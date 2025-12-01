@@ -1,0 +1,2 @@
+// Prelude: built-in functions
+@add = λ{λx.λ{λy.@@add(x,y)}}

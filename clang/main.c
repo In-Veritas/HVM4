@@ -108,7 +108,22 @@ int main(int argc, char **argv) {
   // Set debug mode
   DEBUG = opts.debug;
 
-  // Read and parse file
+  // Parse prelude
+  char *prelude_src = sys_file_read("prelude/book.hvm4");
+  if (prelude_src) {
+    PState ps = {
+      .file = "prelude/book.hvm4",
+      .src  = prelude_src,
+      .pos  = 0,
+      .len  = strlen(prelude_src),
+      .line = 1,
+      .col  = 1
+    };
+    parse_def(&ps);
+    free(prelude_src);
+  }
+
+  // Read and parse user file
   char *src = sys_file_read(opts.file);
   if (!src) {
     fprintf(stderr, "Error: could not open '%s'\n", opts.file);
