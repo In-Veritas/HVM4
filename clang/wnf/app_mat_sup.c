@@ -1,3 +1,9 @@
+// (λ{#K:h; m} &L{a,b})
+// -------------------- app-mat-sup
+// ! H &L = h
+// ! M &L = m
+// &L{(λ{#K:H₀; M₀} a)
+//   ,(λ{#K:H₁; M₁} b)}
 fn Term wnf_app_mat_sup(Term mat, Term sup) {
   ITRS++;
   u32  lab = term_ext(sup);

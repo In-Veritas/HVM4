@@ -1,3 +1,13 @@
+// ! X &L = &R{a,b}
+// ---------------- dup-sup
+// if L == R:
+//   X₀ ← a
+//   X₁ ← b
+// else:
+//   ! A &L = a
+//   ! B &L = b
+//   X₀ ← &R{A₀,B₀}
+//   X₁ ← &R{A₁,B₁}
 fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   ITRS++;
   u32 sup_loc = term_val(sup);

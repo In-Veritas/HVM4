@@ -1,3 +1,7 @@
+// (&L{f,g} a)
+// ----------------- app-sup
+// ! A &L = a
+// &L{(f A₀),(g A₁)}
 fn Term wnf_app_sup(Term app, Term sup) {
   ITRS++;
   u32  app_loc = term_val(app);

@@ -1,3 +1,10 @@
+// (λ{#K:h; m} #K{a,b})
+// -------------------- app-mat-ctr-match
+// (h a b)
+//
+// (λ{#K:h; m} #L{a,b})
+// -------------------- app-mat-ctr-miss
+// (m #L{a,b})
 fn Term wnf_app_mat_ctr(Term mat, Term ctr) {
   ITRS++;
   u32 ari = term_tag(ctr) - C00;

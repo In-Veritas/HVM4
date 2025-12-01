@@ -1,3 +1,7 @@
+// @{s} λx.f
+// ------------ alo-lam
+// x' ← fresh
+// λx'.@{x',s}f
 fn Term wnf_alo_lam(u32 ls_loc, u32 book_body_loc) {
   u64 lam_body = heap_alloc(1);
   u64 bind_ent = heap_alloc(1);

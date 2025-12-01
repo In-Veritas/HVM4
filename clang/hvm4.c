@@ -185,9 +185,7 @@ static u32    PARSE_BINDS_LEN = 0;
 #include "term/new/mat.c"
 #include "term/new/ctr.c"
 #include "term/new/num.c"
-#include "term/clone_at.c"
 #include "term/clone.c"
-#include "term/clone_many.c"
 
 // Heap Substitution
 // =================
