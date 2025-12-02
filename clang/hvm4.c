@@ -207,11 +207,7 @@ static u32    PARSE_BINDS_LEN = 0;
 #include "nick/letter_to_b64.c"
 #include "nick/is_init.c"
 #include "nick/is_char.c"
-
-// Sugar
-// =====
-
-#include "sugar.c"
+#include "nick/names.c"
 
 // System
 // ======
