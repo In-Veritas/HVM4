@@ -9,49 +9,53 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       parse_consume(s, "}");
       return term_new_era();
     }
-    // Check for SWI: λ{123: f; g} (but not nat pattern like 0n:)
-    if (isdigit(parse_peek(s))) {
-      u32 sav = s->pos;
-      u32 num = 0;
-      while (isdigit(parse_peek(s))) {
-        num = num * 10 + (parse_peek(s) - '0');
-        parse_advance(s);
-      }
-      parse_skip(s);
-      if (parse_peek(s) != 'n') {
-        parse_consume(s, ":");
-        Term f = parse_term(s, depth);
-        parse_skip(s);
-        parse_consume(s, ";");
-        Term g = parse_term(s, depth);
-        parse_skip(s);
-        parse_consume(s, "}");
-        return term_new_swi(num, f, g);
-      }
-      s->pos = sav;
-    }
-    // Check for MAT: λ{#Name: ...} or sugar patterns, or USE: λ{f}
-    Term mat = term_new_era();
-    Term *tip = &mat;
+    // Parse SWI/MAT/USE with chaining
+    Term term = term_new_era();
+    Term *tip = &term;
     while (1) {
       parse_skip(s);
-      u32 nam = 0;
-      if (parse_peek(s) == '#') {
-        parse_advance(s);
-        nam = parse_name(s);
-      } else if (parse_peek(s) == '0' && parse_peek_at(s, 1) == 'n') {
-        parse_advance(s); parse_advance(s); nam = NAM_ZER;
-      } else if (isdigit(parse_peek(s))) {
-        while (isdigit(parse_peek(s))) parse_advance(s);
-        if (parse_peek(s) == 'n' && parse_peek_at(s, 1) == '+') {
-          parse_advance(s); parse_advance(s); nam = NAM_SUC;
+      u8  tag = 0;
+      u32 ext = 0;
+      // SWI case: 123:
+      if (isdigit(parse_peek(s))) {
+        u32 sav = s->pos;
+        while (isdigit(parse_peek(s))) {
+          ext = ext * 10 + (parse_peek(s) - '0');
+          parse_advance(s);
         }
-      } else if (parse_peek(s) == '[' && parse_peek_at(s, 1) == ']') {
-        parse_advance(s); parse_advance(s); nam = NAM_NIL;
-      } else if (parse_peek(s) == '<' && parse_peek_at(s, 1) == '>') {
-        parse_advance(s); parse_advance(s); nam = NAM_CON;
+        parse_skip(s);
+        if (parse_peek(s) == ':') {
+          tag = SWI;
+        } else if (parse_peek(s) == 'n') {
+          // Nat sugar: 0n or Nn+
+          if (ext == 0 && parse_peek_at(s, 1) != '+') {
+            parse_advance(s);
+            tag = MAT; ext = NAM_ZER;
+          } else if (parse_peek_at(s, 1) == '+') {
+            parse_advance(s); parse_advance(s);
+            tag = MAT; ext = NAM_SUC;
+          } else {
+            s->pos = sav;
+          }
+        } else {
+          s->pos = sav;
+        }
       }
-      if (nam) {
+      // MAT cases: #Name, [], <>
+      if (!tag && parse_peek(s) == '#') {
+        parse_advance(s);
+        tag = MAT; ext = parse_name(s);
+      }
+      if (!tag && parse_peek(s) == '[' && parse_peek_at(s, 1) == ']') {
+        parse_advance(s); parse_advance(s);
+        tag = MAT; ext = NAM_NIL;
+      }
+      if (!tag && parse_peek(s) == '<' && parse_peek_at(s, 1) == '>') {
+        parse_advance(s); parse_advance(s);
+        tag = MAT; ext = NAM_CON;
+      }
+      // Found a case - parse body and chain
+      if (tag) {
         parse_skip(s);
         parse_consume(s, ":");
         Term val = parse_term(s, depth);
@@ -60,25 +64,24 @@ fn Term parse_term_lam(PState *s, u32 depth) {
         u64 loc = heap_alloc(2);
         HEAP[loc + 0] = val;
         HEAP[loc + 1] = term_new_era();
-        *tip = term_new(0, MAT, nam, loc);
-        tip = &HEAP[loc + 1];
-      } else if (parse_peek(s) == '}') {
-        parse_consume(s, "}");
-        return mat;
-      } else {
-        // USE: λ{f} - single term without # prefix
-        if (mat == term_new_era()) {
-          // No MAT cases yet, this is a USE
-          Term f = parse_term(s, depth);
-          parse_skip(s);
-          parse_consume(s, "}");
-          return term_new_use(f);
-        }
-        // Default case for MAT
-        *tip = parse_term(s, depth);
-        parse_consume(s, "}");
-        return mat;
+        *tip = term_new(0, tag, ext, loc);
+        tip  = &HEAP[loc + 1];
+        continue;
       }
+      // No case found - either }, USE, or default
+      if (parse_peek(s) == '}') {
+        parse_consume(s, "}");
+        return term;
+      }
+      if (term == term_new_era()) {
+        Term f = parse_term(s, depth);
+        parse_skip(s);
+        parse_consume(s, "}");
+        return term_new_use(f);
+      }
+      *tip = parse_term(s, depth);
+      parse_consume(s, "}");
+      return term;
     }
   }
   u32 nam = parse_name(s);
