@@ -84,6 +84,29 @@ fn CliOpts parse_opts(int argc, char **argv) {
   return opts;
 }
 
+// Prelude
+// =======
+
+static const char *PRELUDE =
+  "@add = λ{λx.λ{λy.@@add(x,y)}}\n"
+  "@sub = λ{λx.λ{λy.@@sub(x,y)}}\n"
+  "@mul = λ{λx.λ{λy.@@mul(x,y)}}\n"
+  "@div = λ{λx.λ{λy.@@div(x,y)}}\n"
+  "@mod = λ{λx.λ{λy.@@mod(x,y)}}\n"
+  "@and = λ{λx.λ{λy.@@and(x,y)}}\n"
+  "@or  = λ{λx.λ{λy.@@or(x,y)}}\n"
+  "@xor = λ{λx.λ{λy.@@xor(x,y)}}\n"
+  "@lsh = λ{λx.λ{λy.@@lsh(x,y)}}\n"
+  "@rsh = λ{λx.λ{λy.@@rsh(x,y)}}\n"
+  "@not = λ{λx.@@not(x)}\n"
+  "@eq  = λ{λx.λ{λy.@@eq(x,y)}}\n"
+  "@ne  = λ{λx.λ{λy.@@ne(x,y)}}\n"
+  "@lt  = λ{λx.λ{λy.@@lt(x,y)}}\n"
+  "@le  = λ{λx.λ{λy.@@le(x,y)}}\n"
+  "@gt  = λ{λx.λ{λy.@@gt(x,y)}}\n"
+  "@ge  = λ{λx.λ{λy.@@ge(x,y)}}\n"
+;
+
 // Main
 // ====
 
@@ -109,19 +132,15 @@ int main(int argc, char **argv) {
   DEBUG = opts.debug;
 
   // Parse prelude
-  char *prelude_src = sys_file_read("prelude/book.hvm4");
-  if (prelude_src) {
-    PState ps = {
-      .file = "prelude/book.hvm4",
-      .src  = prelude_src,
-      .pos  = 0,
-      .len  = strlen(prelude_src),
-      .line = 1,
-      .col  = 1
-    };
-    parse_def(&ps);
-    free(prelude_src);
-  }
+  PState ps = {
+    .file = "<prelude>",
+    .src  = (char*)PRELUDE,
+    .pos  = 0,
+    .len  = strlen(PRELUDE),
+    .line = 1,
+    .col  = 1
+  };
+  parse_def(&ps);
 
   // Read and parse user file
   char *src = sys_file_read(opts.file);
