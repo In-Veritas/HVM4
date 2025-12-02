@@ -228,6 +228,7 @@ static u32    PARSE_FRESH_LAB = 0;
 // =====
 
 #include "print/name.c"
+#include "print/utf8.c"
 #include "print/term.c"
 
 // Parse
@@ -248,6 +249,7 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "parse/bind_pop.c"
 #include "parse/bind_lookup.c"
 #include "parse/name.c"
+#include "parse/utf8.c"
 #include "parse/term/lam.c"
 #include "parse/term/dup.c"
 #include "parse/term/sup.c"
