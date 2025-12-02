@@ -59,7 +59,12 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
     }
     case REF: {
       fputc('@', f);
-      print_name(f, term_ext(term));
+      char *name = table_get(term_ext(term));
+      if (name != NULL) {
+        fputs(name, f);
+      } else {
+        print_name(f, term_ext(term));
+      }
       break;
     }
     case ERA: {

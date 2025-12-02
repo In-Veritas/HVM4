@@ -220,6 +220,13 @@ static u32    PARSE_BINDS_LEN = 0;
 #include "sys/path_join.c"
 #include "sys/file_read.c"
 
+// Table
+// =====
+
+#include "table/_.c"
+#include "table/find.c"
+#include "table/get.c"
+
 // Print
 // =====
 

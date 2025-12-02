@@ -127,8 +127,9 @@ int main(int argc, char **argv) {
   BOOK  = calloc(BOOK_CAP, sizeof(u32));
   HEAP  = calloc(HEAP_CAP, sizeof(Term));
   STACK = calloc(WNF_CAP, sizeof(Term));
+  TABLE = calloc(BOOK_CAP, sizeof(char*));
 
-  if (!BOOK || !HEAP || !STACK) {
+  if (!BOOK || !HEAP || !STACK || !TABLE) {
     sys_error("Memory allocation failed");
   }
 
@@ -170,16 +171,11 @@ int main(int argc, char **argv) {
   parse_def(&s);
   free(src);
 
-  // Get @main name hash
-  u32 main_name = 0;
-  const char *p = "main";
-  while (*p) {
-    main_name = ((main_name << 6) + nick_letter_to_b64(*p)) & EXT_MASK;
-    p++;
-  }
+  // Get @main id
+  u32 main_id = table_find("main", 4);
 
   // Check @main exists
-  if (BOOK[main_name] == 0) {
+  if (BOOK[main_id] == 0) {
     fprintf(stderr, "Error: @main not defined\n");
     return 1;
   }
@@ -188,7 +184,7 @@ int main(int argc, char **argv) {
   struct timespec start, end;
   clock_gettime(CLOCK_MONOTONIC, &start);
 
-  Term main_ref = term_new_ref(main_name);
+  Term main_ref = term_new_ref(main_id);
   Term result;
   if (opts.do_collapse) {
     result = snf(collapse(main_ref), 0);
@@ -219,6 +215,7 @@ int main(int argc, char **argv) {
   free(HEAP);
   free(BOOK);
   free(STACK);
+  free(TABLE);
 
   return 0;
 }
