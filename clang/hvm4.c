@@ -155,6 +155,7 @@ static char  *PARSE_SEEN_FILES[1024];
 static u32    PARSE_SEEN_FILES_LEN = 0;
 static PBind  PARSE_BINDS[16384];
 static u32    PARSE_BINDS_LEN = 0;
+static u32    PARSE_FRESH_LAB = 0;
 
 // Term
 // ====

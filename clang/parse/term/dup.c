@@ -24,9 +24,15 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     }
     return term_new_app(lam, val);
   }
-  // Regular DUP: !x&label = val; body
+  // Regular DUP: !x&label = val; body  or  !x& = val; body (auto-label)
   parse_consume(s, "&");
-  u32  lab = parse_name(s);
+  parse_skip(s);
+  u32 lab;
+  if (parse_peek(s) == '=') {
+    lab = PARSE_FRESH_LAB++;
+  } else {
+    lab = parse_name(s);
+  }
   parse_consume(s, "=");
   Term val = parse_term(s, depth);
   parse_skip(s);
