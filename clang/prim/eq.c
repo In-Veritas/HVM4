@@ -1,12 +1,4 @@
-// @@eq(a, b)
-// ---------- prim-eq
-// a == b
+// @@eq(a, b) = a == b ? 1 : 0
 fn Term prim_eq(Term a, Term b) {
-  a = wnf(a);
-  b = wnf(b);
-  if (term_tag(a) != NUM || term_tag(b) != NUM) {
-    fprintf(stderr, "@@eq: expected NUMs\n");
-    exit(1);
-  }
-  return term_new_num(term_val(a) == term_val(b) ? 1 : 0);
+  return prim_op2(PRIM_EQ, a, b);
 }

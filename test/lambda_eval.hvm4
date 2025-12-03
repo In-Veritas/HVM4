@@ -17,7 +17,7 @@
     #Var{i}
   #Lam: λf. λd.
     ! D &snf = d;
-    #Lam{λx. @snf(f(#Var{D₀}), @add(D₁,1))}
+    #Lam{λx. @snf(f(#Var{D₀}), @@add(D₁,1))}
   #App: λf. λx. λd. 
     ! D &snf = d;
     #App{@snf(f,D₀), @snf(x,D₁)}

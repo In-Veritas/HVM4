@@ -53,6 +53,10 @@ fn void parse_auto_dup_go(u64 loc, u32 idx, u32 *use, u32 n, u32 lab) {
       ari = tag - C00;
       break;
     }
+    case P00 ... P16: {
+      ari = tag - P00;
+      break;
+    }
     default: {
       return;
     }
@@ -102,6 +106,10 @@ fn Term parse_auto_dup(Term body, u32 idx, u32 uses) {
     }
     case C00 ... C16: {
       ari = tag - C00;
+      break;
+    }
+    case P00 ... P16: {
+      ari = tag - P00;
       break;
     }
     default: {

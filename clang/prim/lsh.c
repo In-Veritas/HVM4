@@ -1,12 +1,4 @@
-// @@lsh(a, b)
-// ----------- prim-lsh
-// a << b
+// @@lsh(a, b) = a << (b & 31)
 fn Term prim_lsh(Term a, Term b) {
-  a = wnf(a);
-  b = wnf(b);
-  if (term_tag(a) != NUM || term_tag(b) != NUM) {
-    fprintf(stderr, "@@lsh: expected NUMs\n");
-    exit(1);
-  }
-  return term_new_num(term_val(a) << term_val(b));
+  return prim_op2(PRIM_LSH, a, b);
 }

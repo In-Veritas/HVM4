@@ -1,16 +1,4 @@
-// @@div(a, b)
-// ----------- prim-div
-// a / b
+// @@div(a, b) = a / b (returns 0 on div by zero)
 fn Term prim_div(Term a, Term b) {
-  a = wnf(a);
-  b = wnf(b);
-  if (term_tag(a) != NUM || term_tag(b) != NUM) {
-    fprintf(stderr, "@@div: expected NUMs\n");
-    exit(1);
-  }
-  if (term_val(b) == 0) {
-    fprintf(stderr, "@@div: division by zero\n");
-    exit(1);
-  }
-  return term_new_num(term_val(a) / term_val(b));
+  return prim_op2(PRIM_DIV, a, b);
 }

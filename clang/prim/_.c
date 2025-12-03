@@ -22,6 +22,10 @@ fn Term wnf(Term term);
 #define PRIM_DUP 17744
 #define PRIM_SUP 79184
 
+// Generic op handlers (must come before individual prims)
+#include "op1.c"
+#include "op2.c"
+
 // Primitive implementations
 #include "add.c"
 #include "sub.c"

@@ -1,11 +1,4 @@
-// @@not(a)
-// -------- prim-not
-// ~a
+// @@not(a) = ~a
 fn Term prim_not(Term a) {
-  a = wnf(a);
-  if (term_tag(a) != NUM) {
-    fprintf(stderr, "@@not: expected NUM\n");
-    exit(1);
-  }
-  return term_new_num(~term_val(a));
+  return prim_op1(PRIM_NOT, a);
 }

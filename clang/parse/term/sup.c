@@ -18,7 +18,8 @@ fn Term parse_term_sup(PState *s, u32 depth) {
     parse_skip(s);
     Term tm1 = parse_term(s, depth);
     parse_consume(s, "}");
-    return term_new_app(term_new_app(term_new_app(term_new_ref(table_find("sup", 3)), lab), tm0), tm1);
+    // 79184 = PRIM_SUP
+    return term_new_pri(79184, 3, (Term[]){lab, tm0, tm1});
   }
   u32 lab = parse_name(s);
   parse_consume(s, "{");

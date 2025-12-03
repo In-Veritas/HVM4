@@ -73,14 +73,15 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     parse_bind_push(nam, depth, 0xFFFFFF, 0);  // dynamic dup marker
     Term body = parse_term(s, depth + 2);
     parse_bind_pop();
-    // Generate: @dup(lab, val, λ_.λ_.body)
+    // Generate: @@dup(lab, val, λ_.λ_.body)
     u64 loc0     = heap_alloc(1);
     u64 loc1     = heap_alloc(1);
     HEAP[loc1]   = body;
     Term lam1    = term_new(0, LAM, depth + 1, loc1);
     HEAP[loc0]   = lam1;
     Term lam0    = term_new(0, LAM, depth, loc0);
-    return term_new_app(term_new_app(term_new_app(term_new_ref(table_find("dup", 3)), lab_term), val), lam0);
+    // 17744 = PRIM_DUP
+    return term_new_pri(17744, 3, (Term[]){lab_term, val, lam0});
   }
   // Static label
   u32 lab;
