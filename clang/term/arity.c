@@ -23,8 +23,13 @@ fn u32 term_arity(Term t) {
     case C00 ... C16: {
       return term_tag(t) - C00;
     }
-    case P00 ... P16: {
-      return term_tag(t) - P00;
+    case OP2:
+    case OP1: {
+      return 2;
+    }
+    case DYS:
+    case DYD: {
+      return 3;
     }
     default: {
       return 0;

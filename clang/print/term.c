@@ -148,20 +148,59 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       print_ctr(f, term, depth);
       break;
     }
-    case P00 ... P16: {
-      u32 ari = term_tag(term) - P00;
+    case OP2: {
+      u32 opr = term_ext(term);
       u32 loc = term_val(term);
-      u32 nam = term_ext(term);
+      static const char *op_names[] = {
+        "add", "sub", "mul", "div", "mod", "and", "or", "xor", "lsh", "rsh",
+        "not", "eq", "ne", "lt", "le", "gt", "ge"
+      };
       fputs("@@", f);
-      print_name(f, nam);
+      if (opr < 17) fputs(op_names[opr], f);
+      else fprintf(f, "op%u", opr);
       fputc('(', f);
-      for (u32 i = 0; i < ari; i++) {
-        if (i > 0) {
-          fputc(',', f);
-        }
-        print_term_go(f, HEAP[loc + i], depth);
-      }
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputc(',', f);
+      print_term_go(f, HEAP[loc + 1], depth);
       fputc(')', f);
+      break;
+    }
+    case OP1: {
+      u32 opr = term_ext(term);
+      u32 loc = term_val(term);
+      static const char *op_names[] = {
+        "add", "sub", "mul", "div", "mod", "and", "or", "xor", "lsh", "rsh",
+        "not", "eq", "ne", "lt", "le", "gt", "ge"
+      };
+      fputs("@@", f);
+      if (opr < 17) fputs(op_names[opr], f);
+      else fprintf(f, "op%u", opr);
+      fputs("'(", f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputc(',', f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(')', f);
+      break;
+    }
+    case DYS: {
+      u32 loc = term_val(term);
+      fputs("&(", f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputs("){", f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(',', f);
+      print_term_go(f, HEAP[loc + 2], depth);
+      fputc('}', f);
+      break;
+    }
+    case DYD: {
+      u32 loc = term_val(term);
+      fputs("!(", f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputs(")=", f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(';', f);
+      print_term_go(f, HEAP[loc + 2], depth);
       break;
     }
     case ALO: {

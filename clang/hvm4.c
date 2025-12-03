@@ -63,23 +63,50 @@ typedef struct {
 #define NUM 30
 #define SWI 31
 #define USE 32
-#define P00 33
-#define P01 34
-#define P02 35
-#define P03 36
-#define P04 37
-#define P05 38
-#define P06 39
-#define P07 40
-#define P08 41
-#define P09 42
-#define P10 43
-#define P11 44
-#define P12 45
-#define P13 46
-#define P14 47
-#define P15 48
-#define P16 49
+#define OP2 33  // Op2(opr, x, y): strict on x, then creates Op1
+#define OP1 34  // Op1(opr, x, y): strict on y, then performs operation
+#define DYS 35  // DynSup(lab, a, b): strict on lab, creates SUP
+#define DYD 36  // DynDup(lab, val, bod): strict on lab, creates DUP
+
+// Operation codes (stored in EXT field of OP2/OP1)
+#define OP_ADD 0
+#define OP_SUB 1
+#define OP_MUL 2
+#define OP_DIV 3
+#define OP_MOD 4
+#define OP_AND 5
+#define OP_OR  6
+#define OP_XOR 7
+#define OP_LSH 8
+#define OP_RSH 9
+#define OP_NOT 10  // unary: Op2(OP_NOT, 0, x)
+#define OP_EQ  11
+#define OP_NE  12
+#define OP_LT  13
+#define OP_LE  14
+#define OP_GT  15
+#define OP_GE  16
+
+// Nick-encoded primitive names
+#define NAM_ADD 4356
+#define NAM_SUB 79170
+#define NAM_MUL 54604
+#define NAM_DIV 16982
+#define NAM_MOD 54212
+#define NAM_AND 4996
+#define NAM_OR  978
+#define NAM_XOR 99282
+#define NAM_LSH 50376
+#define NAM_RSH 74952
+#define NAM_NOT 58324
+#define NAM_EQ  337
+#define NAM_NE  901
+#define NAM_LT  788
+#define NAM_LE  773
+#define NAM_GT  468
+#define NAM_GE  453
+#define NAM_DUP 17744
+#define NAM_SUP 79184
 
 // Bit Layout
 // ==========
@@ -194,7 +221,10 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "term/new/swi.c"
 #include "term/new/use.c"
 #include "term/new/ctr.c"
-#include "term/new/pri.c"
+#include "term/new/op2.c"
+#include "term/new/op1.c"
+#include "term/new/dys.c"
+#include "term/new/dyd.c"
 #include "term/new/num.c"
 #include "term/clone.c"
 
@@ -274,11 +304,6 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "parse/include.c"
 #include "parse/def.c"
 
-// Primitives
-// ==========
-
-#include "prim/_.c"
-
 // WNF
 // ===
 
@@ -301,6 +326,24 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "wnf/alo_lam.c"
 #include "wnf/alo_dup.c"
 #include "wnf/alo_node.c"
+#include "wnf/op2_era.c"
+#include "wnf/op2_num.c"
+#include "wnf/op2_sup.c"
+#include "wnf/op1_era.c"
+#include "wnf/op1_num.c"
+#include "wnf/op1_sup.c"
+#include "wnf/dsu_era.c"
+#include "wnf/dsu_num.c"
+#include "wnf/dsu_sup.c"
+#include "wnf/ddu_era.c"
+#include "wnf/ddu_num.c"
+#include "wnf/ddu_sup.c"
+#include "wnf/app_swi_era.c"
+#include "wnf/app_swi_num.c"
+#include "wnf/app_swi_sup.c"
+#include "wnf/use_era.c"
+#include "wnf/use_sup.c"
+#include "wnf/use_val.c"
 #include "wnf/_.c"
 
 // SNF

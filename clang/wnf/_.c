@@ -96,9 +96,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case SWI:
           case USE:
           case C00 ... C16:
-          case P00 ... P16: {
-            u32 ari = (term_tag(book) >= P00) ? (term_tag(book) - P00) : term_arity(book);
-            next = wnf_alo_node(ls_loc, term_val(book), term_tag(book), term_ext(book), ari);
+          case OP2:
+          case OP1:
+          case DYS:
+          case DYD: {
+            next = wnf_alo_node(ls_loc, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
           case DUP: {
@@ -117,19 +119,35 @@ __attribute__((hot)) fn Term wnf(Term term) {
         }
       }
 
-      case P00 ... P16: {
-//        if (S_POS > base) {
-//          Term top = STACK[S_POS - 1];
-//          if (term_tag(top) == CO0 || term_tag(top) == CO1) {
-//            whnf = next;
-//            goto apply;
-//          }
-//        }
-        u32 nam = term_ext(next);
-        u32 ari = term_tag(next) - P00;
-        u32 loc = term_val(next);
-        ITRS++;
-        next = prim_call(nam, ari, loc);
+      case OP2: {
+        u32  loc = term_val(next);
+        Term x   = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = x;
+        goto enter;
+      }
+
+      case OP1: {
+        u32  loc = term_val(next);
+        Term y   = HEAP[loc + 1];
+        STACK[S_POS++] = next;
+        next = y;
+        goto enter;
+      }
+
+      case DYS: {
+        u32  loc = term_val(next);
+        Term lab = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = lab;
+        goto enter;
+      }
+
+      case DYD: {
+        u32  loc = term_val(next);
+        Term lab = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = lab;
         goto enter;
       }
 
@@ -183,13 +201,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case LAM: {
-              whnf = wnf_app_lam(whnf, arg);
-              next = whnf;
+              next = wnf_app_lam(whnf, arg);
               goto enter;
             }
             case SUP: {
-              whnf = wnf_app_sup(frame, whnf);
-              next = whnf;
+              next = wnf_app_sup(frame, whnf);
               goto enter;
             }
             case MAT: {
@@ -222,13 +238,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case SUP: {
-              whnf = wnf_app_mat_sup(mat, whnf);
-              next = whnf;
+              next = wnf_app_mat_sup(mat, whnf);
               goto enter;
             }
             case C00 ... C16: {
-              whnf = wnf_app_mat_ctr(mat, whnf);
-              next = whnf;
+              next = wnf_app_mat_ctr(mat, whnf);
               goto enter;
             }
             default: {
@@ -239,35 +253,17 @@ __attribute__((hot)) fn Term wnf(Term term) {
         }
 
         case SWI: {
-          u32  num = term_ext(frame);
-          u32  loc = term_val(frame);
-          Term f   = HEAP[loc + 0];
-          Term g   = HEAP[loc + 1];
           switch (term_tag(whnf)) {
             case ERA: {
-              whnf = wnf_app_era();
+              whnf = wnf_app_swi_era();
               continue;
             }
             case NUM: {
-              ITRS++;
-              if (term_val(whnf) == num) {
-                next = f;
-              } else {
-                next = term_new_app(g, whnf);
-              }
+              next = wnf_app_swi_num(frame, whnf);
               goto enter;
             }
             case SUP: {
-              u32  lab     = term_ext(whnf);
-              u32  sup_loc = term_val(whnf);
-              Copy F       = term_clone(lab, f);
-              Copy G       = term_clone(lab, g);
-              Term swi0    = term_new_swi(num, F.k0, G.k0);
-              Term swi1    = term_new_swi(num, F.k1, G.k1);
-              Term app0    = term_new_app(swi0, HEAP[sup_loc + 0]);
-              Term app1    = term_new_app(swi1, HEAP[sup_loc + 1]);
-              ITRS++;
-              next = term_new_sup(lab, app0, app1);
+              next = wnf_app_swi_sup(frame, whnf);
               goto enter;
             }
             default: {
@@ -278,28 +274,17 @@ __attribute__((hot)) fn Term wnf(Term term) {
         }
 
         case USE: {
-          u32  loc = term_val(frame);
-          Term f   = HEAP[loc];
           switch (term_tag(whnf)) {
             case ERA: {
-              whnf = wnf_app_era();
+              whnf = wnf_use_era();
               continue;
             }
             case SUP: {
-              u32  lab     = term_ext(whnf);
-              u32  sup_loc = term_val(whnf);
-              Copy F       = term_clone(lab, f);
-              Term use0    = term_new_use(F.k0);
-              Term use1    = term_new_use(F.k1);
-              Term app0    = term_new_app(use0, HEAP[sup_loc + 0]);
-              Term app1    = term_new_app(use1, HEAP[sup_loc + 1]);
-              ITRS++;
-              next = term_new_sup(lab, app0, app1);
+              next = wnf_use_sup(frame, whnf);
               goto enter;
             }
             default: {
-              ITRS++;
-              next = term_new_app(f, whnf);
+              next = wnf_use_val(frame, whnf);
               goto enter;
             }
           }
@@ -317,18 +302,15 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case DRY: {
-              whnf = wnf_dup_dry(lab, loc, side, whnf);
-              next = whnf;
+              next = wnf_dup_dry(lab, loc, side, whnf);
               goto enter;
             }
             case LAM: {
-              whnf = wnf_dup_lam(lab, loc, side, whnf);
-              next = whnf;
+              next = wnf_dup_lam(lab, loc, side, whnf);
               goto enter;
             }
             case SUP: {
-              whnf = wnf_dup_sup(lab, loc, side, whnf);
-              next = whnf;
+              next = wnf_dup_sup(lab, loc, side, whnf);
               goto enter;
             }
             case ERA:
@@ -339,10 +321,12 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case MAT:
             case SWI:
             case USE:
-            case P00 ... P16:
+            case OP2:
+            case OP1:
+            case DYS:
+            case DYD:
             case C00 ... C16: {
-              whnf = wnf_dup_node(lab, loc, side, whnf);
-              next = whnf;
+              next = wnf_dup_node(lab, loc, side, whnf);
               goto enter;
             }
             default: {
@@ -350,6 +334,106 @@ __attribute__((hot)) fn Term wnf(Term term) {
               HEAP[new_loc] = whnf;
               heap_subst_var(loc, term_new(0, side == 0 ? CO1 : CO0, lab, new_loc));
               whnf          = term_new(0, side == 0 ? CO0 : CO1, lab, new_loc);
+              continue;
+            }
+          }
+        }
+
+        case OP2: {
+          u32  opr = term_ext(frame);
+          u32  loc = term_val(frame);
+          Term y   = HEAP[loc + 1];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_op2_era();
+              continue;
+            }
+            case NUM: {
+              next = wnf_op2_num(opr, whnf, y);
+              goto enter;
+            }
+            case SUP: {
+              next = wnf_op2_sup(opr, whnf, y);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_op2(opr, whnf, y);
+              continue;
+            }
+          }
+        }
+
+        case OP1: {
+          u32  opr = term_ext(frame);
+          u32  loc = term_val(frame);
+          Term x   = HEAP[loc + 0];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_op1_era();
+              continue;
+            }
+            case NUM: {
+              whnf = wnf_op1_num(opr, x, whnf);
+              continue;
+            }
+            case SUP: {
+              next = wnf_op1_sup(opr, x, whnf);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_op1(opr, x, whnf);
+              continue;
+            }
+          }
+        }
+
+        case DYS: {
+          u32  loc = term_val(frame);
+          Term a   = HEAP[loc + 1];
+          Term b   = HEAP[loc + 2];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_dsu_era();
+              continue;
+            }
+            case NUM: {
+              next = wnf_dsu_num(whnf, a, b);
+              goto enter;
+            }
+            case SUP: {
+              next = wnf_dsu_sup(whnf, a, b);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_dys(whnf, a, b);
+              continue;
+            }
+          }
+        }
+
+        case DYD: {
+          u32  loc = term_val(frame);
+          Term val = HEAP[loc + 1];
+          Term bod = HEAP[loc + 2];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_ddu_era();
+              continue;
+            }
+            case NUM: {
+              next = wnf_ddu_num(whnf, val, bod);
+              goto enter;
+            }
+            case SUP: {
+              next = wnf_ddu_sup(whnf, val, bod);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_dyd(whnf, val, bod);
               continue;
             }
           }
