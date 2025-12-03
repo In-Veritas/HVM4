@@ -50,7 +50,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       break;
     }
     case VAR: {
-      print_name(f, term_val(term));
+      // Unresolved variable (should have been substituted to NAM by snf)
+      fputs("_", f);
       break;
     }
     case NUM: {
@@ -73,8 +74,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
     }
     case CO0:
     case CO1: {
-      print_name(f, term_val(term));
-      fputs(term_tag(term) == CO0 ? "₀" : "₁", f);
+      // Unresolved copy reference (unscoped variable)
+      fputs(term_tag(term) == CO0 ? "_₀" : "_₁", f);
       break;
     }
     case LAM: {
