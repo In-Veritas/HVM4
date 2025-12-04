@@ -187,6 +187,8 @@ typedef struct {
   u32 lab;
   u32 cloned;  // 1 if this is a cloned variable (λ&x or ! &x = v)
   u32 uses;    // Number of times this variable is used
+  u32 uses0;   // Number of times X₀ is used (for cloned dup bindings)
+  u32 uses1;   // Number of times X₁ is used (for cloned dup bindings)
 } PBind;
 
 // Parser Globals

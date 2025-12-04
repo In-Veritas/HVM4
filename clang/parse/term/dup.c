@@ -10,15 +10,14 @@ fn Term parse_term_dup(PState *s, u32 depth) {
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)
   int strict = parse_match(s, "!");
   parse_skip(s);
-  // Check for cloned let: ! &x = val or !!&x = val
-  // This must be distinguished from regular dup: !x& = val
-  // Cloned: & comes BEFORE name (! &x = val)
-  // Regular dup: & comes AFTER name (!x& = val)
+  // Check for cloned: & comes BEFORE name
+  // Cloned let: ! &x = val
+  // Cloned dup: ! &X &L = val  or  ! &X &(L) = val
+  // Regular dup: !x& = val
   u32 cloned = 0;
   if (parse_peek(s) == '&') {
     parse_advance(s);  // consume &
     parse_skip(s);
-    // After &, we expect a name for cloned let
     cloned = 1;
   }
   u32 nam = parse_name(s);
@@ -56,7 +55,9 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     return term_new_app(lam, val);
   }
   // Regular DUP: !x&label = val; body  or  !x& = val; body (auto-label)
+  // Cloned DUP: !&X &label = val; body  or  !&X & = val; body (auto-label)
   // Dynamic DUP: !x&(lab) = val; body  (lab is an expression)
+  // Cloned Dynamic DUP: !&X &(lab) = val; body
   parse_consume(s, "&");
   parse_skip(s);
   // Check for dynamic label: &(expr)
@@ -76,9 +77,23 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     // X₀ will have index = depth+2 - 1 - depth = 1 (outer lambda)
     // X₁ will have index = depth+2 - 1 - (depth+1) = 0 (inner lambda)
     // We push binding at 'depth' but body is parsed at depth+2
-    parse_bind_push(nam, depth, 0xFFFFFF, 0);  // dynamic dup marker
+    parse_bind_push(nam, depth, 0xFFFFFF, cloned);  // dynamic dup marker
     Term body = parse_term(s, depth + 2);
+    u32 uses0 = parse_bind_get_uses0();
+    u32 uses1 = parse_bind_get_uses1();
     parse_bind_pop();
+    // Apply auto-dup for cloned dynamic dup
+    // For dynamic dup, X₀ and X₁ are VAR references to nested lambdas
+    // X₀ → VAR at idx=1 (outer lambda), X₁ → VAR at idx=0 (inner lambda)
+    // The DUP traversal in parse_auto_dup handles depth naturally, so we pass
+    // the original indices. When DUPs are inserted, the traversal adds to idx
+    // and the shifted VARs are found at the correct depth.
+    if (cloned && uses0 > 1) {
+      body = parse_auto_dup(body, 1, uses0);  // Auto-dup VAR(1) for X₀ uses
+    }
+    if (cloned && uses1 > 1) {
+      body = parse_auto_dup(body, 0, uses1);  // Auto-dup VAR(0) for X₁ uses
+    }
     // Generate: DynDup(lab, val, λ_.λ_.body)
     u64 loc0     = heap_alloc(1);
     u64 loc1     = heap_alloc(1);
@@ -100,17 +115,35 @@ fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
   parse_match(s, ";");
   parse_skip(s);
-  parse_bind_push(nam, depth, lab, 0);  // DUP bindings are not cloned (they're already duplicated)
+  parse_bind_push(nam, depth, lab, cloned);  // Pass cloned flag
   u64 loc       = heap_alloc(2);
   HEAP[loc + 0] = val;
   Term body     = parse_term(s, depth + 1);
-  u32 uses = parse_bind_get_uses();
-  // Check for affinity violation on dup bindings (they can only be used via CO0/CO1)
-  if (uses > 2) {
+  u32 uses  = parse_bind_get_uses();
+  u32 uses0 = parse_bind_get_uses0();
+  u32 uses1 = parse_bind_get_uses1();
+  // Check for affinity violation on non-cloned dup bindings
+  if (!cloned && uses > 2) {
     fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
     fprintf(stderr, "- dup variable '"); print_name(stderr, nam);
     fprintf(stderr, "' used %d times (max 2 with ₀ and ₁)\n", uses);
     exit(1);
+  }
+  if (cloned && (uses0 < 1 || uses1 < 1)) {
+    // For cloned dup, both sides must be used at least once
+    // (otherwise it's not really a dup, just use a let)
+    // Actually, let's be lenient and allow unused sides
+  }
+  // Apply auto-dup for cloned dup bindings
+  // The DUP traversal in parse_auto_dup_co naturally handles depth, so both
+  // transformations pass idx=0. The first transformation wraps in DUP nodes,
+  // and the second transformation traverses through those DUPs to find the
+  // remaining CO references at the correct depth.
+  if (cloned && uses1 > 1) {
+    body = parse_auto_dup_co(body, 0, uses1, lab, CO1);
+  }
+  if (cloned && uses0 > 1) {
+    body = parse_auto_dup_co(body, 0, uses0, lab, CO0);
   }
   HEAP[loc + 1] = body;
   parse_bind_pop();

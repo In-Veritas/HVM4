@@ -1,16 +1,6 @@
-@app = λ{
-  []: [];
-  <>: λx. λxs. λ&f. f(x) <> @app(xs, f);
+@fun = λ&v. λ{
+  #A: [v,v]
+  λx. x
 }
 
-@lam = λ&L. λ{
-  #All: λ{
-    #Boo: λB. λS. λR.
-      λ&x. @lam(L, B(x), S(x), @app(R,x))
-//      λx. ! x0 &A = x; ! x1 &A = x0₁; @lam(L, B(x0₀), S(x1₀), @app(R,x1₁))
-    λA. λB. λS. λR. &{}
-  }
-  λT. λS. λR. S
-}
-
-@main = @lam(0, #All{#Boo, λx. #Boo}, ^F, [])
+@main = @fun(0, #B)

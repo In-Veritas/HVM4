@@ -25,8 +25,10 @@ fn Term parse_term_var(PState *s, u32 depth) {
   // From body: outer = idx, inner = idx - 1
   if (lab == 0xFFFFFF) {
     if (side == 0) {
+      parse_bind_inc_side(nam, 0);  // Track X₀ uses for cloned dynamic dup
       return term_new(0, VAR, 0, (u32)idx);  // X₀ → outer lambda
     } else if (side == 1) {
+      parse_bind_inc_side(nam, 1);  // Track X₁ uses for cloned dynamic dup
       return term_new(0, VAR, 0, (u32)(idx - 1));  // X₁ → inner lambda
     } else {
       char name_buf[16];
@@ -35,6 +37,10 @@ fn Term parse_term_var(PState *s, u32 depth) {
       fprintf(stderr, "- dynamic dup variable '%s' requires subscript ₀ or ₁\n", name_buf);
       exit(1);
     }
+  }
+  // Track per-side uses for cloned dup bindings
+  if (cloned && side >= 0) {
+    parse_bind_inc_side(nam, side);
   }
   u32 val = (u32)idx;
   u8  tag = (side == 0) ? CO0 : (side == 1) ? CO1 : VAR;
