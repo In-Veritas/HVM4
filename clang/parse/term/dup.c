@@ -43,7 +43,7 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     }
     // Apply auto-dup transformation for cloned variables with multiple uses
     if (cloned && uses > 1) {
-      body = parse_auto_dup(body, 0, uses);
+      body = parse_auto_dup(body, 0, uses, VAR, 0);
     }
     HEAP[loc] = body;
     parse_bind_pop();
@@ -86,10 +86,10 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     // X₀ → VAR(1), X₁ → VAR(0). After first auto-dup wraps in DUPs,
     // the second auto-dup traverses those DUPs (incrementing idx) to find X₁.
     if (cloned && uses0 > 1) {
-      body = parse_auto_dup(body, 1, uses0);
+      body = parse_auto_dup(body, 1, uses0, VAR, 0);
     }
     if (cloned && uses1 > 1) {
-      body = parse_auto_dup(body, 0, uses1);
+      body = parse_auto_dup(body, 0, uses1, VAR, 0);
     }
     // Generate: DynDup(lab, val, λ_.λ_.body)
     u64 loc0     = heap_alloc(1);
@@ -132,15 +132,11 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     // Actually, let's be lenient and allow unused sides
   }
   // Apply auto-dup for cloned dup bindings
-  // The DUP traversal in parse_auto_dup_co naturally handles depth, so both
-  // transformations pass idx=0. The first transformation wraps in DUP nodes,
-  // and the second transformation traverses through those DUPs to find the
-  // remaining CO references at the correct depth.
   if (cloned && uses1 > 1) {
-    body = parse_auto_dup_co(body, 0, uses1, lab, CO1);
+    body = parse_auto_dup(body, 0, uses1, CO1, lab);
   }
   if (cloned && uses0 > 1) {
-    body = parse_auto_dup_co(body, 0, uses0, lab, CO0);
+    body = parse_auto_dup(body, 0, uses0, CO0, lab);
   }
   HEAP[loc + 1] = body;
   parse_bind_pop();

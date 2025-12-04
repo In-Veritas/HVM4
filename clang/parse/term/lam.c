@@ -109,7 +109,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
   }
   // Apply auto-dup transformation for cloned variables with multiple uses
   if (cloned && uses > 1) {
-    body = parse_auto_dup(body, 0, uses);
+    body = parse_auto_dup(body, 0, uses, VAR, 0);
   }
   HEAP[loc] = body;
   parse_bind_pop();
