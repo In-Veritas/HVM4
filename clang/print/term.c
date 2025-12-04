@@ -271,9 +271,9 @@ fn void print_ctr(FILE *f, Term t, u32 d) {
       fputc(']', f);
       return;
     }
-    // Improper list: h <> t
+    // Improper list: h<>t
     if (nam == NAM_CON) {
-      print_term_go(f, HEAP[loc], d); fputs(" <> ", f); print_term_go(f, HEAP[loc+1], d);
+      print_term_go(f, HEAP[loc], d); fputs("<>", f); print_term_go(f, HEAP[loc+1], d);
       return;
     }
   }
