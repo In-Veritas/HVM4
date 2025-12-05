@@ -14,7 +14,7 @@ HVM4 is a runtime for the [Interaction Calculus](https://github.com/VictorTaelin
   - [IC and Interaction Combinators](#ic-and-interaction-combinators)
   - [Complete Examples](#complete-examples)
 - [HVM4 Language](#hvm4-language)
-  - [Core Syntax](#core-syntax)
+  - [Core Terms](#core-terms)
   - [Interaction Table](#interaction-table)
 
 ## The Interaction Calculus
@@ -257,43 +257,43 @@ of computation described by Lafont (1997). This similarity can be visualized as:
     │     │  ↓   a      ↓   a   │ (λx.f)(a)        │
     │     │  |___|      |   |   │ --------         │
     │ APP │   \ /        \ /    │ x ← a            │
-    │  X  │    |    ~>    X     │ g                │
+    │  X  │    |    ~>    X     │ f                │
     │ LAM │   / \        / \    │                  │
     │     │  |‾‾‾|      |   |   │                  │
     │     │  x   f      x   f   │                  │
     ├─────┼─────────────────────┼──────────────────┤
     │     │  ↓   x      ↓   x   │ (&L{a,b} x)      │
     │     │  |___|      |   |   │ -----------      │
-    │ APP │   \ /      /_\ /_\  │ ! X &L= x        │
-    │  X  │    |   ~>  |_ X _|  │ &L{(a X₀)        │
-    │ SUP │   /:\      \:/ \:/  │   ,(b X₁)}       │
+    │ APP │   \ /      /L\ /L\  │ ! X &L= x        │
+    │  X  │    |   ~>  |_ X _|  │ &L{a(X₀),b(X₁)}  │
+    │ SUP │   /L\      \ / \ /  │                  │
     │     │  |‾‾‾|      |   |   │                  │
     │     │  a   b      a   b   │                  │
     ├─────┼─────────────────────┼──────────────────┤
-    │     │  F₀  F₁     F₀  F₁  │ ! F &L= λx.g     │
+    │     │  F₁  F₀     F₁  F₀  │ ! F &L= λx.g     │
     │     │  |___|      |   |   │ ------------     │
-    │ DUP │   \:/      /_\ /_\  │ F₀ ← λ$y.G₀      │
+    │ DUP │   \L/      /_\ /_\  │ F₀ ← λ$y.G₀      │
     │  X  │    |   ~>  |_ X _|  │ F₁ ← λ$z.G₁      │
-    │ LAM │   / \      \:/ \:/  │ x  ← &L{$y,$z}   │
+    │ LAM │   / \      \L/ \L/  │ x  ← &L{$y,$z}   │
     │     │  |‾‾‾|      |   |   │ ! G &L= g        │
     │     │  x   g      x   g   │                  │
     ├─────┼─────────────────────┼──────────────────┤
-    │     │  S₀  S₁     S₀  S₁  │ ! S &L= &L{p,q}  │
+    │     │  S₁  S₀     S₁  S₀  │ ! S &L= &L{a,b}  │
     │     │  |___|      |   |   │ ---------------  │
-    │ DUP │   \:/        \ /    │ S₀ ← p           │
-    │  X  │    |    ~>    X     │ S₁ ← q           │
-    │ SUP │   /:\        / \    │ t                │
+    │ DUP │   \L/        \ /    │ S₀ ← a           │
+    │  X  │    |    ~>    X     │ S₁ ← b           │
+    │ SUP │   /L\        / \    │ t                │
     │     │  |‾‾‾|      |   |   │                  │
-    │     │  p   q      p   q   │                  │
+    │     │  a   b      a   b   │                  │
     └─────┴─────────────────────┴──────────────────┘
 
-It can also be seen as a completion of the λ-Calculus, since it gives
-computational meaning to previously "stuck" expressions. In the λ-Calculus,
-applying a pair or projecting a lambda are undefined. The Interaction Calculus
-provides sensible reduction rules for these, inspired by this Interaction
-Combinator similarity: applying a superposition distributes over both elements
-(APP-SUP), and duplicating a lambda creates two lambdas with a superposed bound
-variable (DUP-LAM). This makes every possible interaction well-defined.
+It can also be seen as a completion of the λ-Calculus, giving a computational
+meaning to previously undefined expressions: applying a pair and projecting a
+lambda. The Interaction Calculus provides sensible reduction rules for these,
+inspired by its Interaction Combinator equivalence: applying a pair
+(superposition) distributes over both elements (APP-SUP), and duplicating a
+lambda creates two lambdas with a superposed bound variable (DUP-LAM). This
+makes every possible interaction well-defined.
 
 ### Complete Examples
 
@@ -338,64 +338,64 @@ Here's a more complex example - computing 2² using Church numerals:
 
 ```
 (λf. ! F &L= f; λx.(F₀ (F₁ x)) λg. ! G &K= g; λy.(G₀ (G₁ y)))
-------------------------------------------------------------------------- APP-LAM
+------------------------------------------------------------- APP-LAM
 ! F &L= λg. ! G &K= g; λy.(G₀ (G₁ y));
 λx.(F₀ (F₁ x))
-------------------------------------------------------------------------- DUP-LAM
+------------------------------------------------------------- DUP-LAM
 ! G &K= &L{g0, g1};
 ! F &L= λy.(G₀ (G₁ y));
 λx.((λg0.F₀) (λg1.F₁ x))
-------------------------------------------------------------------------- APP-LAM
+------------------------------------------------------------- APP-LAM
 ! G &K= &L{(λg1.F₁ x), g1};
 ! F &L= λy.(G₀ (G₁ y));
 λx.F₀
-------------------------------------------------------------------------- DUP-LAM
+------------------------------------------------------------- DUP-LAM
 ! G &K= &L{(λg1.λy1.F₁ x), g1};
 ! F &L= (G₀ (G₁ &L{y0, y1}));
 λx.λy0.F₀
-------------------------------------------------------------------------- DUP-SUP (L ≠ K)
+------------------------------------------------------------- DUP-SUP (L ≠ K)
 ! A &K= (λg1.λy1.F₁ x);
 ! B &K= g1;
 ! F &L= (&L{A₀, B₀} (&L{A₁, B₁} &L{y0, y1}));
 λx.λy0.F₀
-------------------------------------------------------------------------- APP-SUP
+------------------------------------------------------------- APP-SUP
 ! A &K= (λg1.λy1.F₁ x);
 ! B &K= g1;
 ! U &L= (&L{A₁, B₁} &L{y0, y1});
 ! F &L= &L{(A₀ U₀), (B₀ U₁)};
 λx.λy0.F₀
-------------------------------------------------------------------------- DUP-SUP (L = L)
+------------------------------------------------------------- DUP-SUP (L = L)
 ! A &K= (λg1.λy1.(B₀ U₁) x);
 ! B &K= g1;
 ! U &L= (&L{A₁, B₁} &L{y0, y1});
 λx.λy0.(A₀ U₀)
-------------------------------------------------------------------------- APP-LAM
+------------------------------------------------------------- APP-LAM
 ! A &K= λy1.(B₀ U₁);
 ! B &K= x;
 ! U &L= (&L{A₁, B₁} &L{y0, y1});
 λx.λy0.(A₀ U₀)
-------------------------------------------------------------------------- DUP-LAM
+------------------------------------------------------------- DUP-LAM
 ! A &K= (B₀ U₁);
 ! B &K= x;
 ! U &L= (&L{λy11.A₁, B₁} &L{y0, &K{y10, y11}});
 λx.λy0.((λy10.A₀) U₀)
-------------------------------------------------------------------------- APP-LAM
+------------------------------------------------------------- APP-LAM
 ! A &K= (B₀ U₁);
 ! B &K= x;
 ! U &L= (&L{λy11.A₁, B₁} &L{y0, &K{U₀, y11}});
 λx.λy0.A₀
-------------------------------------------------------------------------- APP-SUP
+------------------------------------------------------------- APP-SUP
 ! A &K= (B₀ U₁);
 ! B &K= x;
 ! V &L= &L{y0, &K{U₀, y11}};
 ! U &L= &L{((λy11.A₁) V₀), (B₁ V₁)};
 λx.λy0.A₀
-------------------------------------------------------------------------- DUP-SUP (L = L), APP-LAM
+------------------------------------------------------------- DUP-SUP (L = L), APP-LAM
 ! A &K= (B₀ U₁);
 ! B &K= x;
 ! U &L= &L{(A₁ y0), (B₁ &K{U₀, y11})};
 λx.λy0.A₀
-------------------------------------------------------------------------- DUP-SUP (L = L)
+------------------------------------------------------------- DUP-SUP (L = L)
 ! A &K= (B₀ (B₁ &K{(A₁ y0), y11}));
 ! B &K= x;
 λx.λy0.A₀
@@ -404,21 +404,23 @@ Here's a more complex example - computing 2² using Church numerals:
 At this point, the computation is done. The result is a lambda `λx.λy0.A₀`
 connected to a small network of nodes. This compressed form represents the
 answer but is hard to read directly. To see the familiar Church numeral 4, we
-can **collapse** the term by reducing DUP-VAR and DUP-APP nodes:
+can **collapse** the Interaction Calculus term back into a proper λ-Term, by
+applying 2 extra interactions, DUP-VAR and DUP-APP:
 
 ```
-------------------------------------------------------------------------- DUP-VAR
+...
+--------------------------------- DUP-VAR
 ! A &K= (x (x &K{(A₁ y0), y11}));
 λx.λy0.A₀
-------------------------------------------------------------------------- DUP-APP, DUP-VAR
+--------------------------------- DUP-APP, DUP-VAR
 ! X &K= (x &K{((x X₁) y0), y11});
 λx.λy0.(x X₀)
-------------------------------------------------------------------------- DUP-APP, DUP-VAR
+--------------------------------- DUP-APP, DUP-VAR
 ! Y &K= &K{((x (x Y₁)) y0), y11};
 λx.λy0.(x (x Y₀))
-------------------------------------------------------------------------- DUP-SUP (K = K)
+--------------------------------- DUP-SUP (K = K)
 λx.λy0.(x (x ((x (x y11)) y0)))
-------------------------------------------------------------------------- APP-LAM (x2)
+--------------------------------- APP-LAM (x2)
 λx.λy0.(x (x (x (x y0))))
 ```
 
@@ -430,7 +432,13 @@ completes it in 14 interactions, which is optimal.
 
 ## HVM4 Language
 
-### Core Syntax
+HVM4 extends the Interaction Calculus with several new terms and interactions
+for practical use: numbers with arithmetic operations, constructors with pattern
+matching, references for definitions, erasure for unused values, equality
+testing, dynamic (runtime-computed) labels, and guarded reductions for reference
+semantics. Below is a comprehensive description.
+
+### Core Terms
 
 HVM4 terms are defined by the following grammar:
 
