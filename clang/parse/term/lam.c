@@ -105,7 +105,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     u32  lab      = 0;
     if (dyn) {
       parse_consume(s, "(");
-      lab_term = parse_term(s, depth);
+      lab_term = parse_term(s, depth + 1);  // +1 because we're inside the outer lambda
       parse_consume(s, ")");
     } else {
       char c = parse_peek(s);
