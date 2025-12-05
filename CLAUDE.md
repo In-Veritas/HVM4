@@ -81,7 +81,13 @@ Tests are `.hvm4` files with expected output in trailing `//` comments:
 
 ```
 @main = ((@add 1) 2)
-// 3
+//3
+```
+
+```
+@main = (&L{1,2} + 3)
+//4
+//5
 ```
 
 Always run all tests after each change.
