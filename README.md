@@ -1,533 +1,892 @@
-HVM4
-====
-HVM4 is a term rewrite system for the following grammar:
+# HVM4
+
+HVM4 is a runtime for the [Interaction Calculus](https://github.com/VictorTaelin/InteractionCalculus).
+
+## Contents
+
+- [The Interaction Calculus](#the-interaction-calculus)
+  - [Optimal Lazy Evaluation](#optimal-lazy-evaluation)
+  - [Duplications](#duplications)
+  - [Superpositions](#superpositions)
+  - [Duplicating Lambdas](#duplicating-lambdas)
+  - [Dup/Sup Labels](#dupsup-labels)
+  - [The Four Core Interactions](#the-four-core-interactions)
+  - [IC and Interaction Combinators](#ic-and-interaction-combinators)
+  - [Complete Examples](#complete-examples)
+- [HVM4 Language](#hvm4-language)
+  - [Core Syntax](#core-syntax)
+  - [Interaction Table](#interaction-table)
+
+## The Interaction Calculus
+
+The Interaction Calculus is a model of computation that extends the Lambda
+Calculus with **duplications** and **superpositions**, two primitives that
+enable *optimal lazy evaluation*.
+
+### Optimal Lazy Evaluation
+
+Programs can be evaluated **strictly** (compute everything immediately) or
+**lazily** (compute only when needed). Lazy evaluation avoids unnecessary work,
+but has a flaw: when a value is used twice, its computation might happen twice.
+Haskell solves this with *memoization* (thunks), caching results so repeated
+access doesn't recompute. This works for data, but breaks down inside lambdas.
+
+The Interaction Calculus achieves **optimal sharing**: work is never duplicated,
+even inside lambdas. Two dual primitives make this possible:
+
+- **Duplications**: allow a single value to exist in multiple locations
+- **Superpositions**: allow multiple values to exist in a single location
+
+These correspond to Lafont's "fan nodes" in Interaction Combinators (1997), with
+opposite polarities. Together, they provide the mechanics for lazy cloning that
+extends into lambda bodies.
+
+### Duplications
+
+Duplications allow a **single value** to exist in **two locations**. The
+`! x &= v; t` construct duplicates `v`, making it available as `x₀` and `x₁`
+in `t`:
+
+```
+! x &= 2;
+(x₀ + x₁)
+--------- DUP-NUM
+(2 + 2)
+--------- OP2-NUM
+4
+```
+
+Here, the number `2` was duplicated, then added to itself.
+
+Duplication is incremental - it happens layer by layer, on demand:
+
+```
+! x &= [1, 2, 3];
+(x₀, x₁)
+--------------------------------------- DUP-CTR, DUP-NUM
+! t &= [2, 3];
+(1 <> t₀, 1 <> t₁)
+--------------------------------------- DUP-CTR, DUP-NUM
+! t &= [3];
+(1 <> 2 <> t₀, 1 <> 2 <> t₁)
+--------------------------------------- DUP-CTR, DUP-NUM
+! t &= [];
+(1 <> 2 <> 3 <> t₀, 1 <> 2 <> 3 <> t₁)
+--------------------------------------- DUP-CTR
+([1, 2, 3], [1, 2, 3])
+```
+
+The list was cloned element by element. Each step peels off one layer -
+duplicating the head and creating a duplication for the tail. The tail
+duplication only triggers when both copies are accessed.
+
+### Superpositions
+
+Superpositions allow **two values** to exist in **one location**. The `&{a, b}`
+construct creates a superposition of `a` and `b`:
+
+```
+(&{1, 2} + 10)
+--------------------- OP2-SUP
+! x &= 10;
+&{(1 + x₀), (2 + x₁)}
+--------------------- DUP-NUM
+&{(1 + 10), (2 + 10)}
+--------------------- OP2-NUM, OP2-NUM
+&{11, 12}
+```
+
+Here, we added `10` to a superposition of `1` and `2`. The addition applied to
+both values, producing a superposition of results. Notice that `10` had to be
+duplicated; SUPs generate DUPs as byproducts, and vice-versa!
+
+Superpositions and duplications are duals. When a DUP meets a SUP, they
+annihilate, extracting the two values:
+
+```
+! x &= &{1, 2};
+(x₀ + x₁)
+--------------- DUP-SUP
+(1 + 2)
+--------------- OP2-NUM
+3
+```
+
+This is like a pair projection: `x₀` gets the first element, `x₁` gets the
+second. SUPs and DUPs create and eliminate each other, just like LAMs and APPs.
+
+### Duplicating Lambdas
+
+Lambdas are also duplicated incrementally. When that happens, the bound variable
+becomes superposed, and temporarily escapes its scope:
+
+```
+! f &= λx.(x + 1);
+(f₀(10), f₁(20))
+------------------------------ DUP-LAM
+! b &= (&{$x0, $x1} + 1);
+((λ$x0.b₀)(10), (λ$x1.b₁)(20))
+------------------------------ APP-LAM, APP-LAM
+! b &= (&{10, 20} + 1);
+(b₀, b₁)
+------------------------------ OP2-SUP, DUP-NUM
+! b &= &{(10 + 1), (20 + 1)};
+(b₀, b₁)
+------------------------------ OP2-NUM, OP2-NUM
+! b &= &{11, 21};
+(b₀, b₁)
+------------------------------ DUP-SUP
+(11, 21)
+```
+
+Notice how, on the first step, the variables `$x0` and `$x1` are bound *outside*
+the lambda's body. This is why the Interaction Calculus needs globally scoped
+variables. It's also what enables **optimal sharing inside lambdas**: the body
+is now shared by `b`, so any computation there only happens once.
+
+### Dup/Sup Labels
+
+Consider this example:
+
+```
+(&A{1, 2} + &A{10, 20})
+----------------------- OP2-SUP
+! x &A= &A{10, 20};
+&A{(1 + x₀), (2 + x₁)}
+----------------------- DUP-SUP (same label: annihilate)
+&A{(1 + 10), (2 + 20)}
+----------------------- OP2-NUM, OP2-NUM
+&A{11, 22}
+```
+
+Here, the superpositions *annihilated*: the first element paired with the first,
+and the second with the second. But what if we wanted all combinations instead?
+
+**Labels** control this behavior. When a DUP meets a SUP with the *same* label,
+they annihilate. With *different* labels, they commute:
+
+```
+(&A{1, 2} + &B{10, 20})
+-------------------------------------------------- OP2-SUP
+! x &A= &B{10, 20};
+&A{(1 + x₀), (2 + x₁)}
+-------------------------------------------------- DUP-SUP (different labels: commute)
+! a &A= 10;
+! b &A= 20;
+&A{(1 + &B{a₀, b₀}), (2 + &B{a₁, b₁})}
+-------------------------------------------------- DUP-NUM, DUP-NUM
+&A{(1 + &B{10, 20}), (2 + &B{10, 20})}
+-------------------------------------------------- OP2-SUP, OP2-SUP
+&A{&B{(1 + 10), (1 + 20)}, &B{(2 + 10), (2 + 20)}}
+-------------------------------------------------- OP2-NUM (x4)
+&A{&B{11, 21}, &B{12, 22}}
+```
+
+Now we get a nested superposition containing all four results. Labels let us
+control whether superpositions collapse together or stay independent.
+
+### The Four Core Interactions
+
+The minimal Interaction Calculus has just four rules. Two create computation
+(APP-LAM, DUP-SUP) and two propagate it (APP-SUP, DUP-LAM):
+
+**APP-LAM** - Application eliminates lambda:
+
+```
+(λx.body arg)
+------------- APP-LAM
+x ← arg
+body
+```
+
+**DUP-SUP** - Duplication eliminates superposition (same label):
+
+```
+! x &L= &L{a, b}; t
+------------------- DUP-SUP
+x₀ ← a
+x₁ ← b
+t
+```
+
+**APP-SUP** - Application propagates through superposition:
+
+```
+(&L{a, b} c)
+------------------- APP-SUP
+! x &L= c;
+&L{(a x₀), (b x₁)}
+```
+
+**DUP-LAM** - Duplication propagates through lambda:
+
+```
+! f &L= λx.body; t
+------------------ DUP-LAM
+f₀ ← λ$X0.B₀
+f₁ ← λ$X1.B₁
+x  ← &L{$X0, $X1}
+! B &L= body;
+t
+```
+
+When labels differ, DUP-SUP commutes instead of annihilating:
+
+```
+! x &L= &R{a, b}; t
+-------------------- DUP-SUP (L ≠ R)
+! A &L= a;
+! B &L= b;
+x₀ ← &R{A₀, B₀}
+x₁ ← &R{A₁, B₁}
+t
+```
+
+These four rules form a complete system. Every other interaction in HVM4 is an
+extension for practical constructs: numbers, constructors, pattern-matching.
+
+### Relation to Interaction Combinators
+
+The Interaction Calculus is similar to Interaction Combinators, a parallel model
+of computation described by Lafont (1997). This similarity can be visualized as:
+
+    ┌─────┬─────────────────────┬──────────────────┐
+    │     │     INTERACTION     │   INTERACTION    │
+    │ ITR │     COMBINATORS     │    CALCULUS      │
+    ├─────┼─────────────────────┼──────────────────┤
+    │     │  ↓   a      ↓   a   │ (λx.f)(a)        │
+    │     │  |___|      |   |   │ --------         │
+    │ APP │   \ /        \ /    │ x ← a            │
+    │  X  │    |    ~>    X     │ g                │
+    │ LAM │   / \        / \    │                  │
+    │     │  |‾‾‾|      |   |   │                  │
+    │     │  x   f      x   f   │                  │
+    ├─────┼─────────────────────┼──────────────────┤
+    │     │  ↓   x      ↓   x   │ (&L{a,b} x)      │
+    │     │  |___|      |   |   │ -----------      │
+    │ APP │   \ /      /_\ /_\  │ ! X &L= x        │
+    │  X  │    |   ~>  |_ X _|  │ &L{(a X₀)        │
+    │ SUP │   /:\      \:/ \:/  │   ,(b X₁)}       │
+    │     │  |‾‾‾|      |   |   │                  │
+    │     │  a   b      a   b   │                  │
+    ├─────┼─────────────────────┼──────────────────┤
+    │     │  F₀  F₁     F₀  F₁  │ ! F &L= λx.g     │
+    │     │  |___|      |   |   │ ------------     │
+    │ DUP │   \:/      /_\ /_\  │ F₀ ← λ$y.G₀      │
+    │  X  │    |   ~>  |_ X _|  │ F₁ ← λ$z.G₁      │
+    │ LAM │   / \      \:/ \:/  │ x  ← &L{$y,$z}   │
+    │     │  |‾‾‾|      |   |   │ ! G &L= g        │
+    │     │  x   g      x   g   │                  │
+    ├─────┼─────────────────────┼──────────────────┤
+    │     │  S₀  S₁     S₀  S₁  │ ! S &L= &L{p,q}  │
+    │     │  |___|      |   |   │ ---------------  │
+    │ DUP │   \:/        \ /    │ S₀ ← p           │
+    │  X  │    |    ~>    X     │ S₁ ← q           │
+    │ SUP │   /:\        / \    │ t                │
+    │     │  |‾‾‾|      |   |   │                  │
+    │     │  p   q      p   q   │                  │
+    └─────┴─────────────────────┴──────────────────┘
+
+It can also be seen as a completion of the λ-Calculus, since it gives
+computational meaning to previously "stuck" expressions. In the λ-Calculus,
+applying a pair or projecting a lambda are undefined. The Interaction Calculus
+provides sensible reduction rules for these, inspired by this Interaction
+Combinator similarity: applying a superposition distributes over both elements
+(APP-SUP), and duplicating a lambda creates two lambdas with a superposed bound
+variable (DUP-LAM). This makes every possible interaction well-defined.
+
+### Complete Examples
+
+Here's an example demonstrating optimal sharing. We duplicate a lambda
+containing `(2 + 2)` and apply the copies to different arguments:
+
+```
+! F &= (λx. λy. ! z &= x; ((z₀ + z₁), y) 2);
+(F₀(10), F₁(20))
+---------------------------------------------- APP-LAM
+! z &= 2;
+! F &= λy.((z₀ + z₁), y);
+(F₀(10), F₁(20))
+---------------------------------------------- DUP-NUM
+! F &= λy.((2 + 2), y);
+(F₀(10), F₁(20))
+---------------------------------------------- DUP-LAM
+! B &= ((2 + 2), &{y0, y1});
+((λy0.B₀ 10), (λy1.B₁ 20))
+---------------------------------------------- APP-LAM (x2)
+! B &= ((2 + 2), &{10, 20});
+(B₀, B₁)
+---------------------------------------------- DUP-CTR
+! H &= (2 + 2);
+! T &= &{10, 20};
+((H₀, T₀), (H₁, T₁))
+---------------------------------------------- OP2-NUM (shared!)
+! H &= 4;
+! T &= &{10, 20};
+((H₀, T₀), (H₁, T₁))
+---------------------------------------------- DUP-NUM, DUP-SUP
+((4, 10), (4, 20))
+```
+
+Notice that `(2 + 2)` was computed only **once**, even though the lambda was
+duplicated and each copy was applied to a different argument. The result `4`
+flowed to both copies through the DUP-NUM interaction.
+
+#### Church 2²
+
+Here's a more complex example - computing 2² using Church numerals:
+
+```
+(λf. ! F &L= f; λx.(F₀ (F₁ x)) λg. ! G &K= g; λy.(G₀ (G₁ y)))
+------------------------------------------------------------------------- APP-LAM
+! F &L= λg. ! G &K= g; λy.(G₀ (G₁ y));
+λx.(F₀ (F₁ x))
+------------------------------------------------------------------------- DUP-LAM
+! G &K= &L{g0, g1};
+! F &L= λy.(G₀ (G₁ y));
+λx.((λg0.F₀) (λg1.F₁ x))
+------------------------------------------------------------------------- APP-LAM
+! G &K= &L{(λg1.F₁ x), g1};
+! F &L= λy.(G₀ (G₁ y));
+λx.F₀
+------------------------------------------------------------------------- DUP-LAM
+! G &K= &L{(λg1.λy1.F₁ x), g1};
+! F &L= (G₀ (G₁ &L{y0, y1}));
+λx.λy0.F₀
+------------------------------------------------------------------------- DUP-SUP (L ≠ K)
+! A &K= (λg1.λy1.F₁ x);
+! B &K= g1;
+! F &L= (&L{A₀, B₀} (&L{A₁, B₁} &L{y0, y1}));
+λx.λy0.F₀
+------------------------------------------------------------------------- APP-SUP
+! A &K= (λg1.λy1.F₁ x);
+! B &K= g1;
+! U &L= (&L{A₁, B₁} &L{y0, y1});
+! F &L= &L{(A₀ U₀), (B₀ U₁)};
+λx.λy0.F₀
+------------------------------------------------------------------------- DUP-SUP (L = L)
+! A &K= (λg1.λy1.(B₀ U₁) x);
+! B &K= g1;
+! U &L= (&L{A₁, B₁} &L{y0, y1});
+λx.λy0.(A₀ U₀)
+------------------------------------------------------------------------- APP-LAM
+! A &K= λy1.(B₀ U₁);
+! B &K= x;
+! U &L= (&L{A₁, B₁} &L{y0, y1});
+λx.λy0.(A₀ U₀)
+------------------------------------------------------------------------- DUP-LAM
+! A &K= (B₀ U₁);
+! B &K= x;
+! U &L= (&L{λy11.A₁, B₁} &L{y0, &K{y10, y11}});
+λx.λy0.((λy10.A₀) U₀)
+------------------------------------------------------------------------- APP-LAM
+! A &K= (B₀ U₁);
+! B &K= x;
+! U &L= (&L{λy11.A₁, B₁} &L{y0, &K{U₀, y11}});
+λx.λy0.A₀
+------------------------------------------------------------------------- APP-SUP
+! A &K= (B₀ U₁);
+! B &K= x;
+! V &L= &L{y0, &K{U₀, y11}};
+! U &L= &L{((λy11.A₁) V₀), (B₁ V₁)};
+λx.λy0.A₀
+------------------------------------------------------------------------- DUP-SUP (L = L), APP-LAM
+! A &K= (B₀ U₁);
+! B &K= x;
+! U &L= &L{(A₁ y0), (B₁ &K{U₀, y11})};
+λx.λy0.A₀
+------------------------------------------------------------------------- DUP-SUP (L = L)
+! A &K= (B₀ (B₁ &K{(A₁ y0), y11}));
+! B &K= x;
+λx.λy0.A₀
+```
+
+At this point, the computation is done. The result is a lambda `λx.λy0.A₀`
+connected to a small network of nodes. This compressed form represents the
+answer but is hard to read directly. To see the familiar Church numeral 4, we
+can **collapse** the term by reducing DUP-VAR and DUP-APP nodes:
+
+```
+------------------------------------------------------------------------- DUP-VAR
+! A &K= (x (x &K{(A₁ y0), y11}));
+λx.λy0.A₀
+------------------------------------------------------------------------- DUP-APP, DUP-VAR
+! X &K= (x &K{((x X₁) y0), y11});
+λx.λy0.(x X₀)
+------------------------------------------------------------------------- DUP-APP, DUP-VAR
+! Y &K= &K{((x (x Y₁)) y0), y11};
+λx.λy0.(x (x Y₀))
+------------------------------------------------------------------------- DUP-SUP (K = K)
+λx.λy0.(x (x ((x (x y11)) y0)))
+------------------------------------------------------------------------- APP-LAM (x2)
+λx.λy0.(x (x (x (x y0))))
+```
+
+The Church numeral 2 (`λf.λx.(f (f x))`) was applied to itself, yielding 4
+(`λf.λx.(f (f (f (f x))))`). Despite temporarily escaping variables, the system
+correctly computes the result. This is the kind of symbolic computation where
+sharing matters most, and is often used as a benchmark in the literature. HVM
+completes it in 14 interactions, which is optimal.
+
+## HVM4 Language
+
+### Core Syntax
+
+HVM4 terms are defined by the following grammar:
 
 ```
 Term ::=
-| Var ::= Name
-| Dp0 ::= Name "₀"
-| Dp1 ::= Name "₁"
-| Ref ::= "@" Name
-| Nam ::= "^" Name
-| Dry ::= "^" "(" Term " " Term ")"
-| Era ::= "&{}"
-| Sup ::= "&" Name "{" Term "," Term "}"
-| Dup ::= "!" Name "&" Name "=" Term ";" Term
-| Ctr ::= "#" Name "{" [Term] "}"
-| Mat ::= "λ" "{" "#" Name ":" Term ";" Term "}"
-| Swi ::= "λ" "{" Num ":" Term ";" Term "}"
-| Use ::= "λ" "{" Term "}"
-| Lam ::= "λ" Name "." Term
-| App ::= "(" Term " " Term ")"
-| Alo ::= "@" "{" [Name] "}" Term
-| Num ::= Integer
-| Op2 ::= Term Oper Term
-| Eql ::= Term "==" Term
-| DSu ::= "&" "(" Term ")" "{" Term "," Term "}"
-| DDu ::= "!" Name "&" "(" Term ")" "=" Term ";" Term
-| Red ::= Term "~>" Term
-| Uns ::= "!" "$" "{" Name "," Name "}" ";" Term
+  | Var  Name                                     -- variable
+  | Dp0  Name "₀"                                 -- first dup variable
+  | Dp1  Name "₁"                                 -- second dup variable
+  | Ref  "@" Name                                 -- reference
+  | Nam  "^" Name                                 -- name (stuck head)
+  | Dry  "^" "(" Term " " Term ")"                -- dry (stuck application)
+  | Era  "&{}"                                    -- erasure
+  | Sup  "&" Label "{" Term "," Term "}"          -- superposition
+  | Dup  "!" Name "&" Label "=" Term ";" Term     -- duplication
+  | Ctr  "#" Name "{" Term,* "}"                  -- constructor
+  | Mat  "λ" "{" "#" Name ":" Term ";" Term "}"   -- pattern match
+  | Swi  "λ" "{" Num ":" Term ";" Term "}"        -- number switch
+  | Use  "λ" "{" Term "}"                         -- use (unbox)
+  | Lam  "λ" Name "." Term                        -- lambda
+  | App  "(" Term " " Term ")"                    -- application
+  | Num  integer                                  -- number literal
+  | Op2  "(" Term Oper Term ")"                   -- binary operation
+  | Eql  "(" Term "==" Term ")"                   -- equality test
+  | DSu  "&" "(" Term ")" "{" Term "," Term "}"   -- dynamic superposition
+  | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication
+  | Red  Term "~>" Term                           -- reduction
+  | Alo  "@" "{" Name,* "}" Term                  -- allocation
+  | Uns  "!" "$" "{" Name "," Name "}" ";" Term   -- unscoped binding
+
+Name  ::= [_A-Za-z0-9]+
+Label ::= Name
+Oper  ::= "+" | "-" | "*" | "/" | "%" | "&&" | "||"
+        | "^" | "~" | "<<" | ">>" | "==" | "!="
+        | "<" | "<=" | ">" | ">="
 ```
 
-Where:
-- `Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $`
-- `[T]  ::= any sequence of T separated by ","`
-- `Oper ::= "+" | "-" | "*" | "/" | "%" | "&&" | "||" | "^" | "~" | "<<" | ">>" | "==" | "!=" | "<" | "<=" | ">" | ">="`
+Variables are **affine**: they can occur at most once. Variables are **global**:
+they can occur anywhere in the program, not just inside the binding's scope.
 
-In HVM4:
-- Variables are affine; they must occur at most once.
-- Variables range globally; they can occur anywhere.
-- Numbers are written as `#n` in interaction rules (e.g., `#42`). This is distinct
-  from constructors which use `#Name{...}` syntax (e.g., `#Pair{a,b}`).
+### Interaction Table
 
-Stuck Terms (DRY)
------------------
-
-When a term cannot reduce further because it's applied to something that isn't
-a function, it becomes "stuck". These stuck applications are represented as DRY
-(dry) terms using `^(f x)` syntax. For example:
-- `(#K{a,b} x)` → `^(#K{a,b} x)` (constructor applied to argument)
-- `(^n x)` → `^(^n x)` (name applied to argument)
-- `(^(f x) y)` → `^(^(f x) y)` (stuck term applied to argument)
-
-Stuck terms propagate through the system and can be duplicated and manipulated,
-but they don't reduce until the head becomes a lambda or eliminator.
-
-Application Interactions
-------------------------
+#### Application Interactions
 
 ```
 (&{} a)
-------- app-era
+------- APP-ERA
 &{}
 
-(&L{f,g} a)
------------------ app-sup
-! A &L = a
-&L{(f A₀),(g A₁)}
+(&L{f, g} a)
+------------------- APP-SUP
+! x &L= a;
+&L{(f x₀), (g x₁)}
 
-(λx.f a)
--------- app-lam
-x ← a
-f
+(λx.body arg)
+------------- APP-LAM
+x ← arg
+body
 
 (#K{...} a)
------------ app-ctr
+----------- APP-CTR
 ^(#K{...} a)
 
-(λ{#K:h; m} &{})
----------------- app-mat-era
+(λ{#K: h; m} &{})
+----------------- APP-MAT-ERA
 &{}
 
-(λ{#K:h; m} &L{a,b})
--------------------- app-mat-sup
-! H &L = h
-! M &L = m
-&L{(λ{#K:H₀; M₀} a)
-  ,(λ{#K:H₁; M₁} b)}
+(λ{#K: h; m} &L{a, b})
+---------------------- APP-MAT-SUP
+! H &L= h;
+! M &L= m;
+&L{(λ{#K: H₀; M₀} a), (λ{#K: H₁; M₁} b)}
 
-(λ{#K:h; m} #K{a,b})
--------------------- app-mat-ctr-match
-(h a b)
+(λ{#K: h; m} #K{a, b, ...})
+--------------------------- APP-MAT-CTR-MATCH
+(h a b ...)
 
-(λ{#K:h; m} #L{a,b})
--------------------- app-mat-ctr-miss
-(m #L{a,b})
+(λ{#K: h; m} #J{a, b, ...})
+--------------------------- APP-MAT-CTR-MISS
+(m #J{a, b, ...})
 
-(λ{n:f;g} &{})
--------------- app-swi-era
+(λ{n: z; s} &{})
+---------------- APP-SWI-ERA
 &{}
 
-(λ{n:f;g} &L{a,b})
---------------------- app-swi-sup
-! F &L = f
-! G &L = g
-&L{(λ{n:F₀;G₀} a), (λ{n:F₁;G₁} b)}
+(λ{n: z; s} &L{a, b})
+--------------------- APP-SWI-SUP
+! Z &L= z;
+! S &L= s;
+&L{(λ{n: Z₀; S₀} a), (λ{n: Z₁; S₁} b)}
 
-(λ{n:f;g} #m)
--------------- app-swi-num
-if n == m: f
-else: (g #m)
+(λ{n: z; s} #n)
+--------------- APP-SWI-MATCH
+z
+
+(λ{n: z; s} #m)
+--------------- APP-SWI-MISS
+(s #m)
 
 (λ{f} &{})
----------- use-era
+---------- APP-USE-ERA
 &{}
 
-(λ{f} &L{a,b})
------------------ use-sup
-! F &L = f
+(λ{f} &L{a, b})
+----------------- APP-USE-SUP
+! F &L= f;
 &L{(λ{F₀} a), (λ{F₁} b)}
 
 (λ{f} x)
---------- use-val
+-------- APP-USE-VAL
 (f x)
 
 (^n a)
-------- app-nam
+------- APP-NAM
 ^(^n a)
 
 (^(f x) a)
------------ app-dry
+----------- APP-DRY
 ^(^(f x) a)
 ```
 
-Duplication Interactions
-------------------------
+#### Duplication Interactions
 
 ```
-! X &L = &{}
------------- dup-era
-X₀ ← &{}
-X₁ ← &{}
+! x &L= &{}; t
+-------------- DUP-ERA
+x₀ ← &{}
+x₁ ← &{}
+t
 
-! X &L = &R{a,b}
----------------- dup-sup
-if L == R:
-  X₀ ← a
-  X₁ ← b
-else:
-  ! A &L = a
-  ! B &L = b
-  X₀ ← &R{A₀,B₀}
-  X₁ ← &R{A₁,B₁}
+! x &L= &L{a, b}; t
+------------------- DUP-SUP (same label)
+x₀ ← a
+x₁ ← b
+t
 
-! F &L = λx.f
----------------- dup-lam
-F₀ ← λ$x0.G₀
-F₁ ← λ$x1.G₁
-x  ← &L{$x0,$x1}
-! G &L = f
+! x &L= &R{a, b}; t
+------------------- DUP-SUP (different label)
+! A &L= a;
+! B &L= b;
+x₀ ← &R{A₀, B₀}
+x₁ ← &R{A₁, B₁}
+t
 
-! X &L = #K{a,b}
----------------- dup-ctr
-! A &L = a
-! B &L = b
-X₀ ← #K{A₀,B₀}
-X₁ ← #K{A₁,B₁}
+! f &L= λx.body; t
+------------------ DUP-LAM
+f₀ ← λ$X0.B₀
+f₁ ← λ$X1.B₁
+x  ← &L{$X0, $X1}
+! B &L= body;
+t
 
-! X &L = λ{#K:h; m}
-------------------- dup-mat
-! H &L = h
-! M &L = m
-X₀ ← λ{#K:H₀; M₀}
-X₁ ← λ{#K:H₁; M₁}
+! x &L= #K{a, b, ...}; t
+------------------------ DUP-CTR
+! A &L= a;
+! B &L= b;
+...
+x₀ ← #K{A₀, B₀, ...}
+x₁ ← #K{A₁, B₁, ...}
+t
 
-! X &L = ^n
------------ dup-nam
-X₀ ← ^n
-X₁ ← ^n
+! x &L= λ{#K: h; m}; t
+---------------------- DUP-MAT
+! H &L= h;
+! M &L= m;
+x₀ ← λ{#K: H₀; M₀}
+x₁ ← λ{#K: H₁; M₁}
+t
 
-! X &L = ^(f x)
---------------- dup-dry
-! F &L = f
-! A &L = x
-X₀ ← ^(F₀ A₀)
-X₁ ← ^(F₁ A₁)
+! x &L= λ{n: z; s}; t
+--------------------- DUP-SWI
+! Z &L= z;
+! S &L= s;
+x₀ ← λ{n: Z₀; S₀}
+x₁ ← λ{n: Z₁; S₁}
+t
 
-! X &L = #n
------------ dup-num (via dup-node)
-X₀ ← #n
-X₁ ← #n
+! x &L= λ{f}; t
+--------------- DUP-USE
+! F &L= f;
+x₀ ← λ{F₀}
+x₁ ← λ{F₁}
+t
 
-! X &L = λ{n:f;g}
------------------- dup-swi (via dup-node)
-! F &L = f
-! G &L = g
-X₀ ← λ{n:F₀;G₀}
-X₁ ← λ{n:F₁;G₁}
+! x &L= ^n; t
+------------- DUP-NAM
+x₀ ← ^n
+x₁ ← ^n
+t
 
-! X &L = λ{f}
-------------- dup-use (via dup-node)
-! F &L = f
-X₀ ← λ{F₀}
-X₁ ← λ{F₁}
+! x &L= ^(f a); t
+----------------- DUP-DRY
+! F &L= f;
+! A &L= a;
+x₀ ← ^(F₀ A₀)
+x₁ ← ^(F₁ A₁)
+t
+
+! x &L= #n; t
+------------- DUP-NUM
+x₀ ← #n
+x₁ ← #n
+t
 ```
 
-Allocation Interactions
------------------------
-
-```
-@{s} n
------- alo-var
-s[n]
-
-@{s} n₀
-------- alo-dp0
-s[n]₀
-
-@{s} n₁
-------- alo-dp1
-s[n]₁
-
-@{s} @ref
---------- alo-ref
-@ref
-
-@{s} ^n
-------- alo-nam
-^n
-
-@{s} ^(f x)
--------------- alo-dry
-^(@{s}f @{s}x)
-
-@{s} &{}
--------- alo-era
-&{}
-
-@{s} &L{a,b}
----------------- alo-sup
-&L{@{s}a, @{s}b}
-
-@{s} ! x &L = v; t
------------------- alo-dup
-x' ← fresh
-! x' &L = @{s} v
-@{x',s} t
-
-@{s} λx.f
------------- alo-lam
-x' ← fresh
-λx'.@{x',s}f
-
-@{s} (f x)
-------------- alo-app
-(@{s}f @{s}x)
-
-@{s} #K{x,y...}
-------------------- alo-ctr
-#K{@{s}x, @{s}y...}
-
-@{s} λ{#K:h; m}
-------------------- alo-mat
-λ{#K: @{s}h; @{s}m}
-```
-
-Numeric Operation Interactions
-------------------------------
-
-Numeric operations are strict on both arguments. The evaluator reduces the
-left argument first, then the right argument, then performs the operation.
+#### Numeric Operations
 
 ```
 (&{} + y)
----------- op2-era-l
+--------- OP2-ERA-L
 &{}
 
-(&L{a,b} + y)
----------------------- op2-sup-l
-! Y &L = y
+(&L{a, b} + y)
+---------------------- OP2-SUP-L
+! Y &L= y;
 &L{(a + Y₀), (b + Y₁)}
 
 (#n + &{})
----------- op2-era-r
+---------- OP2-ERA-R
 &{}
 
-(#n + &L{a,b})
----------------------- op2-sup-r
+(#n + &L{a, b})
+---------------------- OP2-SUP-R
 &L{(#n + a), (#n + b)}
 
 (#a + #b)
----------- op2-num
+--------- OP2-NUM
 #(a + b)
 ```
 
-Available operators:
-- Arithmetic: `+` `-` `*` `/` `%`
-- Bitwise: `&&` `||` `^` `~` `<<` `>>`
-- Comparison: `==` `!=` `<` `<=` `>` `>=`
+Operators: `+` `-` `*` `/` `%` `&&` `||` `^` `~` `<<` `>>` `==` `!=` `<` `<=`
+`>` `>=`. The `~` operator computes bitwise NOT: `(0 ~ x)` returns `~x`.
 
-The `~` operator computes bitwise NOT: `(0 ~ x)` returns `~x`.
+#### Equality
 
-Equality Interactions
----------------------
-
-Equality `(a == b)` performs structural comparison of arbitrary terms. It is
-strict on both arguments (left first, then right). Returns `#1` if equal, `#0`
-if not.
+Structural comparison returning `#1` (equal) or `#0` (not equal):
 
 ```
 (&{} == b)
----------- eql-era-l
+---------- EQL-ERA-L
 &{}
 
-(&L{a0,a1} == b)
----------------------- eql-sup-l
-! B &L = b
-&L{(a0 == B₀), (a1 == B₁)}
+(&L{a, b} == c)
+------------------------ EQL-SUP-L
+! C &L= c;
+&L{(a == C₀), (b == C₁)}
 
 (a == &{})
----------- eql-era-r
+---------- EQL-ERA-R
 &{}
 
-(a == &L{b0,b1})
----------------------- eql-sup-r
-! A &L = a
-&L{(A₀ == b0), (A₁ == b1)}
+(a == &L{b, c})
+------------------------ EQL-SUP-R
+! A &L= a;
+&L{(A₀ == b), (A₁ == c)}
 
 (#a == #b)
----------- eql-num
+---------- EQL-NUM
 #(a == b)
 
-(λax.af == λbx.bf)
------------------- eql-lam
-X := fresh_nam()
-ax ← X
-bx ← X
-af == bf
+(λx.f == λy.g)
+-------------- EQL-LAM
+x ← ^Z
+y ← ^Z
+(f == g)
 
-(#K{a0,a1...} == #K{b0,b1...})
------------------------------- eql-ctr
-(a0 == b0) & (a1 == b1) & ...
+(#K{a, ...} == #K{b, ...})
+-------------------------- EQL-CTR
+(a == b) & ...
 
-(λ{#K:ah;am} == λ{#K:bh;bm})
----------------------------- eql-mat
-(ah == bh) & (am == bm)
+(λ{#K: h1; m1} == λ{#K: h2; m2})
+-------------------------------- EQL-MAT
+(h1 == h2) & (m1 == m2)
 
-(λ{af} == λ{bf})
----------------- eql-use
-af == bf
+(λ{f} == λ{g})
+-------------- EQL-USE
+(f == g)
 
 (^n == ^n)
----------- eql-nam
+---------- EQL-NAM
 #1
 
-(^(af ax) == ^(bf bx))
----------------------- eql-dry
-(af == bf) & (ax == bx)
+(^(f x) == ^(g y))
+------------------ EQL-DRY
+(f == g) & (x == y)
 
 (_ == _)
--------- eql-other
+-------- EQL-OTHER
 #0
 ```
 
-Note: The `&` in results like `(a0 == b0) & (a1 == b1)` represents boolean AND
-via numeric operations (can be implemented as `(a * b)` or bitwise `(a && b)`).
-The `eql-other` rule catches all mismatched type/tag combinations.
-
-Dynamic Superposition Interactions
-----------------------------------
-
-Dynamic superpositions allow the label to be computed at runtime.
+#### Dynamic Superposition
 
 ```
 &(&{}){a, b}
------------- dsu-era
+------------ DSU-ERA
 &{}
 
-&(&L{x,y}){a, b}
--------------------------- dsu-sup
-! A &L = a
-! B &L = b
-&L{&(x){A₀,B₀}, &(y){A₁,B₁}}
+&(&L{x, y}){a, b}
+-------------------------- DSU-SUP
+! A &L= a;
+! B &L= b;
+&L{&(x){A₀, B₀}, &(y){A₁, B₁}}
 
 &(#n){a, b}
------------ dsu-num
+----------- DSU-NUM
 &n{a, b}
 ```
 
-Dynamic Duplication Interactions
---------------------------------
-
-Dynamic duplications allow the label to be computed at runtime.
-The body is a function `λx₀.λx₁.f` that receives both copies.
+#### Dynamic Duplication
 
 ```
-! X &(&{}) = v; b
------------------ ddu-era
+! x &(&{})= v; t
+---------------- DDU-ERA
 &{}
 
-! X &(&L{x,y}) = v; b
------------------------------- ddu-sup
-! V &L = v
-! B &L = b
-&L{! X &(x) = V₀; B₀, ! X &(y) = V₁; B₁}
+! x &(&L{p, q})= v; t
+--------------------- DDU-SUP
+! V &L= v;
+! T &L= t;
+&L{(! x &(p)= V₀; T₀), (! x &(q)= V₁; T₁)}
 
-! X &(#n) = v; b
----------------- ddu-num
-! X &n = v; (b X₀ X₁)
+! x &(#n)= v; t
+--------------- DDU-NUM
+! x &n= v;
+(t x₀ x₁)
 ```
 
-Unscoped Binding Interaction
------------------------------
-
-Unscoped bindings allow the creation of lambdas whose variables can escape their normal scope.
-The body is a function `λf.λv.f` that receives the lambda and its variable.
+#### Allocation
 
 ```
-! ${f, v}; t
-------------------- uns
-t(λy.λ$x.y, $x)
+@{s} n
+------ ALO-VAR
+s[n]
+
+@{s} n₀
+------- ALO-DP0
+s[n]₀
+
+@{s} n₁
+------- ALO-DP1
+s[n]₁
+
+@{s} @ref
+--------- ALO-REF
+@ref
+
+@{s} ^n
+------- ALO-NAM
+^n
+
+@{s} ^(f x)
+-------------- ALO-DRY
+^(@{s}f @{s}x)
+
+@{s} &{}
+-------- ALO-ERA
+&{}
+
+@{s} &L{a, b}
+---------------- ALO-SUP
+&L{@{s}a, @{s}b}
+
+@{s} (f x)
+------------ ALO-APP
+(@{s}f @{s}x)
+
+@{s} #K{...}
+------------ ALO-CTR
+#K{@{s}...}
+
+@{s} λ{#K: h; m}
+------------------ ALO-MAT
+λ{#K: @{s}h; @{s}m}
+
+@{s} ! x &L= v; t
+----------------- ALO-DUP
+X ← fresh
+! X &L= @{s}v;
+@{X,s} t
+
+@{s} λx.body
+------------ ALO-LAM
+X ← fresh
+λX.@{X,s}body
 ```
 
-Reference Interaction
----------------------
+#### Unscoped Binding
+
+```
+!${f, v}; t
+----------- UNS
+(t (λy.λ$x.y) $x)
+```
+
+#### Reference
 
 ```
 @foo
----------------------- ref
-@{}(book.foo)
+---- REF
+@{}(@book.foo)
 ```
 
-Reduction Interactions
-----------------------
+#### Reduction Interactions
 
-Reductions `f ~> g` represent a term `g` that is guarded by `f`. When applied,
-both sides receive the argument, but only `g` continues reducing. The `f` side
-tracks the "original" computation for reference semantics.
+Reductions `f ~> g` represent guarded terms for reference semantics:
 
 ```
-! X &L = f ~> g
---------------- dup-red
-! F &L = f
-! G &L = g
-X₀ ← F₀ ~> G₀
-X₁ ← F₁ ~> G₁
-
-((f ~> &{}) a)
--------------- app-red-era
-&{}
-
-((f ~> &L{x,y}) a)
------------------- app-red-sup
-! F &L = f
-! A &L = a
-&L{((F₀ ~> x) A₀)
-  ,((F₁ ~> y) A₁)}
+! x &L= (f ~> g); t
+------------------- DUP-RED
+! F &L= f;
+! G &L= g;
+x₀ ← (F₀ ~> G₀)
+x₁ ← (F₁ ~> G₁)
+t
 
 ((f ~> λx.g) a)
---------------- app-red-lam
+--------------- APP-RED-LAM
 x ← a
-(f a) ~> g
+((f a) ~> g)
 
-((f ~> (g ~> h)) x)
-------------------- app-red-red
-((f x) ~> ((g ~> h) x))
+((f ~> &L{x, y}) a)
+------------------- APP-RED-SUP
+! F &L= f;
+! A &L= a;
+&L{((F₀ ~> x) A₀), ((F₁ ~> y) A₁)}
 
-((f ~> λ{#K:h; m}) &{})
------------------------ app-red-mat-era
-&{}
-
-((f ~> λ{#K:h; m}) &L{a,b})
---------------------------- app-red-mat-sup
-! F &L = f
-! H &L = h
-! M &L = m
-&L{((F₀ ~> λ{#K:H₀; M₀}) a)
-  ,((F₁ ~> λ{#K:H₁; M₁}) b)}
-
-((f ~> λ{#K:h; m}) #K{a,b})
---------------------------- app-red-mat-ctr-match
+((f ~> λ{#K: h; m}) #K{a, b})
+----------------------------- APP-RED-MAT-CTR-MATCH
 ((λa.λb.(f #K{a,b}) ~> h) a b)
 
-((f ~> λ{#K:h; m}) #L{a,b})
---------------------------- app-red-mat-ctr-miss
-((f ~> m) #L{a,b})
+((f ~> λ{#K: h; m}) #J{a, b})
+----------------------------- APP-RED-MAT-CTR-MISS
+((f ~> m) #J{a, b})
 
-((f ~> λ{n:z;s}) &{})
---------------------- app-red-swi-era
-&{}
+((f ~> λ{n: z; s}) #n)
+---------------------- APP-RED-SWI-MATCH
+((f #n) ~> z)
 
-((f ~> λ{n:z;s}) &L{a,b})
-------------------------- app-red-swi-sup
-! F &L = f
-! Z &L = z
-! S &L = s
-&L{((F₀ ~> λ{n:Z₀;S₀}) a)
-  ,((F₁ ~> λ{n:Z₁;S₁}) b)}
-
-((f ~> λ{n:z;s}) #n)
--------------------- app-red-swi-match
-(f #n) ~> z
-
-((f ~> λ{n:z;s}) #m)
--------------------- app-red-swi-miss
+((f ~> λ{n: z; s}) #m)
+---------------------- APP-RED-SWI-MISS
 ((λp.(f p) ~> s) #m)
 
-((f ~> λ{g}) &{})
------------------ app-red-use-era
-&{}
-
-((f ~> λ{g}) &L{a,b})
---------------------- app-red-use-sup
-! F &L = f
-! G &L = g
-&L{((F₀ ~> λ{G₀}) a)
-  ,((F₁ ~> λ{G₁}) b)}
-
 ((f ~> λ{g}) x)
---------------- app-red-use-val
-(f x) ~> (g x)
+--------------- APP-RED-USE-VAL
+((f x) ~> (g x))
 
 ((f ~> #K{...}) a)
------------------- app-red-ctr
+------------------ APP-RED-CTR
 ^((f ~> #K{...}) a)
 
 ((f ~> ^n) a)
-------------- app-red-nam
+------------- APP-RED-NAM
 ^((f ~> ^n) a)
 
 ((f ~> ^(g x)) a)
------------------ app-red-dry
+----------------- APP-RED-DRY
 ^((f ~> ^(g x)) a)
 ```
+
