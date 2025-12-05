@@ -162,7 +162,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       return term_new(0, LAM, depth, lam_loc);
     }
   }
-  // Simple arg
+  // Simple single arg (with comma recursion for cloned/complex args)
   parse_bind_push(nam, depth, 0, cloned);
   Term body;
   if (parse_match(s, ",")) {

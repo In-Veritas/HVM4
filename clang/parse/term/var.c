@@ -7,6 +7,8 @@ fn Term parse_term_var(PState *s, u32 depth) {
   parse_bind_lookup(nam, depth, &idx, &lab, &cloned);
   parse_skip(s);
   int side = parse_match(s, "₀") ? 0 : parse_match(s, "₁") ? 1 : -1;
+  // Fork mode: auto-select side for dup variables
+  if (side == -1 && lab != 0 && PARSE_FORK_SIDE >= 0) side = PARSE_FORK_SIDE;
   parse_skip(s);
   // Error if variable is not found in bindings
   if (idx < 0) {
