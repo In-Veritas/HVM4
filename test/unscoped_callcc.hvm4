@@ -1,9 +1,9 @@
 @Seq = λ{λa.λ{λb.a}}
 @CC_lang =
   λprogram.
-  ! ${callccf, calccv};
-  ! ${garbagef, garbagev};
-  ! ${holef, holev};
+  ! callccf = λ callccv ;
+  ! garbagef = λ garbagev ;
+  ! holef = λ holev ;
   ! callcc = λcallback. garbagef(holev, callback(holef(0)));
   ! result = program(callcc);
   @Seq(result, garbagev)

@@ -1,5 +1,4 @@
 fn Term parse_term(PState *s, u32 depth);
-fn Term parse_term_uns(PState *s, u32 depth);
 
 // Helper: parse dup after & is consumed. Expects: [(label)] [=val;] body
 // If val is provided (non-zero loc), uses it; otherwise parses "= val;" from input.
@@ -82,10 +81,6 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
 
 fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
-  // Check for unscoped binding: ! ${f, v}; body
-  if (parse_match(s, "$")) {
-    return parse_term_uns(s, depth);
-  }
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)
   int strict = parse_match(s, "!");
   parse_skip(s);
@@ -103,8 +98,36 @@ fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
   // Check for let sugar: ! x = val; body  →  (λx.body)(val)
   // Or cloned let: ! &x = val; body
+  // Or unscoped lambda: ! f = λ x ; body
   if (parse_peek(s) == '=') {
     parse_advance(s);
+    parse_skip(s);
+    // Check for unscoped lambda: ! f = λ x ; body
+    // Lookahead: save position, try λ name ;, restore if not matched
+    u32 save_pos = s->pos, save_line = s->line, save_col = s->col;
+    if (parse_match(s, "λ")) {
+      parse_skip(s);
+      u32 nam_v = parse_name(s);
+      parse_skip(s);
+      if (parse_match(s, ";")) {
+        // Confirmed unscoped lambda
+        parse_skip(s);
+        parse_bind_push(nam, depth, 0, 0);
+        parse_bind_push(nam_v, depth + 1, 0, 0);
+        u64 loc_f = heap_alloc(1);
+        u64 loc_v = heap_alloc(1);
+        Term body = parse_term(s, depth + 2);
+        parse_bind_pop();
+        parse_bind_pop();
+        HEAP[loc_v] = body;
+        Term lam_v = term_new(0, LAM, depth + 1, loc_v);
+        HEAP[loc_f] = lam_v;
+        Term lam_f = term_new(0, LAM, depth, loc_f);
+        return term_new_uns(lam_f);
+      }
+      // Not unscoped lambda, restore position
+      s->pos = save_pos; s->line = save_line; s->col = save_col;
+    }
     Term val = parse_term(s, depth);
     parse_skip(s);
     parse_match(s, ";");

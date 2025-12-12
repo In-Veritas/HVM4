@@ -235,8 +235,18 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
     }
     case UNS: {
       u32 loc = term_val(term);
-      fputs("!${}; ", f);
-      print_term_go(f, HEAP[loc + 0], depth);
+      // UNS body is λf.λv.actual_body - extract names from depths
+      Term lam_f = HEAP[loc];
+      u32 nam_f = depth + 1;
+      Term lam_v = HEAP[term_val(lam_f)];
+      u32 nam_v = depth + 2;
+      Term body = HEAP[term_val(lam_v)];
+      fputs("! ", f);
+      print_name(f, nam_f);
+      fputs(" = λ ", f);
+      print_name(f, nam_v);
+      fputs(" ; ", f);
+      print_term_go(f, body, depth + 2);
       break;
     }
   }

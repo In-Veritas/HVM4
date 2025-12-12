@@ -310,7 +310,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "parse/name.c"
 #include "parse/utf8.c"
 #include "parse/term/lam.c"
-#include "parse/term/uns.c"
 #include "parse/term/dup.c"
 #include "parse/term/fork.c"
 #include "parse/term/sup.c"

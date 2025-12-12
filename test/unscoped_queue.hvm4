@@ -1,6 +1,6 @@
 @Qnew = λx.x
 @Qadd = λx.λq.λk.q(λc.c(x, k))
-@Qrem = !${kf, kv}; λq.q(kv, λx.λxs.λp.p(x, kf(xs)))
+@Qrem = ! kf = λ kv ; λq.q(kv, λx.λxs.λp.p(x, kf(xs)))
 @queue = @Qadd(3, @Qadd(2, @Qadd(1, @Qnew)))
 @main =
   @Qrem(@queue, λv0.λq0.

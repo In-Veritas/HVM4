@@ -65,7 +65,7 @@
 
 @red = λx.x ~> λy.y
 
-@unsc = !${a, b} ; λa.2
+@unsc = ! a = λ b ; λa.2
 
 // sugars
 
