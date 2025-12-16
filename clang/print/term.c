@@ -249,6 +249,12 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       print_term_go(f, body, depth + 2);
       break;
     }
+    case INC: {
+      u32 loc = term_val(term);
+      fputs("↑", f);
+      print_term_go(f, HEAP[loc], depth);
+      break;
+    }
   }
 }
 

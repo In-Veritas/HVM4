@@ -37,6 +37,9 @@ fn u32 term_arity(Term t) {
     case UNS: {
       return 1;
     }
+    case INC: {
+      return 1;
+    }
     default: {
       return 0;
     }

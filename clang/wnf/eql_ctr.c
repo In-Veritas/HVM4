@@ -1,6 +1,8 @@
 // (#K{a0,a1...} === #K{b0,b1...})  (same tag)
 // --------------------------------------- eql-ctr-match
-// (a0 === b0) & (a1 === b1) & ...
+// For SUC (1n+): ↑(pred === pred)
+// For CON (<>): ↑((head === head) & ↑(tail === tail))
+// Others: (a0 === b0) & (a1 === b1) & ...
 //
 // (#K{...} === #L{...})  (different tag)
 // ------------------------------------- eql-ctr-miss
@@ -27,8 +29,20 @@ fn Term wnf_eql_ctr(Term a, Term b) {
   u32  a_loc = term_val(a);
   u32  b_loc = term_val(b);
 
-  // Build AND chain: (a0 === b0) .&. (a1 === b1) .&. ...
-  // Use short-circuit AND for lazy evaluation
+  // SUC (1n+): recursive natural - wrap in INC for priority
+  if (a_ext == NAM_SUC && arity == 1) {
+    Term eq = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
+    return term_new_inc(eq);
+  }
+
+  // CON (<>): recursive list - wrap tail and whole in INC
+  if (a_ext == NAM_CON && arity == 2) {
+    Term eq_h = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
+    Term eq_t = term_new_inc(term_new_eql(HEAP[a_loc + 1], HEAP[b_loc + 1]));
+    return term_new_inc(term_new_and(eq_h, eq_t));
+  }
+
+  // Other constructors: no INC, just AND chain
   Term result = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
   for (u32 i = 1; i < arity; i++) {
     Term eq_i = term_new_eql(HEAP[a_loc + i], HEAP[b_loc + i]);

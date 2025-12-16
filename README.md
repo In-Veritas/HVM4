@@ -469,6 +469,7 @@ Term ::=
   | DSu  "&" "(" Term ")" "{" Term "," Term "}"   -- dynamic superposition
   | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication
   | Red  Term "~>" Term                           -- reduction
+  | Inc  "↑" Term                                 -- priority wrapper (collapse)
   | Alo  "@" "{" Name,* "}" Term                  -- allocation
   | Uns  "!" "$" "{" Name "," Name "}" ";" Term   -- unscoped binding
 
@@ -496,6 +497,10 @@ they can occur anywhere in the program, not just inside the binding's scope.
 ! x &L= a;
 &L{(f x₀), (g x₁)}
 
+(↑f a)
+-------- APP-INC
+↑(f a)
+
 (λx.body arg)
 ------------- APP-LAM
 x ← arg
@@ -514,6 +519,10 @@ body
 ! H &L= h;
 ! M &L= m;
 &L{(λ{#K: H₀; M₀} a), (λ{#K: H₁; M₁} b)}
+
+(λ{#K: h; m} ↑x)
+---------------- APP-MAT-INC
+↑(λ{#K: h; m} x)
 
 (λ{#K: h; m} #K{a, b, ...})
 --------------------------- APP-MAT-CTR-MATCH
@@ -549,6 +558,10 @@ z
 ----------------- APP-USE-SUP
 ! F &L= f;
 &L{(λ{F₀} a), (λ{F₁} b)}
+
+(λ{f} ↑x)
+--------- APP-USE-INC
+↑(λ{f} x)
 
 (λ{f} x)
 -------- APP-USE-VAL
@@ -626,6 +639,13 @@ x₀ ← λ{F₀}
 x₁ ← λ{F₁}
 t
 
+! x &L= ↑a; t
+------------- DUP-INC
+! A &L= a;
+x₀ ← ↑A₀
+x₁ ← ↑A₁
+t
+
 ! x &L= ^n; t
 ------------- DUP-NAM
 x₀ ← ^n
@@ -659,6 +679,10 @@ t
 ! Y &L= y;
 &L{(a + Y₀), (b + Y₁)}
 
+(↑x + y)
+-------- OP2-INC-L
+↑(x + y)
+
 (#n + &{})
 ---------- OP2-ERA-R
 &{}
@@ -666,6 +690,10 @@ t
 (#n + &L{a, b})
 ---------------------- OP2-SUP-R
 &L{(#n + a), (#n + b)}
+
+(#n + ↑y)
+--------- OP2-INC-R
+↑(#n + y)
 
 (#a + #b)
 --------- OP2-NUM
@@ -689,6 +717,10 @@ Structural comparison returning `#1` (equal) or `#0` (not equal):
 ! C &L= c;
 &L{(a == C₀), (b == C₁)}
 
+(↑a == b)
+--------- EQL-INC-L
+↑(a == b)
+
 (a == &{})
 ---------- EQL-ERA-R
 &{}
@@ -697,6 +729,10 @@ Structural comparison returning `#1` (equal) or `#0` (not equal):
 ------------------------ EQL-SUP-R
 ! A &L= a;
 &L{(A₀ == b), (A₁ == c)}
+
+(a == ↑b)
+--------- EQL-INC-R
+↑(a == b)
 
 (#a == #b)
 ---------- EQL-NUM
@@ -748,6 +784,10 @@ without evaluating second. Otherwise returns second argument.
 ! C &L= c;
 &L{(a .&. C₀), (b .&. C₁)}
 
+(↑a .&. b)
+---------- AND-INC
+↑(a .&. b)
+
 (#0 .&. b)
 ---------- AND-ZERO
 #0
@@ -772,6 +812,10 @@ Lazy boolean OR. Strict on first argument only; if first is non-zero, returns
 ! C &L= c;
 &L{(a .|. C₀), (b .|. C₁)}
 
+(↑a .|. b)
+---------- OR-INC
+↑(a .|. b)
+
 (#0 .|. b)
 ---------- OR-ZERO
 b
@@ -794,6 +838,10 @@ b
 ! B &L= b;
 &L{&(x){A₀, B₀}, &(y){A₁, B₁}}
 
+&(↑x){a, b}
+----------- DSU-INC
+↑(&(x){a, b})
+
 &(#n){a, b}
 ----------- DSU-NUM
 &n{a, b}
@@ -811,6 +859,10 @@ b
 ! V &L= v;
 ! T &L= t;
 &L{(! x &(p)= V₀; T₀), (! x &(q)= V₁; T₁)}
+
+! x &(↑y)= v; t
+--------------- DDU-INC
+↑(! x &(y)= v; t)
 
 ! x &(#n)= v; t
 --------------- DDU-NUM
@@ -917,6 +969,10 @@ x ← a
 ! A &L= a;
 &L{((F₀ ~> x) A₀), ((F₁ ~> y) A₁)}
 
+((f ~> ↑g) a)
+------------- APP-RED-INC
+↑((f ~> g) a)
+
 ((f ~> λ{#K: h; m}) #K{a, b})
 ----------------------------- APP-RED-MAT-CTR-MATCH
 ((λa.λb.(f #K{a,b}) ~> h) a b)
@@ -933,6 +989,14 @@ x ← a
 ---------------------- APP-RED-SWI-MISS
 ((λp.(f p) ~> s) #m)
 
+((f ~> λ{#K: h; m}) ↑x)
+----------------------- APP-RED-MAT-INC
+↑((f ~> λ{#K: h; m}) x)
+
+((f ~> λ{g}) ↑x)
+---------------- APP-RED-USE-INC
+↑((f ~> λ{g}) x)
+
 ((f ~> λ{g}) x)
 --------------- APP-RED-USE-VAL
 ((f x) ~> (g x))
@@ -948,5 +1012,44 @@ x ← a
 ((f ~> ^(g x)) a)
 ----------------- APP-RED-DRY
 ^((f ~> ^(g x)) a)
+```
+
+#### Priority Wrapper (Inc)
+
+The `↑` (Inc) node is used to influence the order in which superposition branches
+are explored during collapse. When collapsing terms with superpositions, the
+runtime uses a priority queue:
+
+- When a SUP is encountered, its branches are pushed with priority `+1`
+- When an INC is peeled, the contained term's priority decreases by `1`
+
+Lower priority values are explored first (breadth-first within a priority level).
+This allows strategic placement of `↑` to delay exploration of certain branches.
+
+All operations that can encounter SUP (and lift it through) have a corresponding
+INC interaction that lifts the INC wrapper to the top. For example:
+
+```
+(↑f a)         →  ↑(f a)           -- APP-INC
+(↑x + y)       →  ↑(x + y)         -- OP2-INC-L
+(#n + ↑y)      →  ↑(#n + y)        -- OP2-INC-R
+(↑a == b)      →  ↑(a == b)        -- EQL-INC-L
+(a == ↑b)      →  ↑(a == b)        -- EQL-INC-R
+(↑a .&. b)     →  ↑(a .&. b)       -- AND-INC
+(↑a .|. b)     →  ↑(a .|. b)       -- OR-INC
+&(↑x){a, b}    →  ↑(&(x){a, b})    -- DSU-INC
+! x &(↑y)= v; t  →  ↑(! x &(y)= v; t)  -- DDU-INC
+((f ~> ↑g) a)  →  ↑((f ~> g) a)    -- APP-RED-INC
+```
+
+During duplication, INC is cloned like other nodes:
+
+```
+! x &L= ↑a; t
+------------- DUP-INC
+! A &L= a;
+x₀ ← ↑A₀
+x₁ ← ↑A₁
+t
 ```
 

@@ -72,6 +72,7 @@ typedef struct {
 #define OR  39  // Or(a, b): short-circuit OR, strict on a only
 #define UNS 40  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
 #define ANY 41  // Any: wildcard that duplicates itself and equals anything
+#define INC 42  // Inc(x): priority wrapper for collapse ordering - decreases priority
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
@@ -220,6 +221,11 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 
 #include "heap/alloc.c"
 
+// Data Structures
+// ===============
+
+#include "data/pqueue.c"
+
 // Term Constructors
 // =================
 
@@ -248,6 +254,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "term/new/and.c"
 #include "term/new/or.c"
 #include "term/new/uns.c"
+#include "term/new/inc.c"
 #include "term/new/num.c"
 #include "term/clone.c"
 
@@ -327,6 +334,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "parse/term/args.c"
 #include "parse/term/opr.c"
 #include "parse/term/app.c"
+#include "parse/term/inc.c"
 #include "parse/term/_.c"
 #include "parse/include.c"
 #include "parse/def.c"
@@ -339,8 +347,10 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/app_dry.c"
 #include "wnf/app_lam.c"
 #include "wnf/app_sup.c"
+#include "wnf/app_inc.c"
 #include "wnf/app_mat_sup.c"
 #include "wnf/app_mat_ctr.c"
+#include "wnf/mat_inc.c"
 #include "wnf/dup_nam.c"
 #include "wnf/dup_dry.c"
 #include "wnf/dup_red.c"
@@ -359,17 +369,22 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/op2_num_era.c"
 #include "wnf/op2_num_num.c"
 #include "wnf/op2_num_sup.c"
+#include "wnf/op2_inc.c"
 #include "wnf/dsu_era.c"
 #include "wnf/dsu_num.c"
 #include "wnf/dsu_sup.c"
+#include "wnf/dsu_inc.c"
 #include "wnf/ddu_era.c"
 #include "wnf/ddu_num.c"
 #include "wnf/ddu_sup.c"
+#include "wnf/ddu_inc.c"
 #include "wnf/use_era.c"
 #include "wnf/use_sup.c"
 #include "wnf/use_val.c"
+#include "wnf/use_inc.c"
 #include "wnf/app_red_era.c"
 #include "wnf/app_red_sup.c"
+#include "wnf/app_red_inc.c"
 #include "wnf/app_red_lam.c"
 #include "wnf/app_red_red.c"
 #include "wnf/app_red_nam.c"
@@ -377,10 +392,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/app_red_ctr.c"
 #include "wnf/app_red_mat_era.c"
 #include "wnf/app_red_mat_sup.c"
+#include "wnf/app_red_mat_inc.c"
 #include "wnf/app_red_mat_ctr.c"
 #include "wnf/app_red_mat_num.c"
 #include "wnf/app_red_use_era.c"
 #include "wnf/app_red_use_sup.c"
+#include "wnf/app_red_use_inc.c"
 #include "wnf/app_red_use_val.c"
 #include "wnf/eql_era.c"
 #include "wnf/eql_any.c"
@@ -392,12 +409,15 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/eql_use.c"
 #include "wnf/eql_nam.c"
 #include "wnf/eql_dry.c"
+#include "wnf/eql_inc.c"
 #include "wnf/and_era.c"
 #include "wnf/and_sup.c"
 #include "wnf/and_num.c"
+#include "wnf/and_inc.c"
 #include "wnf/or_era.c"
 #include "wnf/or_sup.c"
 #include "wnf/or_num.c"
+#include "wnf/or_inc.c"
 #include "wnf/uns.c"
 #include "wnf/_.c"
 

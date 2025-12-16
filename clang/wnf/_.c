@@ -101,6 +101,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case SWI:
           case USE:
           case UNS:
+          case INC:
           case C00 ... C16:
           case OP2:
           case EQL:
@@ -187,6 +188,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case MAT:
       case SWI:
       case USE:
+      case INC:
       case C00 ... C16: {
         whnf = next;
         goto apply;
@@ -236,6 +238,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_app_sup(frame, whnf);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_app_inc(frame, whnf);
               goto enter;
             }
             case MAT:
@@ -291,6 +297,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_app_red_sup(f, g, arg);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_app_red_inc(f, g, arg);
               goto enter;
             }
             case LAM: {
@@ -350,6 +360,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_app_mat_sup(mat, whnf);
               goto enter;
             }
+            case INC: {
+              next = wnf_mat_inc(mat, whnf);
+              goto enter;
+            }
             case C00 ... C16: {
               next = wnf_app_mat_ctr(mat, whnf);
               goto enter;
@@ -406,6 +420,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_app_red_mat_sup(f, mat, whnf);
               goto enter;
             }
+            case INC: {
+              next = wnf_app_red_mat_inc(f, mat, whnf);
+              goto enter;
+            }
             case C00 ... C16: {
               if (term_ext(mat) == term_ext(whnf)) {
                 next = wnf_app_red_mat_ctr_match(f, mat, whnf);
@@ -452,6 +470,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_use_sup(use, whnf);
               goto enter;
             }
+            case INC: {
+              next = wnf_use_inc(use, whnf);
+              goto enter;
+            }
             case RED: {
               // (use (g ~> h)): drop g, reduce (use h)
               u32  red_loc = term_val(whnf);
@@ -483,6 +505,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_app_red_use_sup(f, use, whnf);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_app_red_use_inc(f, use, whnf);
               goto enter;
             }
             case RED: {
@@ -546,6 +572,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case MAT:
             case SWI:
             case USE:
+            case INC:
             case OP2:
             case DSU:
             case DDU:
@@ -586,6 +613,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_op2_sup(opr, whnf, y);
               goto enter;
             }
+            case INC: {
+              next = wnf_op2_inc_x(opr, whnf, y);
+              goto enter;
+            }
             default: {
               whnf = term_new_op2(opr, whnf, y);
               continue;
@@ -622,6 +653,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = g;
               goto enter;
             }
+            case INC: {
+              next = wnf_op2_inc_y(opr, x, whnf);
+              goto enter;
+            }
             default: {
               // Stuck: (x op y) where x is NUM, y is not
               whnf = term_new_op2(opr, x, whnf);
@@ -648,6 +683,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_eql_sup_l(whnf, b);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_eql_inc_l(whnf, b);
               goto enter;
             }
             default: {
@@ -679,6 +718,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_eql_sup_r(a, whnf);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_eql_inc_r(a, whnf);
               goto enter;
             }
             default: {
@@ -755,6 +798,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_dsu_sup(whnf, a, b);
               goto enter;
             }
+            case INC: {
+              next = wnf_dsu_inc(whnf, a, b);
+              goto enter;
+            }
             default: {
               whnf = term_new_dsu(whnf, a, b);
               continue;
@@ -783,6 +830,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_ddu_sup(whnf, val, bod);
               goto enter;
             }
+            case INC: {
+              next = wnf_ddu_inc(whnf, val, bod);
+              goto enter;
+            }
             default: {
               whnf = term_new_ddu(whnf, val, bod);
               continue;
@@ -804,6 +855,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_and_sup(whnf, b);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_and_inc(whnf, b);
               goto enter;
             }
             case NUM: {
@@ -831,6 +886,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case SUP: {
               next = wnf_or_sup(whnf, b);
+              goto enter;
+            }
+            case INC: {
+              next = wnf_or_inc(whnf, b);
               goto enter;
             }
             case NUM: {

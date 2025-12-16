@@ -3,3 +3,4 @@
 *.hi
 clang/main
 haskell/main
+hvm4_old/

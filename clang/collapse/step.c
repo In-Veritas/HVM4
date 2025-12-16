@@ -27,6 +27,12 @@ fn Term collapse_step(Term term) {
       return term;
     }
 
+    case INC: {
+      // INC: just return as-is, let flatten() handle the priority adjustment
+      // Don't lift SUPs through INCs here - that's handled by the flatten loop
+      return term;
+    }
+
     case RED: {
       // For RED, collapse the rhs (g) side only
       u64 loc = term_val(term);
