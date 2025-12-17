@@ -2,11 +2,11 @@
 // Uses direct SUP lifting for efficiency.
 // Stops when it finds a SUP at the top (doesn't descend into SUP branches).
 // Also strips RED nodes (keeping only RHS) and propagates ERA upward.
-// Used by flatten() for lazy BFS enumeration of superposition branches.
+// Used by collapse_flatten() for lazy BFS enumeration of superposition branches.
 //
 // IMPORTANT: When a SUP is found and lifted, we return immediately WITHOUT
 // recursively collapsing the new branches. This is critical for handling
-// infinite structures - flatten() will iterate lazily via BFS.
+// infinite structures - collapse_flatten() will iterate lazily via BFS.
 
 fn Term collapse_step(Term term) {
   term = wnf(term);
@@ -28,8 +28,8 @@ fn Term collapse_step(Term term) {
     }
 
     case INC: {
-      // INC: just return as-is, let flatten() handle the priority adjustment
-      // Don't lift SUPs through INCs here - that's handled by the flatten loop
+      // INC: just return as-is, let collapse_flatten() handle the priority adjustment
+      // Don't lift SUPs through INCs here - that's handled by the collapse_flatten loop
       return term;
     }
 
