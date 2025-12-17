@@ -1,370 +1,107 @@
-# UNDUP Optimization for HVM4
+TASK 1:
 
-## WHAT COLLAPSE/FLATTEN DOES?
+In HVM4, lambdas can be unbound, meaning their variables occur outside of their
+bodies, and dups "float" in the global heap, meaning they don't even have a
+body. Because of that, variables that occur outside of their bodies are printed
+as '_', which is wrong, and dups aren't even printed, at all.
 
-@main = λf.
-  ! f &A = f;
-  &A{
-    λx.
-      ! f &B = f₀;
-      ! x &B = x;
-      &B{f₀(x₀,0), f₁(x₁,1)},
-    λx.
-      ! f &C = f₁;
-      ! x &C = x;
-      &C{f₀(x₀,2), f₁(x₁,3)},
-  }
+For example, consider:
 
-just normalizing this program would give us:
+@main = λk.
+  ! F = λx; // creates an unbound lam/var pair: F = λa.$x.a and x = $x
+  ! K &L = k; // clones k with a &L label
+  #Tup{x, F, K₀, K₁, λv.v}
 
-λa.&A{λb.&B{a(b,0),a(b,1)},λb.&C{a(b,2),a(b,3)}}
+Running it with `./clang/main bad.hvm4` results in:
 
-yet, collapsing it would give us:
+λa.#Tup{_,λb.λc.b,a,a,λa.a}
 
-&A{&B{λa.λb.a(b,0),λa.λb.a(b,1)},&C{λa.λb.a(b,2),λa.λb.a(b,3)}}
+This is wrong, since:
 
-and flattening would give us:
+- the '_' variable is not matching the 'λc' lambda
 
-λa.λb.a(b,0)
-λa.λb.a(b,1)
-λa.λb.a(b,2)
-λa.λb.a(b,3)
+- the dup node is not showing up
 
-a term is in "collapsed normal form" when it is either a SUP (which may store
-terms with further SUPs/ERAs), or an ERA, or a term without SUPs or ERAs inside
-it. so, &A{λx.&B{1,2},λy.y} is in collapsed normal form, but λx.&B{1,2} isn't.
+- it shows 'a' twice instead of the dup node vars
 
-in order to use the collapser, the user must respects the following conventions:
+Instead, the correct output should've been:
 
-- sup nodes visible to the collapser must have a globally unique label 
-
-- the components of a sup node can't use free 'VAR' vars
-
-- the component 0/1 of a sup node with label L can use 'CO0/1' vars with label L
-
-so, for example, this is valid:
-
-λa. λb.
+λa.λb.#Tup{d,λc.λd.c,A₀,A₁,λe.e}
 ! A &L = a;
-! B &L = b;
-&L{ A₀(B₀) , A₁(B₁) }
 
-but this is not:
+Notice that:
 
-λa. λb.
-! B &L = b;
-&L{ a(B₀) , B₁ }
+- each lam/dup-bound variable has a globally unique name (instead of being lexical)
 
-(because 'a' is a free variable used inside the left component of the sup node)
+- all visible dups are printed after the term
 
-λa. λb.
-! A &L = a;
-! B &L = b;
-&L{ A₁(B₀) , A₀(B₁) }
+- λ-bound variables are lowercase (a, b, c, ...), dup-bound variables are uppercase (A, B, C, ...)
 
-(because we're using A₁ inside of the side 0; we should use A₀ instead)
+- unscoped variables work fine
 
-these assumptions allow us to implement the UNDUP optimization safely.
+To achieve that, we must *modify* the pretty printer to include a global
+variable naming scheme, anchored by the location of λ bodies and dup exprs.
+Whenever we find a VAR or LAM, we assign a fresh, globally unique name to the
+pair, keyed by the LAM's body location. That works because both the VAR and the
+LAM store that same location on the val() field of their Terms. Then, we just
+print the variable with that unique name, and the lambda with that unique name.
 
-## TASK: IMPLEMENT THE UNDUP OPTIMIZATION
+As for dups, since they *float* in the global scope, we must also *detect* dups
+when we reach CO0/CO1 variables. When that happens, we set a globally unique
+name for that dup (which will be used by the DUP, by the CO0, and by the CO1).
+Then, after the term is printed, we proceed to print all DUPs we discovered.
+Note that this might cause new DUPs to be discovered, and printed later. That's
+fine and expected. Just make sure we avoid loops (i.e., a DUP can only be
+discovered once) and we're fine. Remember that we key DUP's by the location
+of the dup'd expression, which is what is stored on CO0/CO1 variables.
 
-create an optimization named UNDUP. to do so, we'll:
+Finally, we must modify snf to NOT substitute bound vars by names.
 
-- add a new global static bit set, named UNDUP, which will store a set of
-  disabled labels (where a label is an u24 value)
+Note that many tests will break after this change. DO NOT RUN THEM.
 
-- add a new global static buffer, named PARENT, with 2^32 u32 elements, which
-  stores the parent of a given loc (or 0, if that loc is root)
+Just implement this change and assert the test above prints as expected.
 
-then, on flatten(), whenever we push a sup node to the pqueue, we also assign
-its parent's loc to the current loc.
+Then come back to me for next steps.
 
-we also create a new function, collapse_step_opt, which wraps collapse step:
-- traverse from current loc to the root
-- whenever we reach a SUP with a &{} in either sides, add its label to UNDUP
-- call collapse_step, so that this UNDUP affects all interactions inside it
-- clean up the UNDUP array to avoid leaking labels set to the next call
+TASK 2:
 
-for example, consider this input:
-
-! X &A = [1,2,3,4,5]
-! Y &B = X₁
-&A{λx.(λy.&{} 0), &B{Y₀, &{}}}
-
-during flatten, we'd call collapse_step on the left side of the first SUP node.
-it would, thus, normalize to weak head normal form (wnf), resulting in:
-
-! X &A = [1,2,3,4,5]
-! Y &B = X₁
-&A{λx.&{}, &B{Y₀, &{}}}
-
-and then, it would normalize to collapse normal form (cnf), resulting in:
-
-! X &A = [1,2,3,4,5]
-! Y &B = X₁
-&A{&{}, &B{Y₀, &{}}}
-
-now, when we attempt to take the cnf of Y₀ (i.e., via collapse_step_opt), we'd
-traverse up the SUP chain, all the way to the root. since the only parent is
-&A{&{}, _}, and since that parent has &{} on the left side, we mark the &A label
-to be skipped. this is safe precisely because, since the left side of the A
-label is &{}, the X₀ variable can't occur in it. thus, we can just substitute X₁
-by the whole list, not needing to incrementally dup it to feed both X₀ and X₁!
-that's the key insight. this avoid several DUP interactions.
-
-so, in the case above, when we attempt to wnf:
-
-! X &A = [1,2,3,4,5]
-
-with UNDUP set for &A, we would NOT perform the DUP-CTR interaction (to clone
-the #CON{1,[2,3,4]} node of the list). instead, we would skip it, substituting
-X₀ by &{}, and X₁ by the whole list.
-
-that is, we would do:
-
-X₀ ← &{}
-X₁ ← [1,2,3,4,5]
-
-instead of:
-
-! H &A = 1
-! T &A = [2,3,4]
-X₀ ← #CON{H₀,T₀}
-X₁ ← #CON{H₁,T₁}
-
-that's the optimization!
-
-keep in mind that UNDUP is scoped. if we have:
-
-&X{&A{&{}, x}, &A{y, z}}
-
-then, when reducing x, we should have UNDUP[&A]==1, but, when reducing y and z,
-we should have UNDUP[&A]==0. that's why we must construct UNDUP right before
-calling collapse_step, and then clear it! this alone ensures proper scoping.
-
-all DUP and SUP interactions must be updated.
-
-below are some example interactions with the skip optimization on:
+On the README.md (HVM4's documentation), we often use a "step by step"
+evaluation notation to teach how this system works. For example:
 
 ```
-! f &L= λx.body; t
-------------------------- DUP-LAM
-if UNDUP[&L] == UNDUP_0:
-  f₀ ← &{}
-  f₁ ← λx.body
-  t
-else if UNDUP[&L] == UNDUP_1:
-  f₀ ← λx.body
-  f₁ ← &{}
-  t
-else:
-  (do as before)
-
-! x &L= &L{a, b}; t
-------------------------- DUP-SUP (L = L)
-if UNDUP[&L] == UNDUP_0:
-  x₀ ← &{}
-  x₁ ← b
-  t
-else if UNDUP[&L] == UNDUP_1:
-  x₀ ← b
-  x₁ ← &{}
-  t
-else:
-  (do as before)
-
-! x &L= &R{a, b}; t
-------------------------- DUP-SUP (L ≠ R)
-if UNDUP[&L] == UNDUP_0:
-  x₀ ← &{}
-  x₁ ← &R{a, b}
-  t
-else if UNDUP[&L] == UNDUP_1:
-  x₀ ← &R{a, b}
-  x₁ ← &{}
-  t
-else:
-  (do as before)
-
-(&L{a, b})(c)
-------------------- APP-SUP
-if UNDUP[&L] == UNDUP_0:
-  b(c)
-else if UNDUP[&L] == UNDUP_1:
-  a(c)
-else:
-  (do as before)
+! f &= λx.(x + 1);
+(f₀(10), f₁(20))
+------------------------------ DUP-LAM
+! b &= (&{$x0, $x1} + 1);
+((λ$x0.b₀)(10), (λ$x1.b₁)(20))
+------------------------------ APP-LAM, APP-LAM
+! b &= (&{10, 20} + 1);
+(b₀, b₁)
+------------------------------ OP2-SUP, DUP-NUM
+! b &= &{(10 + 1), (20 + 1)};
+(b₀, b₁)
+------------------------------ OP2-NUM, OP2-NUM
+! b &= &{11, 21};
+(b₀, b₁)
+------------------------------ DUP-SUP
+(11, 21)
 ```
 
-and so on.
+Your goal is to add a new option to this repository, -D, which will perform a
+step by step reduction instead of a single pass reduction. To do so, you must
+update snf to remember the root term and, instead of calling wnf() normally, it
+should, when the global STEP_BY_STEP variable is set, perform a loop where it
+calls wnf() repeatedly, until the interaction count doesn't change. Also we must
+add a global ITRS_LIMIT which, when reached, causes wnf to stop reducting and
+just return. We just set ITRS_LIMIT to current itrs + 1 when calling wnf inside
+snf. We print each intermediate state.
 
-### UNREACHABLE CASES
+Note that we must also be able to print global dups. For example, in the program
+above, it would probably sometimes print just:
 
-with this optimization on, the following cases should be impossible in well
-formed inputs:
+(_₀(10), _₁(20))
 
-- when undup[&L] is set, we should never reach a SUP interaction (like APP-SUP) with label L.
+Because _₀ and _₁ would be identified as unbound dups. This is wrong. Instead, we
+must update the printer to properly capture 
 
-- when undup[&L] is set, the collapse_step function should never return a sup node of label L.
 
-- when undup[&L] is set for side 0, we should never reach a CO1 var with label L.
-
-you MUST add asserts to test if any of these cases happen. if they do, just
-leave it as is, and report back. do NOT attempt to fix.
-
-if this optimization works, the following well formed tests must pass:
-
-1. undup_simple:
-
-```
-@main =
-  ! X &A = [1,2,3,4,5];
-  &A{ &{} , X₁ }
-//[1,2,3,4,5] #<5
-```
-
-this ensures the UNDUP array and the interactions are properly set up.
-
-2. undup_cnf
-
-```
-@main =
-  ! X &A = [1,2,3,4,5];
-  &A{ λx.(λy.&{}(0)) , X₁ }
-//[1,2,3,4,5] #<5
-```
-
-this ensures we're checking if the *cnf* of the left side of a SUP is &{}.
-
-3. undup_equal:
-
-```
-@X    = λ&L. &(L){ 0n, 1n+@X(L+1) }
-@Y    = λ&f. f(@Y(f))
-@when = λ{[]: λx.x; <>: λ{0: λt. &{}; 1: λt,x. @when(t, x)}}
-@main = @when([@X(1) === 100n], [@X(1)])
-//[100n] #<10000
-```
-
-this is a more complex test
-
-4. undup_mul1:
-
-```
-@Y    = λ&f. f(@Y(f))
-@when = λ{0: λx. &{}; 1: λx. x}
-
-@muln = λ&L. λf. λ{
-  0n: 0n
-  1n+: λx.
-    ! f &(L) = f
-    ! x &(L) = x
-    &(L){
-      f₀(x₀),
-      1n+
-        ! f &(L+1) = f₁
-        ! x &(L+1) = x₁
-        &(L+1){
-          f₀(x₀),
-          1n+f₁(x₁)
-        }
-    }
-}
-
-@main =
-  ! &F = λF. @muln(1, F)
-  @when(@Y(F)(1n) === 1n, [F])
-//[λa.λ{0n:0n;1n+:λb.1n+a(b)}]
-```
-
-this tests some potential bugs.
-
-4. undup_muln_gen:
-
-```
-@Y    = λ&f. f(@Y(f))
-@when = λ{[]: λx.x; <>: λ{0: λt. &{}; 1: λt,x. @when(t, x)}}
-
-@muln = λ&L,&K. λF. λ{
-  0n: 0n
-  1n+: λp. @expr(L, K, F, p)
-}
-      
-@expr = λ&L. λ{
-  0n: λf. λx. x;
-  1n+: λ&K. λf. λx.
-    ! f &(L) = f
-    ! x &(L) = x
-    &(L){f₀(x₀), 1n+@expr(L+1,K,f₁,x₁)}
-}
-
-@main =
-  ! &F = λF. @muln(1, 100n, F)
-  ! e0 = @Y(F)(3n) === 60n
-  ! e1 = @Y(F)(4n) === 80n
-  @when([e0,e1], [F])
-//[λa.λ{0n:0n;1n+:λb.20n+a(b)}] #<10000
-```
-
-5. undup_bin_add:
-
-```
-@when = λ{[]: λx.x; <>: λ{0: λt. &{}; 1: λt,x. @when(t, x)}}
-@Y    = λ&f. f(@Y(f))
-
-@O = λx.#O{x}
-@I = λx.#I{x}
-@E = #E
-
-@add = λ&add. λ{
-  #O: λ&a. λ{
-    #O: λ&b. λ{
-      0: &A{@O,@I}(add(a,b,&B{0,1}))
-      1: &C{@O,@I}(add(a,b,&D{0,1}))
-    }
-    #I: λ&b. λ{
-      0: &E{@O,@I}(add(a,b,&F{0,1}))
-      1: &G{@O,@I}(add(a,b,&H{0,1}))
-    }
-    #E: λc. #E
-  }
-  #I: λ&a. λ{
-    #O: λ&b. λ{
-      0: &I{@O,@I}(add(a,b,&J{0,1}))
-      1: &K{@O,@I}(add(a,b,&L{0,1}))
-    }
-    #I: λ&b. λ{
-      0: &M{@O,@I}(add(a,b,&N{0,1}))
-      1: &O{@O,@I}(add(a,b,&P{0,1}))
-    }
-    #E: λc. #E
-  }
-  #E: λb. λc. #E
-}
-
-@main =
-  ! e0 = @Y(@add)(@I(@O(@O(@O(@E)))), @O(@I(@O(@O(@E)))), 0) === @I(@I(@O(@O(@E)))) //  1 + 2 =  3
-  ! e1 = @Y(@add)(@O(@O(@I(@O(@E)))), @I(@O(@O(@O(@E)))), 0) === @I(@O(@I(@O(@E)))) //  4 + 1 =  5
-  ! e2 = @Y(@add)(@I(@I(@I(@O(@E)))), @I(@O(@I(@O(@E)))), 0) === @O(@O(@I(@I(@E)))) //  7 + 5 = 12
-  ! e3 = @Y(@add)(@I(@O(@O(@I(@E)))), @O(@O(@I(@O(@E)))), 0) === @I(@O(@I(@I(@E)))) //  9 + 4 = 13
-  ! e4 = @Y(@add)(@I(@I(@O(@O(@E)))), @I(@O(@O(@O(@E)))), 0) === @O(@O(@I(@O(@E)))) //  3 + 1 =  4
-  ! e5 = @Y(@add)(@I(@I(@O(@I(@E)))), @O(@O(@I(@O(@E)))), 0) === @I(@I(@I(@I(@E)))) // 11 + 4 = 15
-  ! e6 = @Y(@add)(@O(@O(@O(@I(@E)))), @I(@I(@O(@O(@E)))), 0) === @I(@I(@O(@I(@E)))) //  8 + 3 = 11
-  ! e7 = @Y(@add)(@O(@I(@O(@I(@E)))), @O(@I(@I(@O(@E)))), 0) === @O(@O(@O(@O(@E)))) // 10 + 6 = 16 (overflow wraps)
-  @when([e0,e1,e2,e3,e4,e5,e6,e7], @add)
-//λa.λ{#O:λb.λ{#O:λc.λ{0:#O{a(b,c,0)};1:#I{a(b,c,0)}};#I:λc.λ{0:#I{a(b,c,0)};1:#O{a(b,c,1)}};#E:λc.#E{}};#I:λb.λ{#O:λc.λ{0:#I{a(b,c,0)};1:#O{a(b,c,1)}};#I:λc.λ{0:#O{a(b,c,1)};1:#I{a(b,c,1)}};#E:λc.#E{}};#E:λb.λc.#E{}} #<10000
-```
-
-your implementation is a success if the new 5 tests pass. test in order.
-
-NOTE: do NOT run the old tests.
-
-NOTE: while doing this, do NOT recompile / modify ./clang/main in any way. IT IS
-CURRENTLY BEING USED BY ANOTHER PROCESS. use ./clang/main_undup instead to test.
-
-NOTE: your implementation must be simple, minimalist and straightforward.
-
-NOTE: *ALWAYS* run with timeout 1s, to avoid crashes in case it hangs. NEVER run
-without timeout. NEVER run with a higher timeout.
-
-FOLLOW ALL INSTRUCTIONS ABOVE.
