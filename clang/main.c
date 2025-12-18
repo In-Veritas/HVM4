@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
     collapse_flatten(main_ref, opts.collapse_limit, opts.stats);
   } else {
     // Standard evaluation to strong normal form
-    Term result = snf(main_ref, 0);
+    Term result = snf(main_ref, 0, 0);
     print_term(result);
     printf("\n");
   }

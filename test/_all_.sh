@@ -57,10 +57,17 @@ run_tests() {
     # Extract trailing // comment lines (consecutive from end of file)
     expected=""
     nlines=0
+    nocollapse=0
     while IFS= read -r line; do
       if [[ "$line" == //* ]]; then
-        [ -n "$expected" ] && expected="${line#//}"$'\n'"$expected"
-        [ -z "$expected" ] && expected="${line#//}"
+        if [[ "$line" == '//!'* ]]; then
+          nocollapse=1
+          content="${line#//!}"
+        else
+          content="${line#//}"
+        fi
+        [ -n "$expected" ] && expected="${content}"$'\n'"$expected"
+        [ -z "$expected" ] && expected="${content}"
         ((nlines++))
       else
         break
@@ -86,13 +93,16 @@ run_tests() {
     keep=$((total - nlines))
     head -n "$keep" "$test_file" > "$tmp"
 
-    # Determine flags: all tests use -C by default
-    flags="-C"
-    case "$name" in
-      collapse_* | enum_* )
-        [ -n "$collapse_count" ] && flags="${flags}${collapse_count}"
-        ;;
-    esac
+    # Determine flags: all tests use -C by default unless //! is used
+    flags=""
+    if [ "$nocollapse" -eq 0 ]; then
+      flags="-C"
+      case "$name" in
+        collapse_* | enum_* )
+          [ -n "$collapse_count" ] && flags="${flags}${collapse_count}"
+          ;;
+      esac
+    fi
 
     actual="$("$bin" "$tmp" $flags 2>&1)"
 
