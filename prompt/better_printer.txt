@@ -26,7 +26,8 @@ This is wrong, since:
 
 Instead, the correct output should've been:
 
-λa.λb.#Tup{d,λc.λd.c,A₀,A₁,λe.e}!A&L=a;
+λa.#Tup{c,λb.λc.b,A₀,A₁,λd.d}!A&L=a;
+(or alpha equivalent)
 
 Notice that:
 
@@ -113,7 +114,8 @@ after that, this new test, named snf_c2_k2:
 
 should output *exactly*:
 
-λa.λb.A₀!A&K=B₀(C₁);!B&K=a;!C&C=@{&C{λc.A₁,B₁}(&C{A₀,&K{C₀,A₁}})}
+λa.λb.A₀!A&K=B₀(C₁);!B&K=a;!C&C=@{&C{λc.A₁,B₁}(&C{b,&K{C₀,c}})}
+(or alpha equivalent)
 
 # Task 3: modify snf() to have two modes
 
