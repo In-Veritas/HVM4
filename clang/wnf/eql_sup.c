@@ -10,8 +10,8 @@ fn Term wnf_eql_sup_l(Term sup, Term b) {
   Term a1  = HEAP[loc + 1];
   u64  dup_loc = heap_alloc(2);
   HEAP[dup_loc + 0] = b;
-  Term b0 = term_new_co0(lab, dup_loc);
-  Term b1 = term_new_co1(lab, dup_loc);
+  Term b0 = term_new_dp0(lab, dup_loc);
+  Term b1 = term_new_dp1(lab, dup_loc);
   Term eq0 = term_new_eql(a0, b0);
   Term eq1 = term_new_eql(a1, b1);
   return term_new_sup(lab, eq0, eq1);
@@ -29,8 +29,8 @@ fn Term wnf_eql_sup_r(Term a, Term sup) {
   Term b1  = HEAP[loc + 1];
   u64  dup_loc = heap_alloc(2);
   HEAP[dup_loc + 0] = a;
-  Term a0 = term_new_co0(lab, dup_loc);
-  Term a1 = term_new_co1(lab, dup_loc);
+  Term a0 = term_new_dp0(lab, dup_loc);
+  Term a1 = term_new_dp1(lab, dup_loc);
   Term eq0 = term_new_eql(a0, b0);
   Term eq1 = term_new_eql(a1, b1);
   return term_new_sup(lab, eq0, eq1);

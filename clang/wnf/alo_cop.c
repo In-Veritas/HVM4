@@ -15,6 +15,6 @@ fn Term wnf_alo_cop(u32 ls, u32 len, u32 lvl, u32 lab, u8 side, u8 tag) {
     it = (u32)(HEAP[it] & 0xFFFFFFFF);
   }
   u32 bind = (it != 0) ? (u32)(HEAP[it] >> 32) : 0;
-  u8  rtag = side == 0 ? CO0 : CO1;
+  u8  rtag = side == 0 ? DP0 : DP1;
   return bind ? term_new(0, rtag, lab, bind) : term_new(0, tag, lab, lvl);
 }

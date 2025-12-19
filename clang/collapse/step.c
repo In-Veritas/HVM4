@@ -16,8 +16,8 @@ fn Term collapse_step(Term term) {
     case VAR:
     case REF:
     case NUM:
-    case CO0:
-    case CO1:
+    case DP0:
+    case DP1:
     case NAM:
     case BJV:
     case BJ0:

@@ -10,8 +10,8 @@ fn Term wnf_or_sup(Term sup, Term b) {
   Term a1  = HEAP[loc + 1];
   u64  dup_loc = heap_alloc(2);
   HEAP[dup_loc + 0] = b;
-  Term b0 = term_new_co0(lab, dup_loc);
-  Term b1 = term_new_co1(lab, dup_loc);
+  Term b0 = term_new_dp0(lab, dup_loc);
+  Term b1 = term_new_dp1(lab, dup_loc);
   Term r0 = term_new_or(a0, b0);
   Term r1 = term_new_or(a1, b1);
   return term_new_sup(lab, r0, r1);

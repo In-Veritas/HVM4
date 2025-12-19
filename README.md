@@ -100,7 +100,7 @@ construct creates a superposition of `a` and `b`:
 
 Here, we added `10` to a superposition of `1` and `2`. The addition applied to
 both values, producing a superposition of results. Notice that `10` had to be
-duplicated; SUPs generate DUPs as byproducts, and vice-versa!
+duplicated; SUPs generate DUP nodes (DP0/DP1) as byproducts, and vice-versa!
 
 Superpositions and duplications are duals. When a DUP meets a SUP, they
 annihilate, extracting the two values:
@@ -115,7 +115,7 @@ annihilate, extracting the two values:
 ```
 
 This is like a pair projection: `x₀` gets the first element, `x₁` gets the
-second. SUPs and DUPs create and eliminate each other, just like LAMs and APPs.
+second. SUPs and DUP nodes create and eliminate each other, just like LAMs and APPs.
 
 ### Duplicating Lambdas
 
@@ -454,7 +454,7 @@ Term ::=
   | Dry  "^" "(" Term " " Term ")"                -- dry (stuck application)
   | Era  "&{}"                                    -- erasure
   | Sup  "&" Label "{" Term "," Term "}"          -- superposition
-  | Dup  "!" Name "&" Label "=" Term ";" Term     -- duplication
+  | Clo  "!" Name "&" Label "=" Term ";" Term     -- duplication binder (CLO)
   | Ctr  "#" Name "{" Term,* "}"                  -- constructor
   | Mat  "λ" "{" "#" Name ":" Term ";" Term "}"   -- pattern match
   | Swi  "λ" "{" Num ":" Term ";" Term "}"        -- number switch
@@ -467,7 +467,7 @@ Term ::=
   | And  "(" Term ".&." Term ")"                  -- short-circuit AND
   | Or   "(" Term ".|." Term ")"                  -- short-circuit OR
   | DSu  "&" "(" Term ")" "{" Term "," Term "}"   -- dynamic superposition
-  | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication
+  | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication binder (CLO)
   | Red  Term "~>" Term                           -- reduction
   | Inc  "↑" Term                                 -- priority wrapper (collapse)
   | Alo  "@" "{" Name,* "}" Term                  -- allocation
@@ -479,6 +479,10 @@ Oper  ::= "+" | "-" | "*" | "/" | "%" | "&&" | "||"
         | "^" | "~" | "<<" | ">>" | "==" | "!="
         | "<" | "<=" | ">" | ">="
 ```
+
+Implementation note: the syntactic duplication binder (`!`) is called a **CLO** term in
+the runtime. The runtime duplication process is a **DUP node**: DP0/DP1 terms that
+share an expr location (one heap slot) and carry the label in `ext`.
 
 Variables are **affine**: they can occur at most once. Variables are **global**:
 they can occur anywhere in the program, not just inside the binding's scope.
@@ -918,7 +922,7 @@ s[n]₁
 λ{#K: @{s}h; @{s}m}
 
 @{s} ! x &L= v; t
------------------ ALO-DUP
+----------------- ALO-CLO
 X ← fresh
 ! X &L= @{s}v;
 @{X,s} t

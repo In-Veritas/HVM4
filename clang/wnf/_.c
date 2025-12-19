@@ -21,8 +21,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto apply;
       }
 
-      case CO0:
-      case CO1: {
+      case DP0:
+      case DP1: {
         u32 loc = term_val(next);
         if (term_sub(HEAP[loc])) {
           next = term_unmark(HEAP[loc]);
@@ -42,7 +42,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto enter;
       }
 
-      case DUP: {
+      case CLO: {
         u32  loc  = term_val(next);
         Term body = HEAP[loc + 1];
         next = body;
@@ -79,10 +79,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
             next = wnf_alo_var(ls_loc, len, term_val(book), VAR);
             goto enter;
           }
-          case CO0:
-          case CO1: {
+          case DP0:
+          case DP1: {
             next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
-                               term_tag(book) == CO0 ? 0 : 1, term_tag(book));
+                               term_tag(book) == DP0 ? 0 : 1, term_tag(book));
             goto enter;
           }
           case BJV: {
@@ -125,8 +125,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
             next = wnf_alo_node(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
-          case DUP: {
-            next = wnf_alo_dup(ls_loc, len, term_val(book), term_ext(book));
+          case CLO: {
+            next = wnf_alo_clo(ls_loc, len, term_val(book), term_ext(book));
             goto enter;
           }
           case NUM: {
@@ -560,11 +560,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
         }
 
         // -----------------------------------------------------------------------
-        // CO0/CO1 frame: dup - we reduced the value, dispatch dup interaction
+        // DP0/DP1 frame: DUP node - we reduced the expr, dispatch dup interaction
         // -----------------------------------------------------------------------
-        case CO0:
-        case CO1: {
-          u8  side = (term_tag(frame) == CO0) ? 0 : 1;
+        case DP0:
+        case DP1: {
+          u8  side = (term_tag(frame) == DP0) ? 0 : 1;
           u32 loc  = term_val(frame);
           u32 lab  = term_ext(frame);
 
@@ -598,7 +598,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_dup_node(lab, loc, side, whnf);
               continue;
             }
-            // case APP: // !! DO NOT ADD: DUP does not interact with APP.
+            // case APP: // !! DO NOT ADD: DP0/DP1 do not interact with APP.
             case MAT:
             case SWI:
             case USE:
@@ -613,8 +613,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
             default: {
               u64 new_loc   = heap_alloc(1);
               HEAP[new_loc] = whnf;
-              heap_subst_var(loc, term_new(0, side == 0 ? CO1 : CO0, lab, new_loc));
-              whnf          = term_new(0, side == 0 ? CO0 : CO1, lab, new_loc);
+              heap_subst_var(loc, term_new(0, side == 0 ? DP1 : DP0, lab, new_loc));
+              whnf          = term_new(0, side == 0 ? DP0 : DP1, lab, new_loc);
               continue;
             }
           }

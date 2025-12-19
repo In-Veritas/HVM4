@@ -1,9 +1,10 @@
 // Pretty-printer overview
-// - Runtime terms are linked by heap locations (LAM/VAR, DUP/CO0/CO1).
+// - Runtime links: LAM/VAR and DP0/DP1 point to heap locations; CLO is a
+//   syntactic binder that decays to a DUP node (DP0/DP1 share its expr loc).
 // - Book terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
 // - NAM is a literal stuck name (^x), unrelated to binders.
 // - Runtime printing assigns globally unique names to each LAM body location.
-// - Dup names are keyed by the dup'd expression location and printed later.
+// - Dup names are keyed by the DUP node expression location and printed later.
 // - Quoted printing renders book terms and applies ALO substitutions.
 // - Substitutions live in heap slots with the SUB bit set; these must be
 //   unmarked before printing, and print_term_at asserts this invariant.
@@ -16,7 +17,7 @@ typedef struct {
   u32 name;
 } LamBind;
 
-// DupBind records a dup family keyed by the dup expression location.
+// DupBind records a DUP node keyed by its expr location.
 typedef struct {
   u32 loc;
   u32 name;
@@ -120,7 +121,7 @@ fn u32 print_state_lam(PrintState *st, u32 loc) {
   return name;
 }
 
-// Returns the global name for a dup family keyed by its expression location.
+// Returns the global name for a DUP node keyed by its expr location.
 fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
   for (u32 i = 0; i < st->dup_len; i++) {
     if (PRINT_DUPS[i].loc == loc) {
@@ -345,7 +346,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case BJ0:
     case BJ1: {
-      // Quoted CO_: val is de Bruijn level; try ALO substitution.
+      // Quoted BJ_: val is de Bruijn level; try ALO substitution.
       u32 lvl  = term_val(term);
       u32 bind = 0;
       if (quoted && lvl > 0 && lvl <= st->subst_len) {
@@ -357,7 +358,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
           val = term_unmark(val);
           print_term_mode(f, val, depth, 0, 0, 0, st);
         } else {
-          u8  tag = term_tag(term) == BJ0 ? CO0 : CO1;
+          u8  tag = term_tag(term) == BJ0 ? DP0 : DP1;
           u32 lab = term_ext(term);
           print_term_mode(f, term_new(0, tag, lab, bind), depth, 0, 0, 0, st);
         }
@@ -386,16 +387,16 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       }
       break;
     }
-    case CO0:
-    case CO1: {
-      // Runtime CO_: val is binding dup expr location.
+    case DP0:
+    case DP1: {
+      // Runtime DP_: val is a DUP node expr location.
       u32 loc = term_val(term);
       if (loc != 0 && term_sub(HEAP[loc])) {
         print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, 0, st);
       } else {
         u32 nam = print_state_dup(st, loc, term_ext(term));
         print_dup_name(f, nam);
-        fputs(term_tag(term) == CO0 ? "₀" : "₁", f);
+        fputs(term_tag(term) == DP0 ? "₀" : "₁", f);
       }
       break;
     }
@@ -430,8 +431,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       fputc('}', f);
       break;
     }
-    case DUP: {
-      // Runtime DUPs float: record and print body; quoted DUP prints inline.
+    case CLO: {
+      // CLO is a syntactic binder; runtime mode queues its DUP node and prints the body.
       u32 loc = term_val(term);
       if (quoted) {
         fputc('!', f);

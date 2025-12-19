@@ -29,15 +29,15 @@ typedef struct {
 
 // Tags
 // ====
-// Hot tags first (0-7): APP, VAR, LAM, CO0, CO1, SUP, DUP, ALO
+// Hot tags first (0-7): APP, VAR, LAM, DP0, DP1, SUP, CLO, ALO
 
 #define APP  0
 #define VAR  1
 #define LAM  2
-#define CO0  3
-#define CO1  4
+#define DP0  3
+#define DP1  4
 #define SUP  5
-#define DUP  6
+#define CLO  6
 #define ALO  7
 #define REF  8
 #define NAM  9
@@ -66,7 +66,7 @@ typedef struct {
 #define USE 32
 #define OP2 33  // Op2(opr, x, y): strict on x, then y
 #define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
-#define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP
+#define DDU 35  // DDu(lab, val, bod): strict on lab, creates CLO
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
 #define EQL 37  // Eql(a, b): structural equality, strict on a, then b
 #define AND 38  // And(a, b): short-circuit AND, strict on a only
@@ -79,7 +79,7 @@ typedef struct {
 #define BJ1 45  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
-// Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
+// Note: regular term tags (APP, MAT, USE, DP0, DP1, OP2, DSU, DDU) also used as frames
 // These frames reuse existing heap nodes to avoid allocation
 #define F_APP_RED     0x40  // ((f ~> □) x): val=app_loc. RED at HEAP[app_loc], arg at HEAP[app_loc+1]
 #define F_RED_MAT     0x41  // ((f ~> mat) □): val=app_loc. After reducing g, mat stored at HEAP[red_loc+1]
@@ -207,7 +207,7 @@ static u32    PARSE_SEEN_FILES_LEN = 0;
 static PBind  PARSE_BINDS[16384];
 static u32    PARSE_BINDS_LEN = 0;
 static u32    PARSE_FRESH_LAB = 0x800000; // start at 2^23 to avoid collision with user labels
-static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 = right branch (CO1)
+static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 = right branch (DP1)
 
 // Term
 // ====
@@ -240,12 +240,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "term/new/ref.c"
 #include "term/new/era.c"
 #include "term/new/any.c"
-#include "term/new/co0.c"
-#include "term/new/co1.c"
+#include "term/new/dp0.c"
+#include "term/new/dp1.c"
 #include "term/new/lam.c"
 #include "term/new/app.c"
 #include "term/new/sup.c"
-#include "term/new/dup.c"
+#include "term/new/clo.c"
 #include "term/new/mat.c"
 #include "term/new/swi.c"
 #include "term/new/use.c"
@@ -321,7 +321,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "parse/name.c"
 #include "parse/utf8.c"
 #include "parse/term/lam.c"
-#include "parse/term/dup.c"
+#include "parse/term/clo.c"
 #include "parse/term/fork.c"
 #include "parse/term/sup.c"
 #include "parse/term/ctr.c"
@@ -366,7 +366,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/alo_nam.c"
 #include "wnf/alo_dry.c"
 #include "wnf/alo_lam.c"
-#include "wnf/alo_dup.c"
+#include "wnf/alo_clo.c"
 #include "wnf/alo_node.c"
 #include "wnf/op2_era.c"
 #include "wnf/op2_sup.c"
@@ -428,6 +428,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 // SNF
 // ===
 
+#include "snf/at.c"
 #include "snf/_.c"
 
 // Collapse

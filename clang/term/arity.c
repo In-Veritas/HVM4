@@ -13,7 +13,7 @@ fn u32 term_arity(Term t) {
     }
     case APP:
     case SUP:
-    case DUP:
+    case CLO:
     case MAT:
     case SWI:
     case DRY:

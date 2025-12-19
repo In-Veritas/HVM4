@@ -1,5 +1,5 @@
 // Regression test: auto-dup with 3 uses in recursive context
-// Bug: CO1 in dup chain had wrong De Bruijn index (1 instead of 0)
+// Bug: DP1 in dup chain had wrong De Bruijn index (1 instead of 0)
 // This caused crashes or wrong results with 3+ uses of auto-dup var
 
 @app = λ{
