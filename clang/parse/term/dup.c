@@ -35,9 +35,9 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
     u64 loc0   = heap_alloc(1);
     u64 loc1   = heap_alloc(1);
     HEAP[loc1] = body;
-    Term lam1  = term_new(0, LAM, depth + 1, loc1);
+    Term lam1  = term_new(0, LAM, depth + 2, loc1);
     HEAP[loc0] = lam1;
-    Term lam0  = term_new(0, LAM, depth, loc0);
+    Term lam0  = term_new(0, LAM, depth + 1, loc0);
     return term_new_ddu(lab_term, val, lam0);
   }
   // Static label (or auto if next is = or .)
@@ -120,9 +120,9 @@ fn Term parse_term_dup(PState *s, u32 depth) {
         parse_bind_pop();
         parse_bind_pop();
         HEAP[loc_v] = body;
-        Term lam_v = term_new(0, LAM, depth + 1, loc_v);
+        Term lam_v = term_new(0, LAM, depth + 2, loc_v);
         HEAP[loc_f] = lam_v;
-        Term lam_f = term_new(0, LAM, depth, loc_f);
+        Term lam_f = term_new(0, LAM, depth + 1, loc_f);
         return term_new_uns(lam_f);
       }
       // Not unscoped lambda, restore position
@@ -145,7 +145,7 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     }
     HEAP[loc] = body;
     parse_bind_pop();
-    Term lam = term_new(0, LAM, depth, loc);
+    Term lam = term_new(0, LAM, depth + 1, loc);
     if (strict) {
       // !!x = val; body  →  (λ{λx.body(x)})(val)
       lam = term_new_use(lam);

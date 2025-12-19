@@ -1,4 +1,5 @@
 // Print a Unicode codepoint as UTF-8
+// Emits a codepoint as UTF-8 without validation (used by CHR/STR sugar).
 fn void print_utf8(FILE *f, u32 c) {
   if (c < 0x80) {
     fputc(c, f);

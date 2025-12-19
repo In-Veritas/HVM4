@@ -11,7 +11,7 @@ fn Term snf(Term term, u32 depth, u8 quoted) {
       // ^(depth+1) for stuck variable
       heap_subst_var(loc, term_new_nam(depth + 1));
       HEAP[loc] = snf(body, depth + 1, quoted);
-      term = term_new(0, LAM, depth, loc);
+      term = term_new(0, LAM, depth + 1, loc);
     } else {
       HEAP[loc] = snf(body, depth + 1, quoted);
     }

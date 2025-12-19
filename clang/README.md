@@ -36,7 +36,7 @@ implementation stores everything directly on the heap:
 Book terms (parsed definitions) use de Bruijn indices and are immutable:
   - VAR: ext = 0         ; val = bru_index
   - CO_: ext = dup_label ; val = bru_index
-  - LAM: ext = bru_depth ; val = body_location
+  - LAM: ext = bru_depth + 1 ; val = body_location
   - DUP: ext = dup_label ; val = expr_location
 
 Runtime terms (after ALO allocation) use heap locations:
@@ -56,6 +56,49 @@ into a single 64-bit heap word:
 The bind list maps de Bruijn levels to runtime heap locations of binding
 LAM/DUP nodes. When an ALO interaction occurs, one layer of the book term
 is extracted and converted to a runtime term.
+
+## Pretty Printer (print/)
+
+The printer has two modes that correspond to the two term representations:
+
+- **Runtime mode** (default): terms are linked by heap locations. The printer
+  assigns a globally unique name to each lambda body location, and prints every
+  VAR that points to that location using the same name. This avoids lexical
+  renaming issues, so unscoped variables still print with their binders.
+- **Quoted mode** (used for ALO): terms are immutable book terms with de Bruijn
+  indices. Lambdas are printed using depth-based names, and VAR/CO0/CO1 try to
+  use the ALO substitution list to show concrete runtime values when available.
+
+Key rules the printer must obey:
+
+- **Substitution chasing**: VAR/CO0/CO1 can point to heap slots with the SUB bit
+  set. In that case the printer must unmark and print the substituted term
+  instead of the variable itself. This applies both to the main term and to the
+  ALO substitution list.
+- **Floating DUPs**: dups live in the heap and may be referenced only by CO0/CO1.
+  The printer records a dup when it first sees any member of its family and
+  prints all discovered dups after the main term as `!A&L=val;`. Printing a dup
+  can discover more dups, so this continues until the list is exhausted.
+- **Names**: lambda names are lower-case (a, b, ..., aa, ab, ...), dup names are
+  upper-case (A, B, ..., AA, AB, ...). These names are global, keyed by heap
+  location, not by lexical scope. The printer uses fixed-size name tables
+  limited to 65536 entries for lambdas and dups.
+
+The printer entry points are:
+
+- `print_term`: runtime mode (global naming + floating dups).
+- `print_term_quoted`: same entry point as `print_term`, kept for clarity when
+  printing quoted SNF output (see below).
+
+## SNF Quoted Mode
+
+`snf(term, depth, quoted)` normalizes to strong normal form. In quoted mode,
+lambda-bound variables are substituted with NAMs (the previous behavior), and
+LAM nodes are returned with `ext = de_bruijn_depth + 1`. This makes quoted
+lambdas unambiguous (runtime lambdas always have `ext = 0`), and lets the
+printer align LAM/NAM names using `ext`. Collapse uses quoted mode to preserve
+the original output format, while non-collapsed runs use `quoted = 0`, printing
+the interaction-calculus form with global names.
 
 ## Stack-Based WNF Evaluator
 

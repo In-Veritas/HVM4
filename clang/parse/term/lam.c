@@ -139,11 +139,11 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       u64 loc1 = heap_alloc(1);
       HEAP[loc1] = body;
       u64 loc0 = heap_alloc(1);
-      HEAP[loc0] = term_new(0, LAM, depth + 2, loc1);
-      Term ddu = term_new_ddu(lab_term, term_new(0, VAR, 0, 0), term_new(0, LAM, depth + 1, loc0));
+      HEAP[loc0] = term_new(0, LAM, depth + 3, loc1);
+      Term ddu = term_new_ddu(lab_term, term_new(0, VAR, 0, 0), term_new(0, LAM, depth + 2, loc0));
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = ddu;
-      return term_new(0, LAM, depth, lam_loc);
+      return term_new(0, LAM, depth + 1, lam_loc);
     } else {
       if (!cloned && uses > 2) {
         parse_error_affine(nam, uses, 1, NULL);
@@ -159,7 +159,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       HEAP[dup_loc + 1] = body;
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = term_new(0, DUP, lab, dup_loc);
-      return term_new(0, LAM, depth, lam_loc);
+      return term_new(0, LAM, depth + 1, lam_loc);
     }
   }
   // Simple single arg (with comma recursion for cloned/complex args)
@@ -181,5 +181,5 @@ fn Term parse_term_lam(PState *s, u32 depth) {
   parse_bind_pop();
   u64 loc = heap_alloc(1);
   HEAP[loc] = body;
-  return term_new(0, LAM, depth, loc);
+  return term_new(0, LAM, depth + 1, loc);
 }

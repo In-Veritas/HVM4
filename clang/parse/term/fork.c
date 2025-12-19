@@ -59,18 +59,18 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
       u64 loc1 = heap_alloc(1);
       HEAP[loc1] = body;
       u64 loc0 = heap_alloc(1);
-      HEAP[loc0] = term_new(0, LAM, dd + 2, loc1);
-      Term ddu = term_new_ddu(adj_lab, term_new(0, VAR, 0, 0), term_new(0, LAM, dd + 1, loc0));
+      HEAP[loc0] = term_new(0, LAM, dd + 3, loc1);
+      Term ddu = term_new_ddu(adj_lab, term_new(0, VAR, 0, 0), term_new(0, LAM, dd + 2, loc0));
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = ddu;
-      body = term_new(0, LAM, dd, lam_loc);
+      body = term_new(0, LAM, dd + 1, lam_loc);
     } else {
       u64 dup_loc = heap_alloc(2);
       HEAP[dup_loc + 0] = term_new(0, VAR, 0, 0);
       HEAP[dup_loc + 1] = body;
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = term_new(0, DUP, lab, dup_loc);
-      body = term_new(0, LAM, dd, lam_loc);
+      body = term_new(0, LAM, dd + 1, lam_loc);
     }
   }
   return body;
