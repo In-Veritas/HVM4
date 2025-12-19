@@ -18,7 +18,10 @@ fn Term collapse_step(Term term) {
     case NUM:
     case CO0:
     case CO1:
-    case NAM: {
+    case NAM:
+    case BJV:
+    case BJ0:
+    case BJ1: {
       return term;
     }
 

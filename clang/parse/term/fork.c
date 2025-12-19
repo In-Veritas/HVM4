@@ -42,10 +42,7 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   // Build body: DSU or SUP
   Term body;
   if (dyn) {
-    Term dsu_lab = (term_tag(lab_term) == VAR)
-      ? term_new(0, VAR, 0, term_val(lab_term) + n * d)
-      : lab_term;
-    body = term_new_dsu(dsu_lab, left, right);
+    body = term_new_dsu(lab_term, left, right);
   } else {
     body = term_new_sup(lab, left, right);
   }
@@ -53,20 +50,17 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   for (int i = n - 1; i >= 0; i--) {
     u32 dd = depth + i * d;
     if (dyn) {
-      Term adj_lab = (term_tag(lab_term) == VAR)
-        ? term_new(0, VAR, 0, term_val(lab_term) + i * d + 1)
-        : lab_term;
       u64 loc1 = heap_alloc(1);
       HEAP[loc1] = body;
       u64 loc0 = heap_alloc(1);
       HEAP[loc0] = term_new(0, LAM, dd + 3, loc1);
-      Term ddu = term_new_ddu(adj_lab, term_new(0, VAR, 0, 0), term_new(0, LAM, dd + 2, loc0));
+      Term ddu = term_new_ddu(lab_term, term_new(0, BJV, 0, dd + 1), term_new(0, LAM, dd + 2, loc0));
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = ddu;
       body = term_new(0, LAM, dd + 1, lam_loc);
     } else {
       u64 dup_loc = heap_alloc(2);
-      HEAP[dup_loc + 0] = term_new(0, VAR, 0, 0);
+      HEAP[dup_loc + 0] = term_new(0, BJV, 0, dd + 1);
       HEAP[dup_loc + 1] = body;
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = term_new(0, DUP, lab, dup_loc);

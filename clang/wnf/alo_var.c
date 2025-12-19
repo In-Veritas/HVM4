@@ -1,10 +1,15 @@
 // @{s} n
 // ------ alo-var
-// s[n]
-fn Term wnf_alo_var(u32 ls, u32 idx) {
-  for (u32 i = 0; i < idx && ls != 0; i++) {
-    ls = (u32)(HEAP[ls] & 0xFFFFFFFF);
+// s[n] or n when substitution missing (n is a de Bruijn level)
+fn Term wnf_alo_var(u32 ls, u32 len, u32 lvl, u8 tag) {
+  if (lvl == 0 || lvl > len) {
+    return term_new(0, tag, 0, lvl);
   }
-  u32 bind = (ls != 0) ? (u32)(HEAP[ls] >> 32) : 0;
-  return bind ? term_new_var(bind) : term_new(0, VAR, 0, idx);
+  u32 idx = len - lvl;
+  u32 it  = ls;
+  for (u32 i = 0; i < idx && it != 0; i++) {
+    it = (u32)(HEAP[it] & 0xFFFFFFFF);
+  }
+  u32 bind = (it != 0) ? (u32)(HEAP[it] >> 32) : 0;
+  return bind ? term_new_var(bind) : term_new(0, tag, 0, lvl);
 }

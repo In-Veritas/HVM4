@@ -131,16 +131,16 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     parse_bind_pop();
     if (dyn) {
       if (cloned && uses0 > 1) {
-        body = parse_auto_dup(body, 1, uses0, VAR, 0);
+        body = parse_auto_dup(body, depth + 2, depth + 3, uses0, BJV, 0);
       }
       if (cloned && uses1 > 1) {
-        body = parse_auto_dup(body, 0, uses1, VAR, 0);
+        body = parse_auto_dup(body, depth + 3, depth + 3, uses1, BJV, 0);
       }
       u64 loc1 = heap_alloc(1);
       HEAP[loc1] = body;
       u64 loc0 = heap_alloc(1);
       HEAP[loc0] = term_new(0, LAM, depth + 3, loc1);
-      Term ddu = term_new_ddu(lab_term, term_new(0, VAR, 0, 0), term_new(0, LAM, depth + 2, loc0));
+      Term ddu = term_new_ddu(lab_term, term_new(0, BJV, 0, depth + 1), term_new(0, LAM, depth + 2, loc0));
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = ddu;
       return term_new(0, LAM, depth + 1, lam_loc);
@@ -149,13 +149,13 @@ fn Term parse_term_lam(PState *s, u32 depth) {
         parse_error_affine(nam, uses, 1, NULL);
       }
       if (cloned && uses1 > 1) {
-        body = parse_auto_dup(body, 0, uses1, CO1, lab);
+        body = parse_auto_dup(body, depth + 2, depth + 2, uses1, BJ1, lab);
       }
       if (cloned && uses0 > 1) {
-        body = parse_auto_dup(body, 0, uses0, CO0, lab);
+        body = parse_auto_dup(body, depth + 2, depth + 2, uses0, BJ0, lab);
       }
       u64 dup_loc = heap_alloc(2);
-      HEAP[dup_loc + 0] = term_new(0, VAR, 0, 0);
+      HEAP[dup_loc + 0] = term_new(0, BJV, 0, depth + 1);
       HEAP[dup_loc + 1] = body;
       u64 lam_loc = heap_alloc(1);
       HEAP[lam_loc] = term_new(0, DUP, lab, dup_loc);
@@ -176,7 +176,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     parse_error_affine(nam, uses, 0, "λ&");
   }
   if (cloned && uses > 1) {
-    body = parse_auto_dup(body, 0, uses, VAR, 0);
+    body = parse_auto_dup(body, depth + 1, depth + 1, uses, BJV, 0);
   }
   parse_bind_pop();
   u64 loc = heap_alloc(1);

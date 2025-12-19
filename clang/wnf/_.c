@@ -71,16 +71,28 @@ __attribute__((hot)) fn Term wnf(Term term) {
         u64  pair    = HEAP[alo_loc];
         u32  tm_loc  = (u32)(pair & 0xFFFFFFFF);
         u32  ls_loc  = (u32)(pair >> 32);
+        u32  len     = term_ext(next);
         Term book    = HEAP[tm_loc];
 
         switch (term_tag(book)) {
           case VAR: {
-            next = wnf_alo_var(ls_loc, term_val(book));
+            next = wnf_alo_var(ls_loc, len, term_val(book), VAR);
             goto enter;
           }
           case CO0:
           case CO1: {
-            next = wnf_alo_cop(ls_loc, term_val(book), term_ext(book), term_tag(book) == CO0 ? 0 : 1);
+            next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
+                               term_tag(book) == CO0 ? 0 : 1, term_tag(book));
+            goto enter;
+          }
+          case BJV: {
+            next = wnf_alo_var(ls_loc, len, term_val(book), BJV);
+            goto enter;
+          }
+          case BJ0:
+          case BJ1: {
+            next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
+                               term_tag(book) == BJ0 ? 0 : 1, term_tag(book));
             goto enter;
           }
           case NAM: {
@@ -88,11 +100,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
             goto enter;
           }
           case DRY: {
-            next = wnf_alo_dry(ls_loc, term_val(book));
+            next = wnf_alo_dry(ls_loc, len, term_val(book));
             goto enter;
           }
           case LAM: {
-            next = wnf_alo_lam(ls_loc, term_val(book));
+            next = wnf_alo_lam(ls_loc, len, term_val(book));
             goto enter;
           }
           case APP:
@@ -110,11 +122,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case DSU:
           case DDU:
           case RED: {
-            next = wnf_alo_node(ls_loc, term_val(book), term_tag(book), term_ext(book), term_arity(book));
+            next = wnf_alo_node(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
           case DUP: {
-            next = wnf_alo_dup(ls_loc, term_val(book), term_ext(book));
+            next = wnf_alo_dup(ls_loc, len, term_val(book), term_ext(book));
             goto enter;
           }
           case NUM: {
@@ -180,6 +192,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case RED:
       case NAM:
+      case BJV:
+      case BJ0:
+      case BJ1:
       case DRY:
       case ERA:
       case SUP:
@@ -224,7 +239,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_app_era();
               continue;
             }
-            case NAM: {
+            case NAM:
+            case BJV:
+            case BJ0:
+            case BJ1: {
               whnf = wnf_app_nam(whnf, arg);
               continue;
             }
@@ -326,7 +344,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = arg;
               goto enter;
             }
-            case NAM: {
+            case NAM:
+            case BJV:
+            case BJ0:
+            case BJ1: {
               whnf = wnf_app_red_nam(f, g, arg);
               continue;
             }
@@ -390,6 +411,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case NAM:
+            case BJV:
+            case BJ0:
+            case BJ1:
             case DRY: {
               // (mat ^n) or (mat ^(f x)): stuck, produce DRY
               whnf = term_new_dry(mat, whnf);
@@ -520,6 +544,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case NAM:
+            case BJV:
+            case BJ0:
+            case BJ1:
             case DRY: {
               // Stuck - drop g, return ^(f arg)
               whnf = term_new_dry(f, whnf);
@@ -542,7 +569,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
           u32 lab  = term_ext(frame);
 
           switch (term_tag(whnf)) {
-            case NAM: {
+            case NAM:
+            case BJV:
+            case BJ0:
+            case BJ1: {
               whnf = wnf_dup_nam(lab, loc, side, whnf);
               continue;
             }
@@ -759,8 +789,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
                 next = wnf_eql_use(a, whnf);
                 goto enter;
               }
-              // NAM === NAM
-              if (a_tag == NAM && b_tag == NAM) {
+              // NAM/BJ* === NAM/BJ*
+              if ((a_tag == NAM || a_tag == BJV || a_tag == BJ0 || a_tag == BJ1) &&
+                  (b_tag == NAM || b_tag == BJV || b_tag == BJ0 || b_tag == BJ1)) {
                 whnf = wnf_eql_nam(a, whnf);
                 continue;
               }

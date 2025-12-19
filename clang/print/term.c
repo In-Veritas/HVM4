@@ -1,6 +1,7 @@
 // Pretty-printer overview
 // - Runtime terms are linked by heap locations (LAM/VAR, DUP/CO0/CO1).
-// - Book terms (inside ALO) are immutable and use de Bruijn indices.
+// - Book terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
+// - NAM is a literal stuck name (^x), unrelated to binders.
 // - Runtime printing assigns globally unique names to each LAM body location.
 // - Dup names are keyed by the dup'd expression location and printed later.
 // - Quoted printing renders book terms and applies ALO substitutions.
@@ -23,7 +24,7 @@ typedef struct {
 } DupBind;
 
 // PrintState keeps naming tables and ALO printing mode.
-// - quoted/subst: current printing mode and ALO bind list head.
+// - quoted/subst/subst_len: current printing mode, bind list head, and length.
 // Fixed-size tables: keep naming simple and bounded.
 #define PRINT_NAME_MAX 65536
 static LamBind PRINT_LAMS[PRINT_NAME_MAX];
@@ -37,11 +38,11 @@ typedef struct {
   u32 next_dup;
   u8  quoted;
   u32 subst;
+  u32 subst_len;
 } PrintState;
 
 // Core recursive printer; always called through print_term_at.
 fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st);
-
 // Guards against printing a term with the SUB bit set.
 fn void print_term_at(FILE *f, Term term, u32 depth, PrintState *st) {
   assert(!term_sub(term));
@@ -49,14 +50,17 @@ fn void print_term_at(FILE *f, Term term, u32 depth, PrintState *st) {
 }
 
 // Temporarily switches print mode (quoted + subst) for nested ALO rendering.
-fn void print_term_mode(FILE *f, Term term, u32 depth, u8 quoted, u32 subst, PrintState *st) {
+fn void print_term_mode(FILE *f, Term term, u32 depth, u8 quoted, u32 subst, u32 subst_len, PrintState *st) {
   u8  old_quoted = st->quoted;
   u32 old_subst  = st->subst;
+  u32 old_len    = st->subst_len;
   st->quoted = quoted;
   st->subst  = subst;
+  st->subst_len = quoted ? subst_len : 0;
   print_term_at(f, term, depth, st);
   st->quoted = old_quoted;
   st->subst  = old_subst;
+  st->subst_len = old_len;
 }
 
 // Base-26 alpha printer: 1->a, 26->z, 27->aa. 0 prints '_' for unscoped vars.
@@ -77,13 +81,9 @@ fn void print_alpha_name(FILE *f, u32 n, char base) {
   }
 }
 
-// Emits a lambda name in alpha or nick form.
-fn void print_lam_name(FILE *f, u32 name, u8 nick) {
-  if (nick) {
-    print_name(f, name);
-  } else {
-    print_alpha_name(f, name, 'a');
-  }
+// Emits a lambda name (lowercase alpha).
+fn void print_lam_name(FILE *f, u32 name) {
+  print_alpha_name(f, name, 'a');
 }
 
 // Emits a dup name (uppercase alpha).
@@ -104,8 +104,7 @@ fn void print_state_free(PrintState *st) {
 }
 
 // Returns the global name for a lambda body location, allocating if needed.
-// If hint is non-zero (quoted lambda), it is used as the stable name.
-fn u32 print_state_lam(PrintState *st, u32 loc, u32 hint) {
+fn u32 print_state_lam(PrintState *st, u32 loc) {
   for (u32 i = 0; i < st->lam_len; i++) {
     if (PRINT_LAMS[i].loc == loc) {
       return PRINT_LAMS[i].name;
@@ -115,12 +114,7 @@ fn u32 print_state_lam(PrintState *st, u32 loc, u32 hint) {
     fprintf(stderr, "print_state: too many lambdas\n");
     exit(1);
   }
-  u32 name = 0;
-  if (hint != 0) {
-    name = hint;
-  } else {
-    name = st->next_lam++;
-  }
+  u32 name = st->next_lam++;
   PRINT_LAMS[st->lam_len] = (LamBind){.loc = loc, .name = name};
   st->lam_len++;
   return name;
@@ -143,7 +137,7 @@ fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
   return name;
 }
 
-// Looks up a de Bruijn index in the ALO bind list, returning a runtime loc.
+// Looks up an ALO bind list entry by index (0 = innermost), returning a runtime loc.
 fn u32 alo_subst_get(u32 ls_loc, u32 idx) {
   u32 ls = ls_loc;
   for (u32 i = 0; i < idx && ls != 0; i++) {
@@ -151,6 +145,7 @@ fn u32 alo_subst_get(u32 ls_loc, u32 idx) {
   }
   return ls != 0 ? (u32)(HEAP[ls] >> 32) : 0;
 }
+
 
 // Prints match constructor labels with special sugar for nat/list forms.
 fn void print_mat_name(FILE *f, u32 nam) {
@@ -293,7 +288,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
   u32 subst  = st->subst;
   switch (term_tag(term)) {
     case NAM: {
-      // Stuck variable name (^x) from quoted SNF substitution.
+      // Literal stuck name (^x).
       print_name(f, term_ext(term));
       break;
     }
@@ -302,35 +297,27 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       print_app(f, term, depth, st);
       break;
     }
-    case VAR: {
-      if (quoted) {
-        // Book VAR: val is de Bruijn index; try ALO substitution.
-        u32 idx  = term_val(term);
-        u32 bind = 0;
-        if (idx >= depth) {
-          bind = alo_subst_get(subst, idx - depth);
-        }
-        if (bind != 0) {
-          Term val = HEAP[bind];
-          if (term_sub(val)) {
-            val = term_unmark(val);
-            print_term_mode(f, val, depth, 0, 0, st);
-          } else {
-            print_term_mode(f, term_new_var(bind), depth, 0, 0, st);
-          }
+    case BJV: {
+      // Quoted VAR: val is de Bruijn level; try ALO substitution.
+      u32 lvl  = term_val(term);
+      u32 bind = 0;
+      if (quoted && lvl > 0 && lvl <= st->subst_len) {
+        bind = alo_subst_get(subst, st->subst_len - lvl);
+      }
+      if (bind != 0) {
+        Term val = HEAP[bind];
+        if (term_sub(val)) {
+          val = term_unmark(val);
+          print_term_mode(f, val, depth, 0, 0, 0, st);
         } else {
-          u32 nam = depth > idx ? depth - idx : 0;
-          print_alpha_name(f, nam, 'a');
+          print_term_mode(f, term_new_var(bind), depth, 0, 0, 0, st);
         }
       } else {
-        // Runtime VAR: val is binding lam body location.
-        u32 loc = term_val(term);
-        if (loc != 0 && term_sub(HEAP[loc])) {
-          print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, st);
-        } else {
-          u32 nam = print_state_lam(st, loc, 0);
-          print_lam_name(f, nam, 0);
+        u32 nam = (lvl > st->subst_len) ? (lvl - st->subst_len) : 0;
+        if (nam > depth) {
+          nam = 0;
         }
+        print_alpha_name(f, nam, 'a');
       }
       break;
     }
@@ -356,50 +343,64 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       fputc('*', f);
       break;
     }
-    case CO0:
-    case CO1: {
-      if (quoted) {
-        // Book CO_: val is de Bruijn index; try ALO substitution.
-        u32 idx  = term_val(term);
-        u32 bind = 0;
-        if (idx >= depth) {
-          bind = alo_subst_get(subst, idx - depth);
-        }
-        if (bind != 0) {
-          Term val = HEAP[bind];
-          if (term_sub(val)) {
-            val = term_unmark(val);
-            print_term_mode(f, val, depth, 0, 0, st);
-          } else {
-            u8  tag = term_tag(term);
-            u32 lab = term_ext(term);
-            print_term_mode(f, term_new(0, tag, lab, bind), depth, 0, 0, st);
-          }
+    case BJ0:
+    case BJ1: {
+      // Quoted CO_: val is de Bruijn level; try ALO substitution.
+      u32 lvl  = term_val(term);
+      u32 bind = 0;
+      if (quoted && lvl > 0 && lvl <= st->subst_len) {
+        bind = alo_subst_get(subst, st->subst_len - lvl);
+      }
+      if (bind != 0) {
+        Term val = HEAP[bind];
+        if (term_sub(val)) {
+          val = term_unmark(val);
+          print_term_mode(f, val, depth, 0, 0, 0, st);
         } else {
-          u32 nam = depth > idx ? depth - idx : 0;
-          if (nam == 0) {
-            fputc('_', f);
-          } else {
-            print_alpha_name(f, nam, 'A');
-          }
-          fputs(term_tag(term) == CO0 ? "₀" : "₁", f);
+          u8  tag = term_tag(term) == BJ0 ? CO0 : CO1;
+          u32 lab = term_ext(term);
+          print_term_mode(f, term_new(0, tag, lab, bind), depth, 0, 0, 0, st);
         }
       } else {
-        // Runtime CO_: val is binding dup expr location.
-        u32 loc = term_val(term);
-        if (loc != 0 && term_sub(HEAP[loc])) {
-          print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, st);
-        } else {
-          u32 nam = print_state_dup(st, loc, term_ext(term));
-          print_dup_name(f, nam);
-          fputs(term_tag(term) == CO0 ? "₀" : "₁", f);
+        u32 nam = (lvl > st->subst_len) ? (lvl - st->subst_len) : 0;
+        if (nam > depth) {
+          nam = 0;
         }
+        if (nam == 0) {
+          fputc('_', f);
+        } else {
+          print_alpha_name(f, nam, 'A');
+        }
+        fputs(term_tag(term) == BJ0 ? "₀" : "₁", f);
+      }
+      break;
+    }
+    case VAR: {
+      // Runtime VAR: val is binding lam body location.
+      u32 loc = term_val(term);
+      if (loc != 0 && term_sub(HEAP[loc])) {
+        print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, 0, st);
+      } else {
+        u32 nam = print_state_lam(st, loc);
+        print_lam_name(f, nam);
+      }
+      break;
+    }
+    case CO0:
+    case CO1: {
+      // Runtime CO_: val is binding dup expr location.
+      u32 loc = term_val(term);
+      if (loc != 0 && term_sub(HEAP[loc])) {
+        print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, 0, st);
+      } else {
+        u32 nam = print_state_dup(st, loc, term_ext(term));
+        print_dup_name(f, nam);
+        fputs(term_tag(term) == CO0 ? "₀" : "₁", f);
       }
       break;
     }
     case LAM: {
-      // Quoted mode prints book terms by depth; runtime mode uses ext>0 as signal
-      // for quoted lambdas (name from ext), otherwise uses a global name map.
+      // Quoted mode uses depth-based names; runtime mode uses global naming.
       u32 loc = term_val(term);
       fputs("λ", f);
       if (quoted) {
@@ -407,9 +408,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
         fputc('.', f);
         print_term_at(f, HEAP[loc], depth + 1, st);
       } else {
-        u32 ext = term_ext(term);
-        u32 nam = print_state_lam(st, loc, ext);
-        print_lam_name(f, nam, ext > 0);
+        u32 nam = print_state_lam(st, loc);
+        print_lam_name(f, nam);
         fputc('.', f);
         print_term_at(f, HEAP[loc], depth + 1, st);
       }
@@ -539,7 +539,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       u32 tm_loc  = (u32)(pair & 0xFFFFFFFF);
       u32 ls_loc  = (u32)(pair >> 32);
       fputs("@{", f);
-      print_term_mode(f, HEAP[tm_loc], 0, 1, ls_loc, st);
+      print_term_mode(f, HEAP[tm_loc], 0, 1, ls_loc, term_ext(term), st);
       fputc('}', f);
       break;
     }
@@ -584,15 +584,13 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       u32 locf  = term_val(lamf);
       Term lamv = HEAP[locf];
       u32 locv  = term_val(lamv);
-      u32 hintf = term_ext(lamf);
-      u32 hintv = term_ext(lamv);
-      u32 namf  = print_state_lam(st, locf, hintf);
-      u32 namv  = print_state_lam(st, locv, hintv);
+      u32 namf  = print_state_lam(st, locf);
+      u32 namv  = print_state_lam(st, locv);
       Term body = HEAP[locv];
       fputs("! ", f);
-      print_lam_name(f, namf, hintf > 0);
+      print_lam_name(f, namf);
       fputs(" = λ ", f);
-      print_lam_name(f, namv, hintv > 0);
+      print_lam_name(f, namv);
       fputs(" ; ", f);
       print_term_at(f, body, depth + 2, st);
       break;
@@ -641,7 +639,14 @@ fn void print_term(Term term) {
   print_term_ex(stdout, term);
 }
 
-// Prints a term; quoted lambdas are detected via LAM.ext > 0.
+// Prints a quoted term (BJV/BJ0/BJ1) with depth-based lambda names.
 fn void print_term_quoted(Term term) {
-  print_term_ex(stdout, term);
+  PrintState st;
+  print_state_init(&st);
+  st.quoted = 1;
+  st.subst  = 0;
+  st.subst_len = 0;
+  print_term_at(stdout, term, 0, &st);
+  print_term_finish(stdout, &st);
+  print_state_free(&st);
 }

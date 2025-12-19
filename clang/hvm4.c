@@ -74,6 +74,9 @@ typedef struct {
 #define UNS 40  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
 #define ANY 41  // Any: wildcard that duplicates itself and equals anything
 #define INC 42  // Inc(x): priority wrapper for collapse ordering - decreases priority
+#define BJV 43  // Bjv(n): quoted lambda-bound variable (de Bruijn level)
+#define BJ0 44  // Bj0(n): quoted dup-bound variable (side 0, de Bruijn level)
+#define BJ1 45  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames

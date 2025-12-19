@@ -3,6 +3,11 @@ fn u32 term_arity(Term t) {
     case NAM: {
       return 0;
     }
+    case BJV:
+    case BJ0:
+    case BJ1: {
+      return 0;
+    }
     case LAM: {
       return 1;
     }

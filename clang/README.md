@@ -33,17 +33,21 @@ implementation stores everything directly on the heap:
 
 ## Book vs Runtime Term Representation
 
-Book terms (parsed definitions) use de Bruijn indices and are immutable:
-  - VAR: ext = 0         ; val = bru_index
-  - CO_: ext = dup_label ; val = bru_index
-  - LAM: ext = bru_depth + 1 ; val = body_location
+Book terms (parsed definitions) use de Bruijn levels and are immutable:
+  - BJV: ext = 0         ; val = bru_level
+  - BJ_: ext = dup_label ; val = bru_level
+  - LAM: ext = bru_level ; val = body_location
   - DUP: ext = dup_label ; val = expr_location
+  - NAM: ext = name_id   ; val = 0  (literal ^name)
+Levels are 1-based from the definition root; level 0 denotes an unscoped var.
 
 Runtime terms (after ALO allocation) use heap locations:
   - VAR : ext = 0         ; val = binding_lam_body_location
   - CO_ : ext = dup_label ; val = binding_dup_expr_location
   - LAM : ext = 0         ; val = body_location
   - DUP : ext = 0         ; val = expr_location
+Quoted runtime terms (from `snf(..., quoted = 1)`) use the same representation
+as book terms (LAM.ext = level, BJV/BJ0/BJ1 levels).
 
 ## ALO (Allocation) Nodes
 
@@ -56,6 +60,7 @@ into a single 64-bit heap word:
 The bind list maps de Bruijn levels to runtime heap locations of binding
 LAM/DUP nodes. When an ALO interaction occurs, one layer of the book term
 is extracted and converted to a runtime term.
+ALO terms store the bind list length in `ext` to index levels directly.
 
 ## Pretty Printer (print/)
 
@@ -66,15 +71,16 @@ The printer has two modes that correspond to the two term representations:
   VAR that points to that location using the same name. This avoids lexical
   renaming issues, so unscoped variables still print with their binders.
 - **Quoted mode** (used for ALO): terms are immutable book terms with de Bruijn
-  indices. Lambdas are printed using depth-based names, and VAR/CO0/CO1 try to
-  use the ALO substitution list to show concrete runtime values when available.
+  levels (BJV/BJ0/BJ1). Lambdas are printed using depth-based names, and
+  BJV/BJ0/BJ1 try to use the ALO substitution list to show concrete runtime
+  values when available.
 
 Key rules the printer must obey:
 
 - **Substitution chasing**: VAR/CO0/CO1 can point to heap slots with the SUB bit
   set. In that case the printer must unmark and print the substituted term
   instead of the variable itself. This applies both to the main term and to the
-  ALO substitution list.
+  ALO substitution list (when BJV/BJ0/BJ1 resolve to runtime bindings).
 - **Floating DUPs**: dups live in the heap and may be referenced only by CO0/CO1.
   The printer records a dup when it first sees any member of its family and
   prints all discovered dups after the main term as `!A&L=val;`. Printing a dup
@@ -87,18 +93,26 @@ Key rules the printer must obey:
 The printer entry points are:
 
 - `print_term`: runtime mode (global naming + floating dups).
-- `print_term_quoted`: same entry point as `print_term`, kept for clarity when
-  printing quoted SNF output (see below).
+- `print_term_quoted`: prints quoted terms (BJV/BJ0/BJ1) with depth-based names.
 
 ## SNF Quoted Mode
 
 `snf(term, depth, quoted)` normalizes to strong normal form. In quoted mode,
-lambda-bound variables are substituted with NAMs (the previous behavior), and
-LAM nodes are returned with `ext = de_bruijn_depth + 1`. This makes quoted
-lambdas unambiguous (runtime lambdas always have `ext = 0`), and lets the
-printer align LAM/NAM names using `ext`. Collapse uses quoted mode to preserve
-the original output format, while non-collapsed runs use `quoted = 0`, printing
-the interaction-calculus form with global names.
+LAM and DUP binders install **BJ* placeholders** by reusing the runtime
+substitution mechanism:
+
+- **LAM**: its body slot is marked with `BJV` carrying the binder level
+  (`depth + 1`), then the body is normalized in-place. The returned LAM has
+  `ext = depth + 1`, making quoted lambdas unambiguous (runtime lambdas always
+  have `ext = 0`).
+- **DUP**: its expr slot is replaced with `&L{BJ0,BJ1}` at level `depth + 1`,
+  then the expr and body are normalized to build a quoted DUP node.
+
+Any VAR/CO0/CO1 that escape scoping in quoted mode become BJ* at the current
+depth. This keeps book and quoted runtime terms structurally identical while
+relying on runtime substitutions instead of binder tracking.
+Collapse uses `quoted = 1` to preserve book-style output, while non-collapsed
+runs use `quoted = 0` and print with global names.
 
 ## Stack-Based WNF Evaluator
 
@@ -120,6 +134,7 @@ These nodes are internal and not parseable:
 - ALO: lazy alloc
 - NAM: stuck variable (^name)
 - DRY: stuck application (^(f x))
+- BJV/BJ0/BJ1: quoted bound variables (de Bruijn levels)
 
 ## Collapse Function
 
