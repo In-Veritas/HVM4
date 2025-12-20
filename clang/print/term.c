@@ -607,7 +607,12 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
 
 // Prints all discovered dup definitions after the main term.
 fn void print_term_finish(FILE *f, PrintState *st) {
+  int need_sep = (st->dup_print == 0);
   while (st->dup_print < st->dup_len) {
+    if (need_sep) {
+      fputc(';', f);
+      need_sep = 0;
+    }
     u32 idx = st->dup_print++;
     u32 loc = PRINT_DUPS[idx].loc;
     u32 lab = PRINT_DUPS[idx].lab;
