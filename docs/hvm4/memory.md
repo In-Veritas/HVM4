@@ -11,7 +11,7 @@ SUB (1 bit) | TAG (7 bits) | EXT (24 bits) | VAL (32 bits)
 
 - `SUB`: marks a substitution cell; ignored for immediates.
 - `TAG`: constructor variant (APP, LAM, SUP, etc.).
-- `EXT`: metadata (dup label, ctor/ref name, level, op code).
+- `EXT`: metadata (dup label, ctor/ref name, level, op code, flags).
 - `VAL`: payload (heap loc, immediate, or 0).
 
 ## Term Memory Table
@@ -22,8 +22,8 @@ application             | APP    | 0                | node: [func, arg]         
 linked variable         | VAR    | 0                | lam body or subst            | dynamic only; follows SUB cells
 linked duplicate 0      | DP0    | label            | dup expr or subst            | dynamic only; twin of DP1
 linked duplicate 1      | DP1    | label            | dup expr or subst            | dynamic only; twin of DP0
-linked lambda           | LAM    | 0                | node: [body]                 | dynamic only; binder for VAR
-quoted lam              | LAM    | level (1-based)  | node: [body]                 | quoted; level stored in EXT
+linked lambda           | LAM    | level+flags      | node: [body]                 | dynamic only; binder for VAR
+quoted lam              | LAM    | level+flags      | node: [body]                 | quoted; level stored in EXT
 superposition           | SUP    | label            | node: [tm0, tm1]             | dynamic or static
 linked duplication term | DUP    | label            | node: [expr, body]           | dynamic or static; binder for DP0/DP1
 quoted duplication term | DUP    | label            | node: [expr, body]           | expr typically `&L{BJ0,BJ1}` in quoted mode
@@ -67,8 +67,8 @@ is substituted when a duplication interaction occurs.
 ## Linked vs Quoted Binders
 
 Linked binders are dynamic lams/dups whose vars point to heap locations. Linked
-LAM uses `EXT = 0` and its VARs point to the body slot. Linked DUP uses DP0/DP1
-vars that point to the shared expr slot.
+LAM uses `EXT = level | flags` and its VARs point to the body slot. Linked DUP
+uses DP0/DP1 vars that point to the shared expr slot.
 
 Quoted binders are terms encoded with de Bruijn levels in `EXT` (and for BJ0/BJ1,
 the dup label). Their variables are BJV/BJ0/BJ1 indices, so there are no heap
@@ -89,3 +89,7 @@ Allocation (ALO) terms bridge the two: they reference a static book term and a
 bind list, lazily expanding one layer into a dynamic term when forced. This
 keeps static definitions compact while still allowing dynamic sharing during
 execution.
+
+## LAM Ext Flags
+
+- `LAM_ERA_MASK` (0x800000): binder is unused in lambda body (erasing lambda).
