@@ -39,16 +39,16 @@ fn Term collapse_step(Term term) {
     case RED: {
       // For RED, collapse the rhs (g) side only
       u64 loc = term_val(term);
-      return collapse_step(HEAP[loc + 1]);
+      return collapse_step(heap_get(loc + 1));
     }
 
     case LAM: {
       u64  lam_loc = term_val(term);
-      Term body    = HEAP[lam_loc];
+      Term body    = heap_get(lam_loc);
 
       // Recursively collapse the body to find SUPs
       Term body_collapsed = collapse_step(body);
-      HEAP[lam_loc] = body_collapsed;
+      heap_set(lam_loc, body_collapsed);
 
       // ERA propagation: if body is ERA, whole lambda is ERA
       if (term_tag(body_collapsed) == ERA) {
@@ -64,16 +64,16 @@ fn Term collapse_step(Term term) {
       // We need to handle variable binding correctly using dup_lam pattern
       u32  lab     = term_ext(body_collapsed);
       u64  sup_loc = term_val(body_collapsed);
-      Term sup_a   = HEAP[sup_loc + 0];
-      Term sup_b   = HEAP[sup_loc + 1];
+      Term sup_a   = heap_get(sup_loc + 0);
+      Term sup_b   = heap_get(sup_loc + 1);
 
       // Allocate: 2 lambda bodies (for fresh binders)
       u64 loc0 = heap_alloc(1);
       u64 loc1 = heap_alloc(1);
 
       // Put SUP branches in new lambda bodies
-      HEAP[loc0] = sup_a;
-      HEAP[loc1] = sup_b;
+      heap_set(loc0, sup_a);
+      heap_set(loc1, sup_b);
 
       // Create SUP of variables for the original binder
       // Any reference to lam_loc will be substituted with this SUP
@@ -105,8 +105,8 @@ fn Term collapse_step(Term term) {
       Term children[16];
 
       for (u32 i = 0; i < ari; i++) {
-        children[i] = collapse_step(HEAP[loc + i]);
-        HEAP[loc + i] = children[i];
+        children[i] = collapse_step(heap_get(loc + i));
+        heap_set(loc + i, children[i]);
 
         // ERA propagation: if any child is ERA, whole node is ERA
         if (term_tag(children[i]) == ERA) {
@@ -129,8 +129,8 @@ fn Term collapse_step(Term term) {
       Term sup     = children[sup_idx];
       u32  lab     = term_ext(sup);
       u64  sup_loc = term_val(sup);
-      Term sup_a   = HEAP[sup_loc + 0];
-      Term sup_b   = HEAP[sup_loc + 1];
+      Term sup_a   = heap_get(sup_loc + 0);
+      Term sup_b   = heap_get(sup_loc + 1);
 
       // Build two versions of the node
       Term args0[16], args1[16];

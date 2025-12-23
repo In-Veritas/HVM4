@@ -6,6 +6,15 @@
 #include <time.h>
 #include <assert.h>
 
+// Busy-wait hint
+#if defined(__aarch64__)
+#define cpu_relax() __asm__ __volatile__("yield" ::: "memory")
+#elif defined(__x86_64__)
+#define cpu_relax() __asm__ __volatile__("pause")
+#else
+#define cpu_relax() ((void)0)
+#endif
+
 // Types
 // =====
 
@@ -227,6 +236,9 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // ====
 
 #include "heap/alloc.c"
+#include "heap/get.c"
+#include "heap/take.c"
+#include "heap/set.c"
 
 // Data Structures
 // ===============

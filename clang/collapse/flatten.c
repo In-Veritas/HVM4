@@ -12,7 +12,7 @@ fn void collapse_flatten(Term term, int limit, int show_itrs) {
 
   // Anchor the root term at a heap location
   u32 root_loc = heap_alloc(1);
-  HEAP[root_loc] = term;
+  heap_set(root_loc, term);
   collapse_queue_push(&pq, (CollapseQueueItem){.pri = 0, .loc = root_loc});
 
   int count = 0;
@@ -23,15 +23,15 @@ fn void collapse_flatten(Term term, int limit, int show_itrs) {
     u8  pri = it.pri;
 
     // Lazy collapse: lift SUPs one step at a time
-    Term t = collapse_step(HEAP[loc]);
-    HEAP[loc] = t;
+    Term t = collapse_step(heap_get(loc));
+    heap_set(loc, t);
 
     // INC fast-path: peel chain of INC wrappers, decrementing priority
     while (term_tag(t) == INC) {
       u32 inc_loc = term_val(t);
       loc = inc_loc;
-      t = collapse_step(HEAP[loc]);
-      HEAP[loc] = t;
+      t = collapse_step(heap_get(loc));
+      heap_set(loc, t);
       if (pri > 0) pri--;  // decrement priority, clamped at 0
     }
 
