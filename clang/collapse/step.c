@@ -55,6 +55,12 @@ fn Term collapse_step(Term term) {
         return term_new_era();
       }
 
+      if (term_tag(body_collapsed) == INC) {
+        u64 inc_loc = term_val(body_collapsed);
+        HEAP[lam_loc] = HEAP[inc_loc];
+        return term_new_inc(term);
+      }
+
       if (term_tag(body_collapsed) != SUP) {
         // No SUP found in body - return the LAM unchanged
         return term;
@@ -102,6 +108,7 @@ fn Term collapse_step(Term term) {
 
       // First pass: collapse all children and check for SUPs/ERAs
       int  sup_idx = -1;  // Index of first SUP child (-1 if none)
+      int  inc_idx = -1;  // Index of first INC child (-1 if none)
       Term children[16];
 
       for (u32 i = 0; i < ari; i++) {
@@ -113,15 +120,25 @@ fn Term collapse_step(Term term) {
           return term_new_era();
         }
 
-        // Track first SUP
+        // Track first SUP/INC
         if (sup_idx < 0 && term_tag(children[i]) == SUP) {
           sup_idx = i;
         }
+        if (inc_idx < 0 && term_tag(children[i]) == INC) {
+          inc_idx = i;
+        }
+      }
+
+      if (sup_idx < 0 && inc_idx < 0) {
+        // No SUP/INC found - term is fully collapsed
+        return term;
       }
 
       if (sup_idx < 0) {
-        // No SUPs found - term is fully collapsed
-        return term;
+        // Lift INC: T(..., ↑a, ...) → ↑(T(...,a,...))
+        children[inc_idx] = HEAP[term_val(children[inc_idx])];
+        Term node0 = term_new_(term_tag(term), term_ext(term), ari, children);
+        return term_new_inc(node0);
       }
 
       // Found SUP at index sup_idx - lift it directly
