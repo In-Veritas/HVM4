@@ -6,8 +6,9 @@
 // - Apply: once WHNF is reached, pop frames and dispatch the interaction using
 //   the WHNF result. Frames reuse existing heap nodes to avoid allocations.
 __attribute__((hot)) fn Term wnf(Term term) {
-  Term *stack = STACK;
-  u32  s_pos  = S_POS;
+  wnf_stack_init();
+  Term *stack = WNF_STACK;
+  u32  s_pos  = WNF_S_POS;
   u32  base   = s_pos;
   Term next   = term;
   Term whnf;
@@ -951,6 +952,13 @@ __attribute__((hot)) fn Term wnf(Term term) {
     }
   }
 
-  S_POS = s_pos;
+  WNF_S_POS = s_pos;
   return whnf;
+}
+
+fn Term wnf_at(u32 loc) {
+  Term cur = heap_get(loc);
+  Term res = wnf(cur);
+  heap_set(loc, res);
+  return res;
 }

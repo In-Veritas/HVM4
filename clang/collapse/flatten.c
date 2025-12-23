@@ -5,7 +5,7 @@
 // INC nodes decrease priority (explored earlier), SUP nodes increase priority.
 // Integrates collapse_step to handle infinite structures without stack overflow.
 
-fn void collapse_flatten(Term term, int limit, int show_itrs) {
+fn void collapse_flatten(Term term, int limit, int show_itrs, int silent) {
   // Priority queue for collapse ordering
   CollapseQueue pq;
   collapse_queue_init(&pq);
@@ -43,11 +43,13 @@ fn void collapse_flatten(Term term, int limit, int show_itrs) {
     } else if (term_tag(t) != ERA) {
       // Non-SUP, non-ERA result - normalize and print
       t = snf(t, 0, 1);
-      print_term_quoted(t);
-      if (show_itrs) {
-        printf(" \033[2m#%llu\033[0m", ITRS);
+      if (!silent) {
+        print_term_quoted(t);
+        if (show_itrs) {
+          printf(" \033[2m#%llu\033[0m", wnf_itrs_total());
+        }
+        printf("\n");
       }
-      printf("\n");
       count++;
     }
   }

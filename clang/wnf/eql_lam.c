@@ -11,7 +11,7 @@ fn Term wnf_eql_lam(Term a, Term b) {
   Term af    = heap_get(a_loc);
   Term bf    = heap_get(b_loc);
   // Generate fresh name for substitution
-  u32 fresh = ALLOC;  // use allocation counter as unique ID
+  u32 fresh = __atomic_fetch_add(&FRESH, 1, __ATOMIC_RELAXED);
   Term nam = term_new_nam(fresh);
   // Substitute both variable locations with the same name
   heap_subst_var(a_loc, nam);

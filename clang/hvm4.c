@@ -4,6 +4,8 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <sched.h>
+#include <pthread.h>
 #include <assert.h>
 
 // Busy-wait hint
@@ -165,12 +167,28 @@ typedef struct {
 #define HEAP_CAP (1ULL << 32)
 #define BOOK_CAP (1ULL << 24)
 #define WNF_CAP  (1ULL << 32)
+#define MAX_THREADS 64
+
+// Thread Globals
+// ==============
+
+static u32 THREAD_COUNT = 1;
+
+#include "thread/get_count.c"
+#include "thread/set_count.c"
 
 // Heap Globals
 // ============
 
-static Term *HEAP;
-static u64   ALLOC = 1;
+typedef struct __attribute__((aligned(128))) {
+  u64 start;
+  u64 end;
+  u64 next;
+} HeapBank;
+
+static Term    *HEAP;
+static u64      HEAP_NEXT = 1;
+static HeapBank HEAP_BANKS[MAX_THREADS] = {{0}};
 
 // Book Globals
 // ============
@@ -180,9 +198,30 @@ static u32 *BOOK;
 // WNF Globals
 // ===========
 
-static Term *STACK;
-static u32   S_POS = 1;
-static u64   ITRS  = 0;
+typedef struct __attribute__((aligned(256))) {
+  Term *stack;
+  u64   stack_bytes;
+  u32   s_pos;
+  u8    stack_mmap;
+} WnfBank;
+
+static WnfBank WNF_BANKS[MAX_THREADS] = {{0}};
+
+typedef struct __attribute__((aligned(256))) {
+  u64 itrs;
+  u8  _pad[256 - sizeof(u64)];
+} WnfItrsBank;
+
+static WnfItrsBank WNF_ITRS_BANKS[MAX_THREADS] = {{0}};
+static _Thread_local WnfBank *WNF_BANK = NULL;
+static _Thread_local u64 *WNF_ITRS_PTR = NULL;
+#define WNF_STACK (WNF_BANK->stack)
+#define WNF_S_POS (WNF_BANK->s_pos)
+#define ITRS (*WNF_ITRS_PTR)
+static u32 FRESH = 1;
+
+#include "wnf/tid.c"
+
 static int   DEBUG = 0;
 
 // Nick Alphabet
@@ -239,6 +278,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "heap/get.c"
 #include "heap/take.c"
 #include "heap/set.c"
+#include "heap/recompute.c"
 
 // Data Structures
 // ===============
@@ -361,6 +401,10 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // WNF
 // ===
 
+#include "wnf/stack_init.c"
+#include "wnf/stack_free_all.c"
+#include "wnf/itrs_total.c"
+#include "wnf/itrs_thread.c"
 #include "wnf/app_era.c"
 #include "wnf/app_nam.c"
 #include "wnf/app_dry.c"
@@ -444,6 +488,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // ===
 
 #include "snf/at.c"
+#include "snf/par/_.c"
 #include "snf/_.c"
 
 // Collapse
