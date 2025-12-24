@@ -187,7 +187,6 @@ typedef struct __attribute__((aligned(128))) {
 } HeapBank;
 
 static Term    *HEAP;
-static u64      HEAP_NEXT = 1;
 static HeapBank HEAP_BANKS[MAX_THREADS] = {{0}};
 
 // Book Globals
@@ -483,6 +482,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/or_inc.c"
 #include "wnf/uns.c"
 #include "wnf/_.c"
+
+// Data
+// ====
+
+#include "data/u32_set.c"
+#include "data/wsq.c"
 
 // SNF
 // ===
