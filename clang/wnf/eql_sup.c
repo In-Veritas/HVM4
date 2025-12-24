@@ -4,7 +4,6 @@
 // &L{(a0 === B₀), (a1 === B₁)}
 fn Term wnf_eql_sup_l(Term sup, Term b) {
   ITRS++;
-  ITRS_KIND(WNF_ITRS_EQL_SUP);
   u32  lab = term_ext(sup);
   u32  loc = term_val(sup);
   Term a0  = heap_read(loc + 0);
@@ -24,7 +23,6 @@ fn Term wnf_eql_sup_l(Term sup, Term b) {
 // &L{(A₀ === b0), (A₁ === b1)}
 fn Term wnf_eql_sup_r(Term a, Term sup) {
   ITRS++;
-  ITRS_KIND(WNF_ITRS_EQL_SUP);
   u32  lab = term_ext(sup);
   u32  loc = term_val(sup);
   Term b0  = heap_read(loc + 0);
