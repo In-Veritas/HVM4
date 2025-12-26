@@ -489,6 +489,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "data/u32_set.c"
 #include "data/wsq.c"
+#include "data/coll_ws.c"
 
 // SNF
 // ===
