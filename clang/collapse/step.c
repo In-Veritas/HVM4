@@ -43,6 +43,12 @@ fn Term collapse_step(Term term, u32 depth) {
         return term_new_era();
       }
 
+      if (body_tag == INC) {
+        u32 inc_loc = term_val(body_collapsed);
+        heap_set(body_loc, heap_read(inc_loc));
+        return term_new_inc(lam);
+      }
+
       if (body_tag != SUP) {
         return lam;
       }
