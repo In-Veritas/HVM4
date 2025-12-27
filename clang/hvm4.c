@@ -282,7 +282,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // Data Structures
 // ===============
 
-#include "collapse/queue.c"
+#include "data/pq.c"
 
 // Term Constructors
 // =================
@@ -489,16 +489,15 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "data/u32_set.c"
 #include "data/wsq.c"
-#include "data/coll_ws.c"
+#include "data/wspq.c"
 
-// SNF
+// CNF
 // ===
 
-#include "snf/_.c"
+#include "cnf/_.c"
 
-// Collapse
-// ========
+// Eval
+// ====
 
-#include "collapse/inject.c"
-#include "collapse/step.c"
-#include "collapse/flatten.c"
+#include "eval/normalize.c"
+#include "eval/collapse.c"

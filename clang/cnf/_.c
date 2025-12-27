@@ -1,7 +1,10 @@
-// Collapse step: lift the first SUP to the top, without descending into branches.
-// RED keeps only RHS; ERA propagates upward. Used by collapse_flatten() for BFS.
+// CNF (collapsed normal form) step.
+// - cnf reduces to WNF, then lifts the first SUP to the top.
+// - Output is either SUP/ERA/INC at the root with arbitrary fields, or a term
+//   with no SUP/ERA/INC at any position.
+// - RED keeps only RHS; ERA propagates upward.
 
-fn Term collapse_step(Term term, u32 depth) {
+fn Term cnf_at(Term term, u32 depth) {
   term = wnf(term);
 
   switch (term_tag(term)) {
@@ -25,7 +28,7 @@ fn Term collapse_step(Term term, u32 depth) {
 
     case RED: {
       u64 loc = term_val(term);
-      return collapse_step(heap_read(loc + 1), depth);
+      return cnf_at(heap_read(loc + 1), depth);
     }
 
     case LAM: {
@@ -33,7 +36,7 @@ fn Term collapse_step(Term term, u32 depth) {
       Term body    = heap_read(lam_loc);
       u32  level   = depth + 1;
       heap_subst_var(lam_loc, term_new(0, BJV, 0, level));
-      Term body_collapsed = collapse_step(body, level);
+      Term body_collapsed = cnf_at(body, level);
       u64  body_loc = heap_alloc(1);
       heap_set(body_loc, body_collapsed);
       Term lam = term_new(0, LAM, level, body_loc);
@@ -95,7 +98,7 @@ fn Term collapse_step(Term term, u32 depth) {
 
       for (u32 i = 0; i < ari; i++) {
         Term child = heap_read(loc + i);
-        children[i] = collapse_step(child, depth);
+        children[i] = cnf_at(child, depth);
         if (children[i] != child) {
           heap_set(loc + i, children[i]);
         }
@@ -141,5 +144,38 @@ fn Term collapse_step(Term term, u32 depth) {
     default: {
       return term;
     }
+  }
+}
+
+fn Term cnf(Term term) {
+  return cnf_at(term, 0);
+}
+
+fn Term cnf_inj(Term template, Term *args, u32 n_args) {
+  if (n_args == 0) {
+    return template;
+  }
+
+  Term head = wnf(args[0]);
+
+  if (term_tag(head) == SUP) {
+    u32  lab     = term_ext(head);
+    u64  sup_loc = term_val(head);
+    Term sup_a   = heap_read(sup_loc + 0);
+    Term sup_b   = heap_read(sup_loc + 1);
+
+    Copy T = term_clone(lab, template);
+    Term args0[16], args1[16];
+    args0[0] = sup_a;
+    args1[0] = sup_b;
+    term_clone_many(lab, args + 1, n_args - 1, args0 + 1, args1 + 1);
+
+    Term r0 = cnf_inj(T.k0, args0, n_args);
+    Term r1 = cnf_inj(T.k1, args1, n_args);
+
+    return term_new_sup(lab, r0, r1);
+  } else {
+    Term applied = term_new_app(template, head);
+    return cnf_inj(applied, args + 1, n_args - 1);
   }
 }

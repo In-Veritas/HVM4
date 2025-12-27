@@ -162,10 +162,10 @@ int main(int argc, char **argv) {
 
   if (opts.do_collapse) {
     // Lazy collapse + flatten: handles infinite structures
-    collapse_flatten(main_ref, opts.collapse_limit, opts.stats, opts.silent);
+    eval_collapse(main_ref, opts.collapse_limit, opts.stats, opts.silent);
   } else {
     // Standard evaluation to strong normal form
-    Term result = snf(main_ref);
+    Term result = eval_normalize(main_ref);
     if (!opts.silent) {
       print_term(result);
       printf("\n");

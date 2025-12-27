@@ -21,8 +21,9 @@ wnf/app_lam.c    →  wnf_app_lam()
 The `_.c` file represents the directory itself (the "main" function for that path):
 
 ```
-snf/_.c          →  snf()
-collapse/_.c     →  collapse()
+cnf/_.c          →  cnf()
+eval/normalize.c →  eval_normalize()
+eval/collapse.c  →  eval_collapse()
 parse/term/_.c   →  parse_term()
 ```
 

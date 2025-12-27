@@ -1,4 +1,4 @@
-// collapse/queue.c - sliding 3-bucket priority queue (top/mid/bot)
+// data/pq.c - sliding 3-bucket priority queue (top/mid/bot)
 //
 // Overview:
 // - Maintains 3 FIFO buffers:
@@ -15,42 +15,42 @@
 
 #include <stdbool.h>
 
-#define COLLAPSE_QUEUE_BUFSIZE_LOG2 23u
+#define PQ_BUFSIZE_LOG2 23u
 
 typedef struct {
   u8  pri;  // 0..63 - lower is better (explored first)
   u32 loc;  // heap location
-} CollapseQueueItem;
+} PqItem;
 
 typedef struct {
   u32               head;  // dequeue cursor (mod cap)
   u32               size;  // current length
   u32               cap;   // ring capacity (pow2)
   u32               mask;  // cap - 1
-  CollapseQueueItem *data;  // ring storage (FIFO)
-} CollapseQueueBuf;
+  PqItem *data;  // ring storage (FIFO)
+} PqBuf;
 
 typedef struct {
-  CollapseQueueBuf top;      // highest priority value group
-  CollapseQueueBuf mid;      // (top - 1)
-  CollapseQueueBuf bot;      // (<= top - 2)
+  PqBuf top;      // highest priority value group
+  PqBuf mid;      // (top - 1)
+  PqBuf bot;      // (<= top - 2)
   u8               max_pri;  // highest priority value observed
   u8               has_pri;  // whether max_pri has been initialized
-} CollapseQueue;
+} Pq;
 
-fn void collapse_queue_buf_init(CollapseQueueBuf *b, u32 cap_log2) {
+fn void pq_buf_init(PqBuf *b, u32 cap_log2) {
   b->head = 0;
   b->size = 0;
   b->cap  = 1u << cap_log2;
   b->mask = b->cap - 1u;
-  b->data = (CollapseQueueItem*)malloc((size_t)b->cap * sizeof(CollapseQueueItem));
+  b->data = (PqItem*)malloc((size_t)b->cap * sizeof(PqItem));
   if (!b->data) {
-    fprintf(stderr, "collapse_queue: out of memory\n");
+    fprintf(stderr, "pq: out of memory\n");
     exit(1);
   }
 }
 
-fn void collapse_queue_buf_free(CollapseQueueBuf *b) {
+fn void pq_buf_free(PqBuf *b) {
   if (b->data) {
     free(b->data);
     b->data = NULL;
@@ -61,12 +61,12 @@ fn void collapse_queue_buf_free(CollapseQueueBuf *b) {
   b->mask = 0;
 }
 
-fn void collapse_queue_buf_clear(CollapseQueueBuf *b) {
+fn void pq_buf_clear(PqBuf *b) {
   b->head = 0;
   b->size = 0;
 }
 
-static inline bool collapse_queue_buf_try_push(CollapseQueueBuf *b, CollapseQueueItem it) {
+static inline bool pq_buf_try_push(PqBuf *b, PqItem it) {
   if (b->size == b->cap) {
     return false;
   }
@@ -76,7 +76,7 @@ static inline bool collapse_queue_buf_try_push(CollapseQueueBuf *b, CollapseQueu
   return true;
 }
 
-fn u8 collapse_queue_buf_pop(CollapseQueueBuf *b, CollapseQueueItem *out) {
+fn u8 pq_buf_pop(PqBuf *b, PqItem *out) {
   if (b->size == 0) {
     return 0;
   }
@@ -87,7 +87,7 @@ fn u8 collapse_queue_buf_pop(CollapseQueueBuf *b, CollapseQueueItem *out) {
 }
 
 // Pop from tail (LIFO) - used for mid bucket
-fn u8 collapse_queue_buf_pop_back(CollapseQueueBuf *b, CollapseQueueItem *out) {
+fn u8 pq_buf_pop_back(PqBuf *b, PqItem *out) {
   if (b->size == 0) {
     return 0;
   }
@@ -98,7 +98,7 @@ fn u8 collapse_queue_buf_pop_back(CollapseQueueBuf *b, CollapseQueueItem *out) {
 }
 
 // Copy ring buffer elements
-fn void collapse_queue_buf_ring_copy(CollapseQueueBuf *dst, u32 dpos, const CollapseQueueBuf *src, u32 spos, u32 len) {
+fn void pq_buf_ring_copy(PqBuf *dst, u32 dpos, const PqBuf *src, u32 spos, u32 len) {
   while (len > 0) {
     u32 drem = dst->cap - (dpos & dst->mask);
     u32 srem = src->cap - (spos & src->mask);
@@ -111,7 +111,7 @@ fn void collapse_queue_buf_ring_copy(CollapseQueueBuf *dst, u32 dpos, const Coll
     }
     memcpy(&dst->data[dpos & dst->mask],
            &src->data[spos & src->mask],
-           chunk * sizeof(CollapseQueueItem));
+           chunk * sizeof(PqItem));
     dpos += chunk;
     spos += chunk;
     len -= chunk;
@@ -119,70 +119,70 @@ fn void collapse_queue_buf_ring_copy(CollapseQueueBuf *dst, u32 dpos, const Coll
 }
 
 // Append all elements from src to dst (FIFO order), empties src
-fn void collapse_queue_buf_append_all(CollapseQueueBuf *dst, CollapseQueueBuf *src) {
+fn void pq_buf_append_all(PqBuf *dst, PqBuf *src) {
   if (src->size == 0) {
     return;
   }
   if (dst->size + src->size > dst->cap) {
-    fprintf(stderr, "collapse_queue: overflow in append\n");
+    fprintf(stderr, "pq: overflow in append\n");
     exit(1);
   }
   u32 dst_tail = dst->head + dst->size;
-  collapse_queue_buf_ring_copy(dst, dst_tail, src, src->head, src->size);
+  pq_buf_ring_copy(dst, dst_tail, src, src->head, src->size);
   dst->size += src->size;
-  collapse_queue_buf_clear(src);
+  pq_buf_clear(src);
 }
 
 // Prepend all elements from src to front of dst, empties src
-fn void collapse_queue_buf_prepend_all(CollapseQueueBuf *dst, CollapseQueueBuf *src) {
+fn void pq_buf_prepend_all(PqBuf *dst, PqBuf *src) {
   if (src->size == 0) {
     return;
   }
   if (dst->size + src->size > dst->cap) {
-    fprintf(stderr, "collapse_queue: overflow in prepend\n");
+    fprintf(stderr, "pq: overflow in prepend\n");
     exit(1);
   }
   u32 new_head = (dst->head - src->size) & dst->mask;
-  collapse_queue_buf_ring_copy(dst, new_head, src, src->head, src->size);
+  pq_buf_ring_copy(dst, new_head, src, src->head, src->size);
   dst->head = new_head;
   dst->size += src->size;
-  collapse_queue_buf_clear(src);
+  pq_buf_clear(src);
 }
 
-fn void collapse_queue_init_cap(CollapseQueue *q, u32 cap_log2) {
-  collapse_queue_buf_init(&q->top, cap_log2);
-  collapse_queue_buf_init(&q->mid, cap_log2);
-  collapse_queue_buf_init(&q->bot, cap_log2);
+fn void pq_init_cap(Pq *q, u32 cap_log2) {
+  pq_buf_init(&q->top, cap_log2);
+  pq_buf_init(&q->mid, cap_log2);
+  pq_buf_init(&q->bot, cap_log2);
   q->max_pri = 0;
   q->has_pri = 0;
 }
 
-fn void collapse_queue_init(CollapseQueue *q) {
-  collapse_queue_init_cap(q, COLLAPSE_QUEUE_BUFSIZE_LOG2);
+fn void pq_init(Pq *q) {
+  pq_init_cap(q, PQ_BUFSIZE_LOG2);
 }
 
-fn void collapse_queue_free(CollapseQueue *q) {
-  collapse_queue_buf_free(&q->top);
-  collapse_queue_buf_free(&q->mid);
-  collapse_queue_buf_free(&q->bot);
+fn void pq_free(Pq *q) {
+  pq_buf_free(&q->top);
+  pq_buf_free(&q->mid);
+  pq_buf_free(&q->bot);
   q->has_pri = 0;
 }
 
 // Slide the top/mid/bot window up by 1 (max_pri := max_pri + 1)
-fn void collapse_queue_slide_up(CollapseQueue *q) {
-  CollapseQueueBuf old_top = q->top;
-  CollapseQueueBuf old_mid = q->mid;
-  CollapseQueueBuf old_bot = q->bot;
+fn void pq_slide_up(Pq *q) {
+  PqBuf old_top = q->top;
+  PqBuf old_mid = q->mid;
+  PqBuf old_bot = q->bot;
 
   if (old_bot.size <= old_mid.size) {
     // Prepend bot into mid: [bot][mid]
-    collapse_queue_buf_prepend_all(&old_mid, &old_bot);
+    pq_buf_prepend_all(&old_mid, &old_bot);
     q->top = old_bot;  // empty, becomes new top
     q->mid = old_top;
     q->bot = old_mid;
   } else {
     // Append mid into bot: [bot][mid]
-    collapse_queue_buf_append_all(&old_bot, &old_mid);
+    pq_buf_append_all(&old_bot, &old_mid);
     q->top = old_mid;  // empty, becomes new top
     q->mid = old_top;
     q->bot = old_bot;
@@ -190,58 +190,58 @@ fn void collapse_queue_slide_up(CollapseQueue *q) {
   q->max_pri = q->max_pri + 1;
 }
 
-fn bool collapse_queue_try_push(CollapseQueue *q, CollapseQueueItem it) {
+fn bool pq_try_push(Pq *q, PqItem it) {
   u8 p = it.pri & 63;  // clamp to 0..63
 
   if (!q->has_pri) {
     q->max_pri = p;
     q->has_pri = 1;
-    return collapse_queue_buf_try_push(&q->top, it);
+    return pq_buf_try_push(&q->top, it);
   }
 
   int d = (int)p - (int)q->max_pri;
   if (d <= -2) {
-    return collapse_queue_buf_try_push(&q->bot, it);
+    return pq_buf_try_push(&q->bot, it);
   }
   if (d == -1) {
-    return collapse_queue_buf_try_push(&q->mid, it);
+    return pq_buf_try_push(&q->mid, it);
   }
   if (d == 0) {
-    return collapse_queue_buf_try_push(&q->top, it);
+    return pq_buf_try_push(&q->top, it);
   }
   // d > 0: slide up until max_pri == p
   for (int i = 0; i < d; i++) {
-    collapse_queue_slide_up(q);
+    pq_slide_up(q);
   }
-  return collapse_queue_buf_try_push(&q->top, it);
+  return pq_buf_try_push(&q->top, it);
 }
 
-fn void collapse_queue_push(CollapseQueue *q, CollapseQueueItem it) {
-  if (!collapse_queue_try_push(q, it)) {
-    fprintf(stderr, "collapse_queue: buffer overflow\n");
+fn void pq_push(Pq *q, PqItem it) {
+  if (!pq_try_push(q, it)) {
+    fprintf(stderr, "pq: buffer overflow\n");
     exit(1);
   }
 }
 
-fn u8 collapse_queue_pop(CollapseQueue *q, CollapseQueueItem *out) {
+fn u8 pq_pop(Pq *q, PqItem *out) {
   // Pop order: bot (FIFO), mid (LIFO), top (FIFO)
   // This ensures lower numeric priority is processed first
   if (q->bot.size > 0) {
-    return collapse_queue_buf_pop(&q->bot, out);
+    return pq_buf_pop(&q->bot, out);
   }
   if (q->mid.size > 0) {
-    return collapse_queue_buf_pop_back(&q->mid, out);
+    return pq_buf_pop_back(&q->mid, out);
   }
   if (q->top.size > 0) {
-    return collapse_queue_buf_pop(&q->top, out);
+    return pq_buf_pop(&q->top, out);
   }
   return 0;
 }
 
-fn u8 collapse_queue_is_empty(CollapseQueue *q) {
+fn u8 pq_is_empty(Pq *q) {
   return (q->top.size | q->mid.size | q->bot.size) == 0;
 }
 
-fn u32 collapse_queue_size(const CollapseQueue *q) {
+fn u32 pq_size(const Pq *q) {
   return q->top.size + q->mid.size + q->bot.size;
 }

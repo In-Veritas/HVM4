@@ -6,8 +6,8 @@ read. The collapser is the readback procedure: it turns one IC term into a
 stream of ordinary lambda terms, i.e., collapsed normal form (CNF).
 
 Two insights make this possible:
-- Quoting removes DUPs. When a branch is ready to print, we run
-  `collapse_step(term, depth=0)`. Linked vars become quoted vars (BJV/BJ0/BJ1).
+- Quoting removes DUPs. When a branch is ready to print, we run `cnf(term)`.
+  Linked vars become quoted vars (BJV/BJ0/BJ1).
   DUP interactions are defined on quoted dup vars, so DUP nodes are cloned away
   and disappear from the printed term.
 - Lifting removes SUPs. We lift the first SUP to the top and enumerate its
@@ -16,12 +16,12 @@ Two insights make this possible:
 
 ## Algorithm (as implemented)
 
-- `collapse_step` (clang/collapse/step.c): reduce to WNF, then lift the first
-  SUP to the top and return immediately. ERA propagates upward; RED keeps only
-  its RHS; INC is left in place for the flattener.
-- `collapse_flatten` (clang/collapse/flatten.c): breadth-first traversal with a
+- `cnf` (clang/cnf/_.c): reduce to WNF, then lift the first SUP to the top and
+  return immediately. ERA propagates upward; RED keeps only its RHS; INC is left
+  in place for the flattener.
+- `eval_collapse` (clang/eval/collapse.c): breadth-first traversal with a
   priority queue. SUP increases priority; INC decreases priority. When a branch
-  has no SUP, it prints `collapse_step(term, 0)`.
+  has no SUP, it prints `cnf(term)`.
 
 ## Label Behavior (pairwise vs cross product)
 
@@ -51,6 +51,7 @@ Same labels annihilate pairwise:
 
 ## Where To Look
 
-- `clang/collapse/step.c`: SUP lifting rules.
-- `clang/collapse/flatten.c`: branch enumeration + SNF quoting for output.
-- `clang/collapse/queue.c`: priority queue used for BFS order.
+- `clang/cnf/_.c`: SUP lifting rules.
+- `clang/eval/collapse.c`: branch enumeration + SNF quoting for output.
+- `clang/data/pq.c`: priority queue used for BFS order.
+- `clang/data/wspq.c`: work-stealing priority queue for parallel collapse.

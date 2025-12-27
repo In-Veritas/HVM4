@@ -67,14 +67,13 @@ cd clang && clang -O2 -o main main.c
 - `clang/wnf/_.c`: stack-based WNF evaluator and interaction dispatch.
 - `clang/wnf/*.c`: one interaction per file; see matching doc in
   `docs/hvm4/interactions/`.
-- `clang/snf/_.c`: SNF entry point and heap anchoring.
-- `clang/snf/at.c`: SNF traversal, quoting, and cycle handling.
+- `clang/eval/normalize.c`: SNF normalization (WNFs every reachable node).
 
 ### Collapse (CNF Readback)
-- `clang/collapse/step.c`: lift one SUP to the top, without recursing into branches.
-- `clang/collapse/flatten.c`: BFS enumeration of SUP branches; prints quoted SNF.
-- `clang/collapse/inject.c`: inject collapsed branches into templates.
-- `clang/collapse/queue.c`: priority queue for collapse ordering (INC affects priority).
+- `clang/cnf/_.c`: lift one SUP to the top, without recursing into branches.
+- `clang/eval/collapse.c`: BFS enumeration of SUP branches; prints quoted SNF.
+- `clang/data/pq.c`: priority queue for collapse ordering (INC affects priority).
+- `clang/data/wspq.c`: work-stealing priority queue for parallel collapse.
 
 ### Printing and Names
 - `clang/print/term.c`: term pretty-printer (dynamic/static modes).
