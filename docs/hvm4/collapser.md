@@ -20,9 +20,8 @@ Two insights make this possible:
   return immediately. ERA propagates upward; RED keeps only its RHS; INC is left
   in place for the flattener.
 - `eval_collapse` (clang/eval/collapse.c): breadth-first traversal with a
-  priority queue. Higher numeric priority is popped first; SUP decreases
-  priority, INC increases priority. When a branch has no SUP, it prints
-  `cnf(term)`.
+  priority queue. SUP increases priority; INC decreases priority. When a branch
+  has no SUP, it prints `cnf(term)`.
 
 ## Label Behavior (pairwise vs cross product)
 

@@ -2,14 +2,12 @@
 //
 // Context
 // - Used by eval_collapse for parallel CNF enumeration.
-// - Higher numeric priority values are popped first.
+// - Each worker owns a bank of deques, one per priority bracket.
 //
 // Design
-// - Internally, we map priority to an order value where lower is earlier:
-//   order = 255 - priority. Bucket index = order >> WSPQ_PRI_SHIFT.
-// - Each worker owns a bank of deques, one per order bucket.
+// - Priority "pri" is bucketed by (pri >> WSPQ_PRI_SHIFT).
 // - A per-worker bitmask tracks which buckets are non-empty.
-// - Local pop takes the lowest order bucket (best priority).
+// - Local pop takes the lowest-index non-empty bucket (best priority).
 // - Steal prefers higher-priority work and can be restricted to shallower buckets.
 //
 // Notes
@@ -26,7 +24,7 @@
 #define WSPQ_BRACKETS 64u
 #endif
 
-// Priority right shift to map order -> bucket index.
+// Priority right shift to map pri -> bucket index.
 #ifndef WSPQ_PRI_SHIFT
 #define WSPQ_PRI_SHIFT 0u
 #endif
@@ -41,7 +39,7 @@
 #define WSPQ_STEAL_ATTEMPTS 2u
 #endif
 
-// Per-worker bank of order deques plus a non-empty bucket mask.
+// Per-worker bank of priority deques plus a non-empty bucket mask.
 typedef struct __attribute__((aligned(256))) {
   WsDeque q[WSPQ_BRACKETS];
   _Atomic u64 nonempty;
@@ -52,20 +50,6 @@ typedef struct {
   WspqBank bank[MAX_THREADS];
   u32 n;
 } Wspq;
-
-// Convert a priority value into an internal order value (lower pops first).
-static inline u8 wspq_order_from_pri(u8 pri) {
-  return (u8)(0xFFu - pri);
-}
-
-// Convert a bucket index back into a representative priority value.
-static inline u8 wspq_pri_from_bucket(u32 bucket) {
-  u32 order = bucket << WSPQ_PRI_SHIFT;
-  if (order > 0xFFu) {
-    order = 0xFFu;
-  }
-  return (u8)(0xFFu - order);
-}
 
 // Return index of least-significant set bit (undefined for m == 0).
 static inline u32 wspq_lsb64(u64 m) {
@@ -84,8 +68,7 @@ static inline void wspq_mask_clear_owner(Wspq *ws, u32 tid, u32 b) {
 
 // Map a priority value to a bucket index.
 static inline u8 wspq_pri_bucket(u32 pri) {
-  u8 order = wspq_order_from_pri((u8)pri);
-  u32 bucket = (u32)order >> WSPQ_PRI_SHIFT;
+  u32 bucket = pri >> WSPQ_PRI_SHIFT;
   if (bucket >= WSPQ_BRACKETS) {
     return (u8)(WSPQ_BRACKETS - 1u);
   }
@@ -148,7 +131,7 @@ static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *pri, u64 *task) {
     u32 b = wspq_lsb64(m);
     u64 x = 0;
     if (wsq_pop(&ws->bank[tid].q[b], &x)) {
-      *pri = wspq_pri_from_bucket(b);
+      *pri = (u8)(b << WSPQ_PRI_SHIFT);
       *task = x;
       return true;
     }
@@ -204,13 +187,13 @@ static inline u32 wspq_steal_some(
     if (!wsq_steal(&ws->bank[v].q[b], &x)) {
       continue;
     }
-    wspq_push(ws, me, wspq_pri_from_bucket(b), x);
+    wspq_push(ws, me, (u8)(b << WSPQ_PRI_SHIFT), x);
     got += 1u;
     for (; got < max_batch; ++got) {
       if (!wsq_steal(&ws->bank[v].q[b], &x)) {
         break;
       }
-      wspq_push(ws, me, wspq_pri_from_bucket(b), x);
+      wspq_push(ws, me, (u8)(b << WSPQ_PRI_SHIFT), x);
     }
     *cursor = v + 1;
     return got;

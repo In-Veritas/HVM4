@@ -1,21 +1,20 @@
 // data/pq.c - sliding 3-bucket priority queue (top/mid/bot).
 //
 // Context
-// - Used by eval_collapse to enumerate CNF branches in priority order.
-// - Higher numeric priority values are popped first.
+// - Used by eval_collapse to enumerate collapse branches in priority order.
+// - INC nodes lower priority, SUP nodes raise priority; lower numeric pri wins.
 //
 // Design
-// - Internally, we map priority to an order value where lower is earlier:
-//   order = 255 - priority. The queue logic operates on order buckets.
-// - Three ring buffers partition the order range:
-//   top: highest order value observed (numerically largest order)
+// - Three ring buffers partition the priority range:
+//   top: highest priority value observed (numerically largest pri)
 //   mid: one below top (top - 1)
-//   bot: all orders <= top - 2
-// - Push slides the window upward when a new larger order arrives.
-// - Pop processes lower order first: bot (FIFO), then mid (LIFO), then top (FIFO).
+//   bot: all priorities <= top - 2
+// - Push slides the window upward when a new higher priority arrives.
+// - Pop processes lower numeric priority first: bot (FIFO), then mid (LIFO),
+//   then top (FIFO). This favors deeper branches later while keeping locality.
 //
 // Notes
-// - Priority is mapped to a 6-bit order bucket via masking (order & 63).
+// - Priority is clamped to 0..63 in pq_try_push.
 // - The queue is single-threaded; external synchronization is required.
 
 #include <stdbool.h>
@@ -25,32 +24,27 @@
 
 // Queue item with a priority and a heap location.
 typedef struct {
-  u8  pri;  // Higher numeric priority is popped first.
-  u32 loc;  // Heap location.
+  u8  pri;  // 0..63 - lower is better (explored first)
+  u32 loc;  // heap location
 } PqItem;
 
-// Ring buffer storage for a single order bucket.
+// Ring buffer storage for a single priority bucket.
 typedef struct {
-  u32    head;  // Dequeue cursor (mod cap).
-  u32    size;  // Current length.
-  u32    cap;   // Ring capacity (pow2).
-  u32    mask;  // cap - 1.
-  PqItem *data;  // Ring storage (FIFO).
+  u32    head;  // dequeue cursor (mod cap)
+  u32    size;  // current length
+  u32    cap;   // ring capacity (pow2)
+  u32    mask;  // cap - 1
+  PqItem *data;  // ring storage (FIFO)
 } PqBuf;
 
 // Three-bucket priority queue state.
 typedef struct {
-  PqBuf top;       // Highest order value group.
-  PqBuf mid;       // (top - 1).
-  PqBuf bot;       // (<= top - 2).
-  u8    max_order;  // Highest order value observed.
-  u8    has_order;  // Whether max_order has been initialized.
+  PqBuf top;      // highest priority value group
+  PqBuf mid;      // (top - 1)
+  PqBuf bot;      // (<= top - 2)
+  u8    max_pri;  // highest priority value observed
+  u8    has_pri;  // whether max_pri has been initialized
 } Pq;
-
-// Convert a priority value into an internal order value (lower pops first).
-static inline u8 pq_order(u8 pri) {
-  return (u8)(0xFFu - pri);
-}
 
 // Initialize a ring buffer with 2^cap_log2 slots.
 fn void pq_buf_init(PqBuf *b, u32 cap_log2) {
@@ -173,8 +167,8 @@ fn void pq_init_cap(Pq *q, u32 cap_log2) {
   pq_buf_init(&q->top, cap_log2);
   pq_buf_init(&q->mid, cap_log2);
   pq_buf_init(&q->bot, cap_log2);
-  q->max_order = 0;
-  q->has_order = 0;
+  q->max_pri = 0;
+  q->has_pri = 0;
 }
 
 // Initialize the queue with default buffer size.
@@ -187,10 +181,10 @@ fn void pq_free(Pq *q) {
   pq_buf_free(&q->top);
   pq_buf_free(&q->mid);
   pq_buf_free(&q->bot);
-  q->has_order = 0;
+  q->has_pri = 0;
 }
 
-// Slide the window up by 1 (max_order := max_order + 1).
+// Slide the window up by 1 (max_pri := max_pri + 1).
 fn void pq_slide_up(Pq *q) {
   PqBuf old_top = q->top;
   PqBuf old_mid = q->mid;
@@ -199,31 +193,30 @@ fn void pq_slide_up(Pq *q) {
   if (old_bot.size <= old_mid.size) {
     // Prepend bot into mid: [bot][mid]
     pq_buf_prepend_all(&old_mid, &old_bot);
-    q->top = old_bot;  // Empty, becomes new top.
+    q->top = old_bot;  // empty, becomes new top
     q->mid = old_top;
     q->bot = old_mid;
   } else {
     // Append mid into bot: [bot][mid]
     pq_buf_append_all(&old_bot, &old_mid);
-    q->top = old_mid;  // Empty, becomes new top.
+    q->top = old_mid;  // empty, becomes new top
     q->mid = old_top;
     q->bot = old_bot;
   }
-  q->max_order = q->max_order + 1;
+  q->max_pri = q->max_pri + 1;
 }
 
 // Try to push an item; returns false on overflow.
 fn bool pq_try_push(Pq *q, PqItem it) {
-  u8 order = pq_order(it.pri);
-  u8 p = (u8)(order & 63u);  // Mask to 6 bits for bucket selection.
+  u8 p = it.pri & 63;  // clamp to 0..63
 
-  if (!q->has_order) {
-    q->max_order = p;
-    q->has_order = 1;
+  if (!q->has_pri) {
+    q->max_pri = p;
+    q->has_pri = 1;
     return pq_buf_try_push(&q->top, it);
   }
 
-  int d = (int)p - (int)q->max_order;
+  int d = (int)p - (int)q->max_pri;
   if (d <= -2) {
     return pq_buf_try_push(&q->bot, it);
   }
@@ -233,7 +226,7 @@ fn bool pq_try_push(Pq *q, PqItem it) {
   if (d == 0) {
     return pq_buf_try_push(&q->top, it);
   }
-  // d > 0: slide up until max_order == p.
+  // d > 0: slide up until max_pri == p
   for (int i = 0; i < d; i++) {
     pq_slide_up(q);
   }
@@ -248,7 +241,7 @@ fn void pq_push(Pq *q, PqItem it) {
   }
 }
 
-// Pop the next item by order (lower order first).
+// Pop the next item by priority (bot FIFO, mid LIFO, top FIFO).
 fn u8 pq_pop(Pq *q, PqItem *out) {
   if (q->bot.size > 0) {
     return pq_buf_pop(&q->bot, out);
