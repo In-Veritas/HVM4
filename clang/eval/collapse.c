@@ -1,6 +1,7 @@
 // Eval collapse (CNF flattening).
 // - Lazy CNF extraction via priority queue traversal.
-// - INC nodes decrease priority (explored earlier), SUP nodes increase priority.
+// - Higher numeric priority values are popped first.
+// - INC increases priority (explored earlier), SUP decreases priority.
 // - Uses cnf to handle infinite structures without stack overflow.
 
 #ifndef EVAL_COLLAPSE_STEAL_PERIOD
@@ -49,14 +50,17 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 pri,
         if (t != prev) {
           heap_set(loc, t);
         }
-        if (pri > 0) {
-          pri -= 1;
+        if (pri < 0xFFu) {
+          pri += 1;
         }
         continue;
       }
       case SUP: {
         u32 sup_loc = term_val(t);
-        u8  npri = (u8)(pri + 1);
+        u8  npri = pri;
+        if (npri > 0) {
+          npri -= 1;
+        }
         u64 task = ((u64)(sup_loc + 1) << 32) | (u64)(sup_loc + 0);
         wspq_push(&C->ws, me, npri, task);
         *pend_local += 2;
@@ -160,7 +164,7 @@ static inline void eval_collapse_seq(Term term, int limit, int show_itrs, int si
 
   u32 root_loc = heap_alloc(1);
   heap_set(root_loc, term);
-  pq_push(&pq, (PqItem){.pri = 0, .loc = root_loc});
+  pq_push(&pq, (PqItem){.pri = 0xFFu, .loc = root_loc});
 
   int count = 0;
   PqItem it;
@@ -179,15 +183,19 @@ static inline void eval_collapse_seq(Term term, int limit, int show_itrs, int si
           loc = inc_loc;
           t = cnf(heap_read(loc));
           heap_set(loc, t);
-          if (pri > 0) {
-            pri -= 1;
+          if (pri < 0xFFu) {
+            pri += 1;
           }
           continue;
         }
         case SUP: {
           u32 sup_loc = term_val(t);
-          pq_push(&pq, (PqItem){.pri = (u8)(pri + 1), .loc = sup_loc + 0});
-          pq_push(&pq, (PqItem){.pri = (u8)(pri + 1), .loc = sup_loc + 1});
+          u8 npri = pri;
+          if (npri > 0) {
+            npri -= 1;
+          }
+          pq_push(&pq, (PqItem){.pri = npri, .loc = sup_loc + 0});
+          pq_push(&pq, (PqItem){.pri = npri, .loc = sup_loc + 1});
           break;
         }
         case ERA: {
@@ -248,7 +256,7 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
     exit(1);
   }
 
-  wspq_push(&C.ws, 0u, 0u, (u64)root_loc);
+  wspq_push(&C.ws, 0u, 0xFFu, (u64)root_loc);
   atomic_fetch_add_explicit(&C.pending, 1, memory_order_relaxed);
 
   pthread_t tids[MAX_THREADS];
