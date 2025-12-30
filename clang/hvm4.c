@@ -88,6 +88,9 @@ typedef struct {
 #define BJV 43  // Bjv(n): quoted lambda-bound variable (de Bruijn level)
 #define BJ0 44  // Bj0(n): quoted dup-bound variable (side 0, de Bruijn level)
 #define BJ1 45  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
+#define BJM 46  // Bjm(n): quoted mov-bound variable (de Bruijn level)
+#define MOV 47  // Mov(v, b): move binding
+#define GOT 48  // Got(n): linked mov variable
 
 // LAM Ext Flags
 // =============
@@ -242,11 +245,16 @@ typedef struct {
   u32 name;
   u32 depth;
   u32 lab;
+  u32 kind;    // PBIND_* binder kind
   u32 cloned;  // 1 if this is a cloned variable (λ&x or ! &x = v)
   u32 uses;    // Number of times this variable is used
   u32 uses0;   // Number of times X₀ is used (for cloned dup bindings)
   u32 uses1;   // Number of times X₁ is used (for cloned dup bindings)
 } PBind;
+
+#define PBIND_LAM 0
+#define PBIND_DUP 1
+#define PBIND_MOV 2
 
 // Parser Globals
 // ==============
@@ -291,10 +299,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "term/new/any.c"
 #include "term/new/dp0.c"
 #include "term/new/dp1.c"
+#include "term/new/got.c"
 #include "term/new/lam.c"
 #include "term/new/app.c"
 #include "term/new/sup.c"
 #include "term/new/dup.c"
+#include "term/new/mov.c"
 #include "term/new/mat.c"
 #include "term/new/swi.c"
 #include "term/new/use.c"
@@ -371,6 +381,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "parse/utf8.c"
 #include "parse/term/lam.c"
 #include "parse/term/dup.c"
+#include "parse/term/mov.c"
 #include "parse/term/fork.c"
 #include "parse/term/sup.c"
 #include "parse/term/ctr.c"
@@ -415,12 +426,21 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/dup_lam.c"
 #include "wnf/dup_sup.c"
 #include "wnf/dup_nod.c"
+#include "wnf/mov_nam.c"
+#include "wnf/mov_dry.c"
+#include "wnf/mov_red.c"
+#include "wnf/mov_lam.c"
+#include "wnf/mov_sup.c"
+#include "wnf/mov_mov.c"
+#include "wnf/mov_nod.c"
 #include "wnf/alo_var.c"
 #include "wnf/alo_cop.c"
+#include "wnf/alo_got.c"
 #include "wnf/alo_nam.c"
 #include "wnf/alo_dry.c"
 #include "wnf/alo_lam.c"
 #include "wnf/alo_dup.c"
+#include "wnf/alo_mov.c"
 #include "wnf/alo_nod.c"
 #include "wnf/op2_era.c"
 #include "wnf/op2_sup.c"

@@ -117,7 +117,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     }
     parse_skip(s);
     u32 d = dyn ? 3 : 2;
-    parse_bind_push(nam, depth + 1, dyn ? 0xFFFFFF : lab, cloned);
+    parse_bind_push(nam, depth + 1, dyn ? 0xFFFFFF : lab, PBIND_DUP, cloned);
     Term body;
     if (parse_match(s, ",")) {
       body = parse_term_lam(s, depth + d);
@@ -165,7 +165,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     }
   }
   // Simple single arg (with comma recursion for cloned/complex args)
-  parse_bind_push(nam, depth, 0, cloned);
+  parse_bind_push(nam, depth, 0, PBIND_LAM, cloned);
   Term body;
   if (parse_match(s, ",")) {
     body = parse_term_lam(s, depth + 1);

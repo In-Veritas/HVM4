@@ -18,7 +18,7 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   parse_consume(s, "{");
   u32 d = dyn ? 3 : 2;
   for (u32 i = 0; i < n; i++) {
-    parse_bind_push(names[i], depth + i * d + 1, dyn ? 0xFFFFFF : lab, 0);
+    parse_bind_push(names[i], depth + i * d + 1, dyn ? 0xFFFFFF : lab, PBIND_DUP, 0);
   }
   u32 body_depth = depth + n * d;
   // Optional &₀: before left branch

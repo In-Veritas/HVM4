@@ -21,7 +21,7 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
       parse_match(s, ";");
     }
     parse_skip(s);
-    parse_bind_push(nam, depth, 0xFFFFFF, cloned);
+    parse_bind_push(nam, depth, 0xFFFFFF, PBIND_DUP, cloned);
     Term body = parse_term(s, depth + 2);
     parse_bind_pop();
     if (cloned) {
@@ -56,7 +56,7 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
     parse_match(s, ";");
   }
   parse_skip(s);
-  parse_bind_push(nam, depth, lab, cloned);
+  parse_bind_push(nam, depth, lab, PBIND_DUP, cloned);
   Term body     = parse_term(s, depth + 1);
   u32 uses      = parse_bind_get_uses();
   if (!cloned && uses > 2) {
@@ -104,8 +104,8 @@ fn Term parse_term_dup(PState *s, u32 depth) {
       if (parse_match(s, ";")) {
         // Confirmed unscoped lambda
         parse_skip(s);
-        parse_bind_push(nam, depth, 0, 0);
-        parse_bind_push(nam_v, depth + 1, 0, 0);
+        parse_bind_push(nam, depth, 0, PBIND_LAM, 0);
+        parse_bind_push(nam_v, depth + 1, 0, PBIND_LAM, 0);
         u64 loc_f = heap_alloc(1);
         u64 loc_v = heap_alloc(1);
         Term body = parse_term(s, depth + 2);
@@ -123,7 +123,7 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     Term val = parse_term(s, depth);
     parse_skip(s);
     parse_match(s, ";");
-    parse_bind_push(nam, depth, 0, cloned);
+    parse_bind_push(nam, depth, 0, PBIND_LAM, cloned);
     u64  loc  = heap_alloc(1);
     Term body = parse_term(s, depth + 1);
     u32  uses = parse_bind_get_uses();

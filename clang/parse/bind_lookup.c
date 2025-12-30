@@ -1,9 +1,10 @@
-fn void parse_bind_lookup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *cloned) {
+fn void parse_bind_lookup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *kind, u32 *cloned) {
   (void)depth;
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
     if (PARSE_BINDS[i].name == name) {
       *lvl = (int)PARSE_BINDS[i].depth + 1;
       *lab = PARSE_BINDS[i].lab;
+      *kind = PARSE_BINDS[i].kind;
       *cloned = PARSE_BINDS[i].cloned;
       PARSE_BINDS[i].uses++;
       return;
@@ -11,17 +12,18 @@ fn void parse_bind_lookup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *cloned) 
   }
   *lvl = -1;
   *lab = 0;
+  *kind = 0;
   *cloned = 0;
 }
 
 // Lookup skipping dup bindings, for bare variable access that should fall through to outer scope
 // Returns 1 if found, 0 if not found
-fn int parse_bind_lookup_skip_dup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *cloned) {
+fn int parse_bind_lookup_skip_dup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *kind, u32 *cloned) {
   (void)depth;
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
     if (PARSE_BINDS[i].name == name) {
-      // Skip dup bindings (lab != 0)
-      if (PARSE_BINDS[i].lab != 0) {
+      // Skip dup bindings (kind == PBIND_DUP)
+      if (PARSE_BINDS[i].kind == PBIND_DUP) {
         continue;
       }
       // Found a non-dup binding - check if it has capacity
@@ -31,6 +33,7 @@ fn int parse_bind_lookup_skip_dup(u32 name, u32 depth, int *lvl, u32 *lab, u32 *
       }
       *lvl = (int)PARSE_BINDS[i].depth + 1;
       *lab = PARSE_BINDS[i].lab;
+      *kind = PARSE_BINDS[i].kind;
       *cloned = PARSE_BINDS[i].cloned;
       PARSE_BINDS[i].uses++;
       return 1;

@@ -22,11 +22,14 @@ application             | APP    | 0                | node: [func, arg]         
 linked variable         | VAR    | 0                | lam body or subst            | dynamic only; follows SUB cells
 linked duplicate 0      | DP0    | label            | dup expr or subst            | dynamic only; twin of DP1
 linked duplicate 1      | DP1    | label            | dup expr or subst            | dynamic only; twin of DP0
+linked move var         | GOT    | 0                | mov expr or subst            | dynamic only; follows SUB cells
 linked lambda           | LAM    | level+flags      | node: [body]                 | dynamic only; binder for VAR
 quoted lam              | LAM    | level+flags      | node: [body]                 | quoted; level stored in EXT
 superposition           | SUP    | label            | node: [tm0, tm1]             | dynamic or static
 linked duplication term | DUP    | label            | node: [expr, body]           | dynamic or static; binder for DP0/DP1
 quoted duplication term | DUP    | label            | node: [expr, body]           | expr typically `&L{BJ0,BJ1}` in quoted mode
+linked move term        | MOV    | 0                | node: [expr, body]           | dynamic or static; binder for GOT
+quoted move term        | MOV    | 0                | node: [expr, body]           | quoted; expr typically `BJM` in quoted mode
 number literal          | NUM    | 0                | unboxed u32                  | 
 constructor arity 0     | C00    | ctor name        | 0                            | tag encodes arity
 constructor arity N     | C01-16 | ctor name        | node: [field0..fieldN-1]     | N = tag - C00
@@ -48,13 +51,14 @@ wildcard                | ANY    | 0                | 0                         
 quoted lam var          | BJV    | 0                | de Bruijn level              | quoted lam-bound var
 quoted dup var 0        | BJ0    | label            | de Bruijn level              | quoted dup-bound var
 quoted dup var 1        | BJ1    | label            | de Bruijn level              | quoted dup-bound var
+quoted mov var          | BJM    | 0                | de Bruijn level              | quoted mov-bound var
 dynamic superposition   | DSU    | 0                | node: [lab, tm0, tm1]        | label computed dynamically
 dynamic duplication     | DDU    | 0                | node: [lab, val, body]       | label computed dynamically
 
 ## Substitution Cells (SUB Bit)
 
-When a linked binder interacts (APP-LAM, DUP-*), its body or expr slot is
-replaced by a substitution term with the SUB bit set. Any VAR/DP0/DP1 that
+When a linked binder interacts (APP-LAM, DUP-*, MOV-*), its body or expr slot is
+replaced by a substitution term with the SUB bit set. Any VAR/DP0/DP1/GOT that
 points to that heap location must read the substitution instead of the original
 binder. This is how linked variables resolve their binders without extra maps.
 
@@ -64,15 +68,22 @@ A DUP term is the syntactic binder `[expr, body]` with tag `DUP`. A DUP node is
 the shared expr slot that DP0/DP1 point to; it has no body and no parent, and it
 is substituted when a duplication interaction occurs.
 
+## MOV Nodes vs MOV Terms
+
+A MOV term is the syntactic binder `[expr, body]` with tag `MOV`. A MOV node is
+the shared expr slot that GOT points to; it has no body and no parent, and it is
+substituted when a move interaction occurs.
+
 ## Linked vs Quoted Binders
 
-Linked binders are dynamic lams/dups whose vars point to heap locations. Linked
-LAM uses `EXT = level | flags` and its VARs point to the body slot. Linked DUP
-uses DP0/DP1 vars that point to the shared expr slot.
+Linked binders are dynamic lams/dups/movs whose vars point to heap locations.
+Linked LAM uses `EXT = level | flags` and its VARs point to the body slot. Linked
+DUP uses DP0/DP1 vars that point to the shared expr slot. Linked MOV uses GOT
+vars that point to the shared expr slot.
 
 Quoted binders are terms encoded with de Bruijn levels in `EXT` (and for BJ0/BJ1,
-the dup label). Their variables are BJV/BJ0/BJ1 indices, so there are no heap
-links and no interaction with APP-LAM or DUP-SUP.
+the dup label). Their variables are BJV/BJ0/BJ1/BJM indices, so there are no heap
+links and no interaction with APP-LAM, DUP-SUP, or MOV-SUP.
 
 During collapse, linked LAM/DUP binders are converted into quoted LAM/DUP
 binders, and free VAR/DP0/DP1 become BJV/BJ0/BJ1 at the current level. This is

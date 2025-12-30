@@ -13,6 +13,7 @@ fn Term cnf_at(Term term, u32 depth) {
     case NUM:
     case NAM:
     case BJV:
+    case BJM:
     case BJ0:
     case BJ1: {
       return term;
@@ -73,6 +74,7 @@ fn Term cnf_at(Term term, u32 depth) {
     }
 
     case DUP:
+    case MOV:
     case APP:
     case DRY:
     case MAT:
