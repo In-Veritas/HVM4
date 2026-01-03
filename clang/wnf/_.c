@@ -127,23 +127,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto enter;
       }
 
-      case GOT: {
-        u32 loc = term_val(next);
-        Term cell = heap_take(loc);
-        if (term_sub_get(cell)) {
-          next = term_sub_set(cell, 0);
-          goto enter;
-        }
-        if (term_tag(cell) == GOT) {
-          stack[s_pos++] = next;
-          whnf = cell;
-          goto apply;
-        }
-        stack[s_pos++] = next;
-        next = cell;
-        goto enter;
-      }
-
       case APP: {
         u32  loc = term_val(next);
         Term fun = heap_read(loc);
@@ -153,13 +136,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case DUP: {
-        u32  loc  = term_val(next);
-        Term body = heap_read(loc + 1);
-        next = body;
-        goto enter;
-      }
-
-      case MOV: {
         u32  loc  = term_val(next);
         Term body = heap_read(loc + 1);
         next = body;
@@ -206,10 +182,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             next = wnf_alo_var(ls_loc, len, term_val(book), BJV);
             goto enter;
           }
-          case BJM: {
-            next = wnf_alo_got(ls_loc, len, term_val(book));
-            goto enter;
-          }
           case BJ0:
           case BJ1: {
             next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
@@ -248,10 +220,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
           }
           case DUP: {
             next = wnf_alo_dup(ls_loc, len, term_val(book), term_ext(book));
-            goto enter;
-          }
-          case MOV: {
-            next = wnf_alo_mov(ls_loc, len, term_val(book));
             goto enter;
           }
           case NUM: {
@@ -318,7 +286,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case RED:
       case NAM:
       case BJV:
-      case BJM:
       case BJ0:
       case BJ1:
       case DRY:
@@ -370,9 +337,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case NAM:
-            case VAR:
             case BJV:
-            case BJM:
             case BJ0:
             case BJ1: {
               whnf = wnf_app_nam(whnf, arg);
@@ -478,7 +443,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case NAM:
             case BJV:
-            case BJM:
             case BJ0:
             case BJ1: {
               whnf = wnf_app_red_nam(f, g, arg);
@@ -550,7 +514,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case NAM:
             case BJV:
-            case BJM:
             case BJ0:
             case BJ1:
             case DRY: {
@@ -684,7 +647,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case NAM:
             case BJV:
-            case BJM:
             case BJ0:
             case BJ1:
             case DRY: {
@@ -711,7 +673,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
           switch (term_tag(whnf)) {
             case NAM:
             case BJV:
-            case BJM:
             case BJ0:
             case BJ1: {
               whnf = wnf_dup_nam(lab, loc, side, whnf);
@@ -756,72 +717,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
               heap_set(new_loc, whnf);
               heap_subst_var(loc, term_new(0, side == 0 ? DP1 : DP0, lab, new_loc));
               whnf          = term_new(0, side == 0 ? DP0 : DP1, lab, new_loc);
-              continue;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // GOT frame: MOV node - we reduced the expr, dispatch mov interaction
-        // -----------------------------------------------------------------------
-        case GOT: {
-          u32 loc = term_val(frame);
-
-          switch (term_tag(whnf)) {
-            case GOT: {
-              Term val = wnf_mov_mov(loc, whnf);
-              stack[s_pos++] = frame;
-              next = val;
-              goto enter;
-            }
-            case NAM:
-            case BJV:
-            case BJM:
-            case BJ0:
-            case BJ1: {
-              whnf = wnf_mov_nam(loc, whnf);
-              continue;
-            }
-            case DRY: {
-              whnf = wnf_mov_dry(loc, whnf);
-              continue;
-            }
-            case RED: {
-              whnf = wnf_mov_red(loc, whnf);
-              continue;
-            }
-            case LAM: {
-              whnf = wnf_mov_lam(loc, whnf);
-              continue;
-            }
-            case SUP: {
-              next = wnf_mov_sup(loc, whnf);
-              goto enter;
-            }
-            case ERA:
-            case ANY:
-            case NUM: {
-              whnf = wnf_mov_nod(loc, whnf);
-              continue;
-            }
-            // case APP: // !! DO NOT ADD: GOT does not interact with APP.
-            case MAT:
-            case SWI:
-            case USE:
-            case INC:
-            case OP2:
-            case DSU:
-            case DDU:
-            case C00 ... C16: {
-              next = wnf_mov_nod(loc, whnf);
-              goto enter;
-            }
-            default: {
-              u64 new_loc = heap_alloc(1);
-              heap_set(new_loc, whnf);
-              Term got = term_new_got(new_loc);
-              heap_subst_var(loc, got);
-              whnf = got;
               continue;
             }
           }
@@ -1004,8 +899,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
                 goto enter;
               }
               // NAM/BJ* === NAM/BJ*
-              if ((a_tag == NAM || a_tag == BJV || a_tag == BJM || a_tag == BJ0 || a_tag == BJ1) &&
-                  (b_tag == NAM || b_tag == BJV || b_tag == BJM || b_tag == BJ0 || b_tag == BJ1)) {
+              if ((a_tag == NAM || a_tag == BJV || a_tag == BJ0 || a_tag == BJ1) &&
+                  (b_tag == NAM || b_tag == BJV || b_tag == BJ0 || b_tag == BJ1)) {
                 whnf = wnf_eql_nam(a, whnf);
                 continue;
               }
@@ -1169,7 +1064,6 @@ fn Term wnf_at(u32 loc) {
     case RED:
     case NAM:
     case BJV:
-    case BJM:
     case BJ0:
     case BJ1:
     case DRY:

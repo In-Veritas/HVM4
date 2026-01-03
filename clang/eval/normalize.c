@@ -51,7 +51,7 @@ static inline void eval_normalize_par_go(EvalNormalizeCtx *ctx, EvalNormalizeWor
   for (;;) {
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
     u8 tag = term_tag(term);
-    if (tag == DP0 || tag == DP1 || tag == GOT) {
+    if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
       if (dup_loc != 0 && !term_sub_get(heap_peek(dup_loc))) {
         if (parallel) {

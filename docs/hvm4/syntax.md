@@ -34,7 +34,6 @@ for desugaring only; the parser itself does not accept whitespace application.
 - Priority wrapper: `↑atom`
 - Wildcard: `*`
 - Lambda / dup / sup / match / literals (see below)
-- Move binding: `%x = value; body`
 
 ## Application
 
@@ -138,12 +137,6 @@ All of these combine with cloning: `λ&x&L. ...`.
 ### Unscoped lambda (UNS)
 
 - `! f = λ x ; body` desugars to `!${f,x}; body`.
-
-## Move (`%`)
-
-- `%x = v; body` binds a MOV variable `x` to `v`.
-- MOV variables are written like regular variables (`x`) and may appear more
-  than once; the parser does not enforce branch separation.
 
 ## Superposition (`&`) and fork
 

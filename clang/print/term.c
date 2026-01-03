@@ -1,10 +1,10 @@
 // Pretty-printer overview
-// - Dynamic links: LAM/VAR, DP0/DP1, and GOT point to heap locations; DUP/MOV are
-//   syntactic binders; they yield DUP/MOV nodes (DP0/DP1 and GOT share expr locs).
-// - Static terms (inside ALO) are immutable and use BJV/BJ0/BJ1/BJM de Bruijn levels.
+// - Dynamic links: LAM/VAR and DP0/DP1 point to heap locations; DUP is a
+//   syntactic binder; it yields a DUP node (DP0/DP1 share its expr loc).
+// - Static terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
 // - NAM is a literal stuck name (^x), unrelated to binders.
 // - Dynamic printing assigns globally unique names to each LAM body location.
-// - Dup/mov names are keyed by their node expr locations and printed after the term.
+// - Dup names are keyed by the DUP node expr location and printed after the term.
 // - Static printing renders quoted/book terms and applies ALO substitutions.
 // - Substitutions live in heap slots with the SUB bit set; these must be
 //   unmarked before printing, and print_term_at asserts this invariant.
@@ -24,28 +24,19 @@ typedef struct {
   u32 lab;
 } DupBind;
 
-typedef struct {
-  u32 loc;
-  u32 name;
-} MovBind;
-
 // PrintState keeps naming tables and ALO printing mode.
 // - quoted/subst/subst_len: current printing mode, bind list head, and length.
 // Fixed-size tables: keep naming simple and bounded.
 #define PRINT_NAME_MAX 65536
 static LamBind PRINT_LAMS[PRINT_NAME_MAX];
 static DupBind PRINT_DUPS[PRINT_NAME_MAX];
-static MovBind PRINT_MOVS[PRINT_NAME_MAX];
 
 typedef struct {
   u32 lam_len;
   u32 dup_len;
   u32 dup_print;
-  u32 mov_len;
-  u32 mov_print;
   u32 next_lam;
   u32 next_dup;
-  u32 next_mov;
   u8  quoted;
   u32 subst;
   u32 subst_len;
@@ -101,17 +92,11 @@ fn void print_dup_name(FILE *f, u32 name) {
   print_alpha_name(f, name, 'A');
 }
 
-// Emits a mov name (uppercase alpha).
-fn void print_mov_name(FILE *f, u32 name) {
-  print_alpha_name(f, name, 'A');
-}
-
 // Initializes the printer state and name counters.
 fn void print_state_init(PrintState *st) {
   memset(st, 0, sizeof(*st));
   st->next_lam    = 1;
   st->next_dup    = 1;
-  st->next_mov    = 1;
 }
 
 // No-op for fixed tables; kept for symmetry with print_state_init.
@@ -150,23 +135,6 @@ fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
   u32 name = st->next_dup++;
   PRINT_DUPS[st->dup_len] = (DupBind){.loc = loc, .name = name, .lab = lab};
   st->dup_len++;
-  return name;
-}
-
-// Returns the global name for a MOV node keyed by its expr location.
-fn u32 print_state_mov(PrintState *st, u32 loc) {
-  for (u32 i = 0; i < st->mov_len; i++) {
-    if (PRINT_MOVS[i].loc == loc) {
-      return PRINT_MOVS[i].name;
-    }
-  }
-  if (st->mov_len >= PRINT_NAME_MAX) {
-    fprintf(stderr, "print_state: too many movs\n");
-    exit(1);
-  }
-  u32 name = st->next_mov++;
-  PRINT_MOVS[st->mov_len] = (MovBind){.loc = loc, .name = name};
-  st->mov_len++;
   return name;
 }
 
@@ -354,30 +322,6 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       }
       break;
     }
-    case BJM: {
-      // Quoted MOV var: val is de Bruijn level; try ALO substitution.
-      u32 lvl  = term_val(term);
-      u32 bind = 0;
-      if (quoted && lvl > 0 && lvl <= st->subst_len) {
-        bind = alo_subst_get(subst, st->subst_len - lvl);
-      }
-      if (bind != 0) {
-        Term val = HEAP[bind];
-        if (term_sub_get(val)) {
-          val = term_sub_set(val, 0);
-          print_term_mode(f, val, depth, 0, 0, 0, st);
-        } else {
-          print_term_mode(f, term_new_got(bind), depth, 0, 0, 0, st);
-        }
-      } else {
-        u32 nam = (lvl > st->subst_len) ? (lvl - st->subst_len) : 0;
-        if (nam > depth) {
-          nam = 0;
-        }
-        print_mov_name(f, nam);
-      }
-      break;
-    }
     case NUM: {
       fprintf(f, "%u", term_val(term));
       break;
@@ -456,17 +400,6 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       }
       break;
     }
-    case GOT: {
-      // Runtime GOT: val is a MOV node expr location.
-      u32 loc = term_val(term);
-      if (loc != 0 && term_sub_get(HEAP[loc])) {
-        print_term_mode(f, term_sub_set(HEAP[loc], 0), depth, 0, 0, 0, st);
-      } else {
-        u32 nam = print_state_mov(st, loc);
-        print_mov_name(f, nam);
-      }
-      break;
-    }
     case LAM: {
       // Quoted mode uses depth-based names; dynamic mode uses global naming.
       u32 loc = term_val(term);
@@ -512,21 +445,6 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
         print_term_at(f, HEAP[loc + 1], depth + 1, st);
       } else {
         print_state_dup(st, loc, term_ext(term));
-        print_term_at(f, HEAP[loc + 1], depth, st);
-      }
-      break;
-    }
-    case MOV: {
-      // MOV term is a syntactic binder; dynamic mode prints the body.
-      u32 loc = term_val(term);
-      if (quoted) {
-        fputc('%', f);
-        print_alpha_name(f, depth + 1, 'A');
-        fputc('=', f);
-        print_term_at(f, HEAP[loc + 0], depth, st);
-        fputc(';', f);
-        print_term_at(f, HEAP[loc + 1], depth + 1, st);
-      } else {
         print_term_at(f, HEAP[loc + 1], depth, st);
       }
       break;
@@ -687,54 +605,29 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
   }
 }
 
-// Prints all discovered dup/mov definitions after the main term.
+// Prints all discovered dup definitions after the main term.
 fn void print_term_finish(FILE *f, PrintState *st) {
-  int need_sep = 1;
-  for (;;) {
-    u32 prev_dup_len = st->dup_len;
-    u32 prev_mov_len = st->mov_len;
-    while (st->dup_print < st->dup_len) {
-      if (need_sep) {
-        fputc(';', f);
-        need_sep = 0;
-      }
-      u32 idx = st->dup_print++;
-      u32 loc = PRINT_DUPS[idx].loc;
-      u32 lab = PRINT_DUPS[idx].lab;
-      u32 nam = PRINT_DUPS[idx].name;
-      fputc('!', f);
-      print_dup_name(f, nam);
-      fputc('&', f);
-      print_name(f, lab);
-      fputc('=', f);
-      Term val = HEAP[loc];
-      if (term_sub_get(val)) {
-        val = term_sub_set(val, 0);
-      }
-      print_term_at(f, val, 0, st);
+  int need_sep = (st->dup_print == 0);
+  while (st->dup_print < st->dup_len) {
+    if (need_sep) {
       fputc(';', f);
+      need_sep = 0;
     }
-    while (st->mov_print < st->mov_len) {
-      if (need_sep) {
-        fputc(';', f);
-        need_sep = 0;
-      }
-      u32 idx = st->mov_print++;
-      u32 loc = PRINT_MOVS[idx].loc;
-      u32 nam = PRINT_MOVS[idx].name;
-      fputc('%', f);
-      print_mov_name(f, nam);
-      fputc('=', f);
-      Term val = HEAP[loc];
-      if (term_sub_get(val)) {
-        val = term_sub_set(val, 0);
-      }
-      print_term_at(f, val, 0, st);
-      fputc(';', f);
+    u32 idx = st->dup_print++;
+    u32 loc = PRINT_DUPS[idx].loc;
+    u32 lab = PRINT_DUPS[idx].lab;
+    u32 nam = PRINT_DUPS[idx].name;
+    fputc('!', f);
+    print_dup_name(f, nam);
+    fputc('&', f);
+    print_name(f, lab);
+    fputc('=', f);
+    Term val = HEAP[loc];
+    if (term_sub_get(val)) {
+      val = term_sub_set(val, 0);
     }
-    if (st->dup_len == prev_dup_len && st->mov_len == prev_mov_len) {
-      break;
-    }
+    print_term_at(f, val, 0, st);
+    fputc(';', f);
   }
 }
 
@@ -752,7 +645,7 @@ fn void print_term(Term term) {
   print_term_ex(stdout, term);
 }
 
-// Prints a static/quoted term (BJV/BJ0/BJ1/BJM) with depth-based lambda names.
+// Prints a static/quoted term (BJV/BJ0/BJ1) with depth-based lambda names.
 fn void print_term_quoted(Term term) {
   PrintState st;
   print_state_init(&st);
