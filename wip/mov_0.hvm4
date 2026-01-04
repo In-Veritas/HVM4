@@ -15,6 +15,6 @@
 @clr = λx. λt. λ&f. x(f,f)
 //@clr = λx. λt. λf. x(f, f)
 
-@main = @rep(@bin(32n,12345678), @clr, λt. λf. t)
+@main = @rep(@bin(32n,3), @clr, λt. λf. t)
 
 
