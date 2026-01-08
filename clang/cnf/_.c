@@ -66,18 +66,10 @@ static inline CnfPool *cnf_pool_ctx(void) {
   return atomic_load_explicit(&CNF_POOL, memory_order_acquire);
 }
 
-static inline void cnf_pool_pending_inc(_Atomic u32 *pending) {
-  atomic_fetch_add_explicit(pending, 1, memory_order_relaxed);
-}
-
-static inline void cnf_pool_pending_dec(_Atomic u32 *pending) {
-  atomic_fetch_sub_explicit(pending, 1, memory_order_release);
-}
-
 static inline void cnf_task_run_spawned(CnfPool *pool, CnfTask *task) {
   Term res = cnf_at(task->term, task->depth, task->par_depth);
   *task->out = res;
-  cnf_pool_pending_dec(task->pending);
+  atomic_fetch_sub_explicit(task->pending, 1, memory_order_release);
   atomic_fetch_sub_explicit(&pool->pending, 1, memory_order_relaxed);
 }
 
@@ -127,18 +119,18 @@ static inline void cnf_pool_join(CnfPool *pool, _Atomic u32 *pending) {
   }
 }
 
-static inline void cnf_pool_spawn(CnfPool *pool, _Atomic u32 *pending, CnfTask *task) {
+static inline void cnf_pool_spawn(CnfPool *pool, CnfTask *task) {
   if (!pool || pool->n <= 1) {
     cnf_task_run_inline(task);
     return;
   }
-  cnf_pool_pending_inc(pending);
+  atomic_fetch_add_explicit(task->pending, 1, memory_order_relaxed);
   atomic_fetch_add_explicit(&pool->pending, 1, memory_order_relaxed);
   u32 tid = wnf_tid();
   if (wsq_push(&pool->dq[tid], (u64)(uintptr_t)task)) {
     return;
   }
-  cnf_pool_pending_dec(pending);
+  atomic_fetch_sub_explicit(task->pending, 1, memory_order_release);
   atomic_fetch_sub_explicit(&pool->pending, 1, memory_order_relaxed);
   cnf_task_run_inline(task);
 }
@@ -266,7 +258,7 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
           tasks[i].par_depth = next_par;
           tasks[i].out = &children[i];
           tasks[i].pending = &pending;
-          cnf_pool_spawn(pool, &pending, &tasks[i]);
+          cnf_pool_spawn(pool, &tasks[i]);
         }
 
         cnf_pool_join(pool, &pending);

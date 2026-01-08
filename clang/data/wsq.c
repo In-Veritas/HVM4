@@ -32,7 +32,7 @@ typedef struct {
 } WsqIdx;
 
 // Work-stealing deque state (single owner, multi-stealer).
-typedef struct __attribute__((aligned(128))) {
+typedef struct __attribute__((aligned(WSQ_L1))) {
   WsqIdx top;
   WsqIdx bot;
   _Alignas(WSQ_L1) u64 *buf;
