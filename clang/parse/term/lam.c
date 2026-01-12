@@ -1,4 +1,5 @@
 fn Term parse_term(PState *s, u32 depth);
+fn u32  parse_char_lit(PState *s);
 
 fn Term parse_term_lam(PState *s, u32 depth) {
   parse_skip(s);
@@ -15,6 +16,17 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       parse_skip(s);
       u8  tag = 0;
       u32 ext = 0;
+      if (parse_peek(s) == '\'') {
+        u32 sav = s->pos;
+        u32 code = parse_char_lit(s);
+        parse_skip(s);
+        if (parse_peek(s) == ':') {
+          tag = SWI;
+          ext = code;
+        } else {
+          s->pos = sav;
+        }
+      }
       if (isdigit(parse_peek(s))) {
         u32 sav = s->pos;
         while (isdigit(parse_peek(s))) {
