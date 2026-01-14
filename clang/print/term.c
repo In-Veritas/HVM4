@@ -208,19 +208,19 @@ fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
     }
     return;
   }
-  // Char: 'x' or 'λ'
+  // Char: 'x' or '\n'
   if (nam == NAM_CHR && ari == 1 && term_tag(HEAP[loc]) == NUM) {
     u32 c = term_val(HEAP[loc]);
-    if (c >= 32 && c != 127) {
+    if (print_utf8_can_escape(c, PRINT_ESC_CHAR)) {
       fputc('\'', f);
-      print_utf8(f, c);
+      print_utf8_escape(f, c, PRINT_ESC_CHAR);
       fputc('\'', f);
       return;
     }
   }
   // List/String
   if (nam == NAM_NIL || nam == NAM_CON) {
-    // Check if string (non-empty, all printable chars including Unicode)
+    // Check if string (non-empty, all escapable chars)
     int is_str = (nam == NAM_CON);
     for (Term x = t; term_tag(x) == C02 && term_ext(x) == NAM_CON; x = HEAP[term_val(x) + 1]) {
       Term h = HEAP[term_val(x)];
@@ -233,7 +233,7 @@ fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
         break;
       }
       u32 c = term_val(HEAP[term_val(h)]);
-      if (c < 32 || c == 127) {
+      if (!print_utf8_can_escape(c, PRINT_ESC_STR)) {
         is_str = 0;
         break;
       }
@@ -245,7 +245,8 @@ fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
     if (is_str && term_tag(end) == C00 && term_ext(end) == NAM_NIL) {
       fputc('"', f);
       for (Term x = t; term_tag(x) == C02; x = HEAP[term_val(x) + 1]) {
-        print_utf8(f, term_val(HEAP[term_val(HEAP[term_val(x)])]));
+        u32 c = term_val(HEAP[term_val(HEAP[term_val(x)])]);
+        print_utf8_escape(f, c, PRINT_ESC_STR);
       }
       fputc('"', f);
       return;
