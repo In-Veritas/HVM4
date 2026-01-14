@@ -13,12 +13,14 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth) {
     parse_skip(s);
     parse_match(s, ";");
     parse_skip(s);
-    parse_bind_push(nam, depth, 0xFFFFFF, 0, cloned);
+    PBind* bind = parse_bind_push(nam, depth, 0xFFFFFF, 0, cloned);
     Term body = parse_term(s, depth + 2);
+    u32 uses0 = bind->uses0;
+    u32 uses1 = bind->uses1;
     parse_bind_pop();
     if (cloned) {
-      body = parse_auto_dup(body, depth + 1, depth + 2, BJV, 0);
-      body = parse_auto_dup(body, depth + 2, depth + 2, BJV, 0);
+      body = parse_auto_dup(body, depth + 1, depth + 2, BJV, 0, uses0);
+      body = parse_auto_dup(body, depth + 2, depth + 2, BJV, 0, uses1);
     }
     u64 loc0   = heap_alloc(1);
     u64 loc1   = heap_alloc(1);
@@ -41,11 +43,11 @@ fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth) {
   parse_skip(s);
   parse_match(s, ";");
   parse_skip(s);
-  parse_bind_push(nam, depth, lab, 0, cloned);
-  Term body     = parse_term(s, depth + 1);
+  PBind* bind = parse_bind_push(nam, depth, lab, 0, cloned);
+  Term body   = parse_term(s, depth + 1);
   if (cloned) {
-    body = parse_auto_dup(body, depth + 1, depth + 1, BJ1, lab);
-    body = parse_auto_dup(body, depth + 1, depth + 1, BJ0, lab);
+    body = parse_auto_dup(body, depth + 1, depth + 1, BJ1, lab, bind->uses1);
+    body = parse_auto_dup(body, depth + 1, depth + 1, BJ0, lab, bind->uses0);
   }
   HEAP[loc + 1] = body;
   parse_bind_pop();
@@ -104,12 +106,12 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     Term val = parse_term(s, depth);
     parse_skip(s);
     parse_match(s, ";");
-    parse_bind_push(nam, depth, 0, 0, cloned);
+    PBind* bind = parse_bind_push(nam, depth, 0, 0, cloned);
     u64  loc  = heap_alloc(1);
     Term body = parse_term(s, depth + 1);
     // Apply auto-dup transformation for cloned variables with multiple uses
     if (cloned) {
-      body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0);
+      body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0, bind->uses);
     }
     HEAP[loc] = body;
     parse_bind_pop();

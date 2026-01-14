@@ -8,8 +8,8 @@
 // - The chain ensures that the two sides of each DUP are consumed exactly once.
 //
 // The key correctness invariant is that the chain length matches the number
-// of target occurrences in the (already desugared) body. We compute that
-// count by traversing the term.
+// of target occurrences in the (already desugared) body. The uses count is
+// passed from the parser's PBind tracking.
 //
 // We traverse all children and sum uses. This keeps every occurrence unique
 // across the whole term, which is required because SNF will traverse every
@@ -18,32 +18,6 @@
 // Works for both BJV refs (let/lambda bindings) and BJ refs (dup bindings).
 // - Target is identified by tag + level (and ext for BJ mode).
 // - Outer refs (level > base depth) are shifted by n to account for new dup terms.
-
-fn u32 auto_dup_count_go(u64 loc, u32 lvl, u8 tgt, u32 ext);
-
-fn u32 auto_dup_count_term(Term t, u32 lvl, u8 tgt, u32 ext) {
-  u8  tg = term_tag(t);
-  u32 vl = term_val(t);
-
-  if (tg == tgt && vl == lvl && (tgt == BJV || term_ext(t) == ext)) {
-    return 1;
-  }
-
-  u32 ari = term_arity(t);
-  if (ari == 0) {
-    return 0;
-  }
-
-  u32 sum = 0;
-  for (u32 i = 0; i < ari; i++) {
-    sum += auto_dup_count_go(vl + i, lvl, tgt, ext);
-  }
-  return sum;
-}
-
-fn u32 auto_dup_count_go(u64 loc, u32 lvl, u8 tgt, u32 ext) {
-  return auto_dup_count_term(HEAP[loc], lvl, tgt, ext);
-}
 
 fn void auto_dup_go(u64 loc, u32 lvl, u32 base, u32 *use, u32 n, u32 lab, u8 tgt, u32 ext) {
   Term t = HEAP[loc];
@@ -87,8 +61,7 @@ fn void auto_dup_go(u64 loc, u32 lvl, u32 base, u32 *use, u32 n, u32 lab, u8 tgt
   }
 }
 
-fn Term parse_auto_dup(Term body, u32 lvl, u32 base, u8 tgt, u32 ext) {
-  u32 uses = auto_dup_count_term(body, lvl, tgt, ext);
+fn Term parse_auto_dup(Term body, u32 lvl, u32 base, u8 tgt, u32 ext, u32 uses) {
   if (uses <= 1) {
     return body;
   }

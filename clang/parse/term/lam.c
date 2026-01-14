@@ -140,12 +140,15 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       parse_consume(s, ".");
       body = parse_term(s, depth + d);
     }
-    u32 uses = bind->uses;
+    u32 uses  = bind->uses;
+    u32 uses0 = bind->uses0;
+    u32 uses1 = bind->uses1;
     parse_bind_pop();
     if (dyn) {
+      //λx&(L) -> λx.!x&(L) = x;
       if (cloned) {
-        body = parse_auto_dup(body, depth + 2, depth + 3, BJV, 0);
-        body = parse_auto_dup(body, depth + 3, depth + 3, BJV, 0);
+        body = parse_auto_dup(body, depth + 2, depth + 3, BJV, 0, uses0);
+        body = parse_auto_dup(body, depth + 3, depth + 3, BJV, 0, uses1);
       }
       u64 loc1 = heap_alloc(1);
       HEAP[loc1] = body;
@@ -160,9 +163,10 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       }
       return term_new(0, LAM, lam_ext, lam_loc);
     } else {
+      //λx&L
       if (cloned) {
-        body = parse_auto_dup(body, depth + 2, depth + 2, BJ1, lab);
-        body = parse_auto_dup(body, depth + 2, depth + 2, BJ0, lab);
+        body = parse_auto_dup(body, depth + 2, depth + 2, BJ1, lab, uses1);
+        body = parse_auto_dup(body, depth + 2, depth + 2, BJ0, lab, uses0);
       }
       u64 dup_term_loc = heap_alloc(2);
       HEAP[dup_term_loc + 0] = term_new(0, BJV, 0, depth + 1);
@@ -186,11 +190,11 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     parse_consume(s, ".");
     body = parse_term(s, depth + 1);
   }
-  if (cloned) {
-    body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0);
-  }
   u32 uses = bind->uses;
   parse_bind_pop();
+  if (cloned) {
+    body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0, uses);
+  }
   u32 lam_ext = depth + 1;
   if (uses == 0) {
     lam_ext |= LAM_ERA_MASK;
