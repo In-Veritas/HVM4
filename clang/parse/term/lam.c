@@ -17,19 +17,15 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       parse_skip(s);
       u8  tag = 0;
       u32 ext = 0;
+      PState save = *s;
+      // Select the match case:
       if (parse_peek(s) == '\'') {
-        u32 sav = s->pos;
         u32 code = parse_char_lit(s);
         parse_skip(s);
-        if (parse_peek(s) == ':') {
-          tag = SWI;
-          ext = code;
-        } else {
-          s->pos = sav;
-        }
+        tag = SWI;
+        ext = code;
       }
-      if (isdigit(parse_peek(s))) {
-        u32 sav = s->pos;
+      else if (isdigit(parse_peek(s))) {
         while (isdigit(parse_peek(s))) {
           ext = ext * 10 + (parse_peek(s) - '0');
           parse_advance(s);
@@ -47,25 +43,21 @@ fn Term parse_term_lam(PState *s, u32 depth) {
             parse_advance(s);
             tag = MAT;
             ext = NAM_SUC;
-          } else {
-            s->pos = sav;
           }
-        } else {
-          s->pos = sav;
         }
       }
-      if (!tag && parse_peek(s) == '#') {
+      else if (parse_peek(s) == '#') {
         parse_advance(s);
         tag = MAT;
         ext = parse_name(s);
       }
-      if (!tag && parse_peek(s) == '[' && parse_peek_at(s, 1) == ']') {
+      else if (parse_peek(s) == '[' && parse_peek_at(s, 1) == ']') {
         parse_advance(s);
         parse_advance(s);
         tag = MAT;
         ext = NAM_NIL;
       }
-      if (!tag && parse_peek(s) == '<' && parse_peek_at(s, 1) == '>') {
+      else if (parse_peek(s) == '<' && parse_peek_at(s, 1) == '>') {
         parse_advance(s);
         parse_advance(s);
         tag = MAT;
@@ -84,20 +76,27 @@ fn Term parse_term_lam(PState *s, u32 depth) {
         tip  = &HEAP[loc + 1];
         continue;
       }
-      if (parse_peek(s) == '}') {
-        parse_consume(s, "}");
-        return term;
-      }
-      if (parse_peek(s) == '_') {
-        parse_advance(s);
-        parse_skip(s);
-        parse_consume(s, ":");
-      }
+      // Not a match case, backtrack
+      *s = save;
+
+      // Use: λ{f}
       if (term == term_new_num(0)) {
         Term f = parse_term(s, depth);
         parse_skip(s);
         parse_consume(s, "}");
         return term_new_use(f);
+      }
+      // Match ending with no default
+      if (parse_peek(s) == '}') {
+        parse_consume(s, "}");
+        return term;
+      }
+      // Match ending with default
+      // Optional "_:" before default case
+      if (parse_peek(s) == '_') {
+        parse_advance(s);
+        parse_skip(s);
+        parse_consume(s, ":");
       }
       *tip = parse_term(s, depth);
       parse_skip(s);

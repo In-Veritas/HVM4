@@ -27,14 +27,20 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   }
   u32 body_depth = depth + n * d;
   // Optional &₀: before left branch
-  parse_match(s, "&₀:");
+  if (parse_match(s, "&₀")) {
+    parse_skip(s);
+    parse_consume(s, ":");
+  }
   PARSE_FORK_SIDE = 0;
   Term left = parse_term(s, body_depth);
   parse_skip(s);
   parse_match(s, ";");  // optional semicolon between branches
   parse_skip(s);
   // Optional &₁: before right branch
-  parse_match(s, "&₁:");
+  if (parse_match(s, "&₁")) {
+    parse_skip(s);
+    parse_consume(s, ":");
+  }
   PARSE_FORK_SIDE = 1;
   Term right = parse_term(s, body_depth);
   PARSE_FORK_SIDE = -1;
@@ -51,7 +57,7 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   } else {
     body = term_new_sup(lab, left, right);
   }
-  // Wrap with λ&L or λ&(L) for each arg (reverse order)
+  // Wrap with λx&L or λx&(L) for each arg (reverse order)
   for (int i = n - 1; i >= 0; i--) {
     u32 dd = depth + i * d;
     if (dyn) {
@@ -64,11 +70,9 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
       HEAP[lam_loc] = ddu;
       body = term_new(0, LAM, dd + 1, lam_loc);
     } else {
-      u64 dup_term_loc = heap_alloc(2);
-      HEAP[dup_term_loc + 0] = term_new(0, BJV, 0, dd + 1);
-      HEAP[dup_term_loc + 1] = body;
+      Term dup = term_new_dup(lab, term_new(0, BJV, 0, dd + 1), body);
       u64 lam_loc = heap_alloc(1);
-      HEAP[lam_loc] = term_new(0, DUP, lab, dup_term_loc);
+      HEAP[lam_loc] = dup;
       body = term_new(0, LAM, dd + 1, lam_loc);
     }
   }
