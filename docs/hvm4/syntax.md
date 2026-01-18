@@ -29,6 +29,7 @@ for desugaring only; the parser itself does not accept whitespace application.
 - Grouping: `(term)`
 - Constructor: `#Name` or `#Name{a,b,c}` (commas optional, trailing comma ok)
 - Reference: `@Name`
+- Primitive: `%Name`
 - Name head: `^Name`
 - Dry app: `^(f x)`
 - Priority wrapper: `↑atom`
@@ -219,8 +220,14 @@ can be written as `_ : d` or as a bare `d`.
 ## Names and references
 
 - `@Name` is a book reference.
+- `%Name` is a primitive (native) function; it must be fully applied as
+  `%Name(arg1, arg2, ...)` with the correct arity (bare `%Name` is a parse error).
 - `^Name` is a stuck name head.
 - `^(f x)` is a dry application.
+
+### Primitives
+
+- `%log` prints a string (list of `#Chr`) to stdout and returns `#Nil`.
 
 ## Priority wrapper and wildcard
 

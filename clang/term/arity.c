@@ -45,6 +45,7 @@ static const u8 TERM_ARITY[TAG_MASK + 1] = {
   [BJV] = 0,
   [BJ0] = 0,
   [BJ1] = 0,
+  [PRI] = 0,
 };
 
 fn u32 term_arity(Term t) {

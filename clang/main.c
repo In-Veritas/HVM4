@@ -116,6 +116,9 @@ int main(int argc, char **argv) {
   }
   heap_init_slices();
 
+  // Register known primitives before parsing (needed for arity checks).
+  prim_init();
+
   // Set debug mode
   DEBUG = opts.debug;
   SILENT = opts.silent;

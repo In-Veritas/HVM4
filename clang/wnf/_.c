@@ -227,6 +227,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             goto enter;
           }
           case REF:
+          case PRI:
           case ERA:
           case ANY: {
             next = book;
@@ -350,6 +351,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case LAM: {
               next = wnf_app_lam(whnf, arg);
               goto enter;
+            }
+            case PRI: {
+              stack[s_pos++] = frame;
+              whnf = wnf_app_pri(whnf, stack, &s_pos, base);
+              continue;
             }
             case SUP: {
               whnf = wnf_app_sup(frame, whnf);
@@ -682,6 +688,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case ERA:
             case ANY:
+            case PRI:
             case NUM: {
               whnf = wnf_dup_nod(lab, loc, side, whnf);
               continue;
@@ -1054,6 +1061,7 @@ fn Term wnf_at(u32 loc) {
     case BJ1:
     case DRY:
     case ERA:
+    case PRI:
     case SUP:
     case LAM:
     case NUM:
@@ -1098,6 +1106,7 @@ __attribute__((cold, noinline)) fn Term wnf_steps_at(u32 loc) {
     case BJ1:
     case DRY:
     case ERA:
+    case PRI:
     case SUP:
     case LAM:
     case NUM:

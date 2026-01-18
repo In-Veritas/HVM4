@@ -159,6 +159,7 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
   switch (term_tag(term)) {
     case ERA:
     case REF:
+    case PRI:
     case NUM:
     case NAM:
     case BJV:

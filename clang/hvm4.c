@@ -90,6 +90,7 @@ typedef struct {
 #define BJV 43  // Bjv(n): quoted lambda-bound variable (de Bruijn level)
 #define BJ0 44  // Bj0(n): quoted dup-bound variable (side 0, de Bruijn level)
 #define BJ1 45  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
+#define PRI 46  // Pri(p): primitive (native) function
 
 // LAM Ext Flags
 // =============
@@ -301,6 +302,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "term/new/dry.c"
 #include "term/new/var.c"
 #include "term/new/ref.c"
+#include "term/new/pri.c"
 #include "term/new/era.c"
 #include "term/new/any.c"
 #include "term/new/dp0.c"
@@ -360,6 +362,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "print/name.c"
 #include "print/utf8.c"
+#include "prim/register.c"
+#include "prim/fn/log.c"
+#include "prim/fn/log_go_0.c"
+#include "prim/fn/log_go_1.c"
+#include "prim/fn/log_go_2.c"
+#include "prim/init.c"
 #include "print/term.c"
 
 // Parse
@@ -390,6 +398,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "parse/term/sup.c"
 #include "parse/term/ctr.c"
 #include "parse/term/ref.c"
+#include "parse/term/pri.c"
 #include "parse/term/nam.c"
 #include "parse/term/par.c"
 #include "parse/term/num.c"
@@ -421,6 +430,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/app_lam.c"
 #include "wnf/app_sup.c"
 #include "wnf/app_inc.c"
+#include "wnf/app_pri.c"
 #include "wnf/app_mat_sup.c"
 #include "wnf/app_mat_ctr.c"
 #include "wnf/app_mat_num.c"
