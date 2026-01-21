@@ -65,7 +65,6 @@ fn Term parse_auto_dup(Term body, u32 lvl, u32 base, u8 tgt, u32 ext, u32 uses) 
   if (uses <= 1) {
     return body;
   }
-
   u32 n   = uses - 1;
   u32 lab = PARSE_FRESH_LAB;
   PARSE_FRESH_LAB += n;

@@ -12,15 +12,6 @@ fn Term parse_term_var(PState *s, u32 depth) {
   if (side == -1 && bind->forked) {
     side = PARSE_FORK_SIDE;
   }
-  u32 uses = ++bind->uses;
-  if (side == 0) {
-    uses = ++bind->uses0;
-  } else if (side == 1) {
-    uses = ++bind->uses1;
-  }
-  if (!bind->cloned && uses > 1) {
-    parse_error_affine(s, nam, side);
-  }
   // Handle dynamic dup binding (lab=0xFFFFFF marker)
   // For dynamic dup, X₀ and X₁ become BJV references to nested lambdas
   if (bind->lab == 0xFFFFFF) {

@@ -50,6 +50,24 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   for (u32 i = 0; i < n; i++) {
     parse_bind_pop();
   }
+  // Check affine for each forked variable
+  for (u32 i = 0; i < n; i++) {
+    u32 lvl = depth + i * d + 1;
+    u32 uses0, uses1;
+    if (dyn) {
+      uses0 = count_uses(left, lvl, BJV, 0);
+      uses1 = count_uses(right, lvl + 1, BJV, 0);
+    } else {
+      uses0 = count_uses(left, lvl, BJ0, lab);
+      uses1 = count_uses(right, lvl, BJ1, lab);
+    }
+    if (uses0 > 1) {
+      parse_error_affine(s, names[i], 0, uses0);
+    }
+    if (uses1 > 1) {
+      parse_error_affine(s, names[i], 1, uses1);
+    }
+  }
   // Build body: DSU or SUP
   Term body;
   if (dyn) {

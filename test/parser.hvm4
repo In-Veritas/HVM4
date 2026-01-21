@@ -100,14 +100,14 @@
 
 @frk = &Lλx{x ; x}
 
-@frk_dyn = λL.&(L) λx,y {x ; y}
+@frk_dyn = λ&L.&(L) λx,y {x ; y}
 
 @frk_brnch = &L λx,y {
   &₀: x ; 
   &₁: y ;
 }
 
-@frk_brnch_dyn = λL. &(L) λx, y {
+@frk_brnch_dyn = λ&L. &(L) λx, y {
   &₀: x ;
   &₁: y ;
 }

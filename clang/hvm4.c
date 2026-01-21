@@ -259,9 +259,6 @@ typedef struct {
   u32 lab;
   u32 forked;  // 1 if this is a fork variable
   u32 cloned;  // 1 if this is a cloned variable (λ&x or ! &x = v)
-  u32 uses;    // Number of times this variable is used
-  u32 uses0;   // Number of times X₀ is used (for cloned dup bindings)
-  u32 uses1;   // Number of times X₁ is used (for cloned dup bindings)
 } PBind;
 
 // Parser Globals
@@ -389,6 +386,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "parse/bind_push.c"
 #include "parse/bind_pop.c"
 #include "parse/bind_lookup.c"
+#include "parse/count_uses.c"
 #include "parse/auto_dup.c"
 #include "parse/name.c"
 #include "parse/utf8.c"

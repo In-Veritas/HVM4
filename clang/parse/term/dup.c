@@ -38,6 +38,14 @@ fn Term parse_term_dup(PState *s, u32 depth) {
         Term body = parse_term(s, depth + 2);
         parse_bind_pop();
         parse_bind_pop();
+        u32 uses_f = count_uses(body, depth + 1, BJV, 0);
+        u32 uses_v = count_uses(body, depth + 2, BJV, 0);
+        if (uses_f > 1) {
+          parse_error_affine(s, nam, -1, uses_f);
+        }
+        if (uses_v > 1) {
+          parse_error_affine(s, nam_v, -1, uses_v);
+        }
         HEAP[loc_v] = body;
         Term lam_v = term_new(0, LAM, depth + 2, loc_v);
         HEAP[loc_f] = lam_v;
@@ -53,10 +61,14 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     PBind* bind = parse_bind_push(nam, depth, 0, 0, cloned);
     u64  loc  = heap_alloc(1);
     Term body = parse_term(s, depth + 1);
-    if (cloned) {
-      body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0, bind->uses);
-    }
     parse_bind_pop();
+    u32 uses = count_uses(body, depth + 1, BJV, 0);
+    if (cloned) {
+      body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0, uses);
+    }
+    if (!cloned && uses > 1) {
+      parse_error_affine(s, nam, -1, uses);
+    }
     HEAP[loc] = body;
     Term lam = term_new(0, LAM, depth + 1, loc);
     if (strict) {
@@ -84,11 +96,19 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     parse_skip(s);
     PBind* bind = parse_bind_push(nam, depth, 0xFFFFFF, 0, cloned);
     Term body = parse_term(s, depth + 2);
-    if (cloned) {
-      body = parse_auto_dup(body, depth + 1, depth + 2, BJV, 0, bind->uses0);
-      body = parse_auto_dup(body, depth + 2, depth + 2, BJV, 0, bind->uses1);
-    }
     parse_bind_pop();
+    u32 uses0 = count_uses(body, depth + 1, BJV, 0);
+    u32 uses1 = count_uses(body, depth + 2, BJV, 0);
+    if (cloned) {
+      body = parse_auto_dup(body, depth + 1, depth + 2, BJV, 0, uses0);
+      body = parse_auto_dup(body, depth + 2, depth + 2, BJV, 0, uses1);
+    }
+    if (!cloned && uses0 > 1) {
+      parse_error_affine(s, nam, 0, uses0);
+    }
+    if (!cloned && uses1 > 1) {
+      parse_error_affine(s, nam, 1, uses1);
+    }
     u64 loc0   = heap_alloc(1);
     u64 loc1   = heap_alloc(1);
     HEAP[loc1] = body;
@@ -112,11 +132,19 @@ fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
   PBind* bind = parse_bind_push(nam, depth, lab, 0, cloned);
   Term body   = parse_term(s, depth + 1);
-  if (cloned) {
-    body = parse_auto_dup(body, depth + 1, depth + 1, BJ1, lab, bind->uses1);
-    body = parse_auto_dup(body, depth + 1, depth + 1, BJ0, lab, bind->uses0);
-  }
   parse_bind_pop();
+  u32 uses0 = count_uses(body, depth + 1, BJ0, lab);
+  u32 uses1 = count_uses(body, depth + 1, BJ1, lab);
+  if (cloned) {
+    body = parse_auto_dup(body, depth + 1, depth + 1, BJ1, lab, uses1);
+    body = parse_auto_dup(body, depth + 1, depth + 1, BJ0, lab, uses0);
+  }
+  if (!cloned && uses0 > 1) {
+    parse_error_affine(s, nam, 0, uses0);
+  }
+  if (!cloned && uses1 > 1) {
+    parse_error_affine(s, nam, 1, uses1);
+  }
   HEAP[loc + 1] = body;
   return term_new(0, DUP, lab, loc);
 }
