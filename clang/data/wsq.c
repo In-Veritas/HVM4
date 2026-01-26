@@ -95,7 +95,7 @@ static inline int wsq_pop(WsDeque *q, u64 *out) {
   size_t b1 = b - 1;
   __builtin_prefetch(&q->buf[b1 & q->mask], 0, 1);
   atomic_store_explicit(&q->bot.v, b1, memory_order_release);
-  atomic_thread_fence(memory_order_acq_rel);
+  atomic_thread_fence(memory_order_seq_cst);
 
   size_t t = atomic_load_explicit(&q->top.v, memory_order_acquire);
   if (t <= b1) {
