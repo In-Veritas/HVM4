@@ -10,9 +10,6 @@
 
 #define EVAL_NORMALIZE_SEEN_INIT (1u << 20)
 
-#define EVAL_NORMALIZE_TASK(loc) ((u64)(loc))
-#define EVAL_NORMALIZE_TASK_LOC(task) ((u32)(task))
-
 typedef struct __attribute__((aligned(64))) {
   WsDeque dq;
   Uset  seen;
@@ -30,87 +27,41 @@ typedef struct {
 } EvalNormalizeArg;
 
 
-static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 task);
+static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc);
 
-static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 task) {
-  if (EVAL_NORMALIZE_TASK_LOC(task) == 0) {
-    return;
-  }
-  if (wsq_push(&worker->dq, task)) {
-    atomic_fetch_add_explicit(&ctx->pending, 1, memory_order_relaxed);
-  } else {
-    eval_normalize_go(ctx, worker, task);
-  }
-}
-
-static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 task) {
-  u32 loc = EVAL_NORMALIZE_TASK_LOC(task);
+static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
   if (loc == 0) {
     return;
   }
-  if (!uset_add(&worker->seen, loc)) {
-    return;
+  if (wsq_push(&worker->dq, (u64)loc)) {
+    atomic_fetch_add_explicit(&ctx->pending, 1, memory_order_release);
+  } else {
+    eval_normalize_go(ctx, worker, loc);
   }
-  bool parallel = ctx->n > 1;
+}
+
+static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
   for (;;) {
+    if (!uset_add(&worker->seen, loc)) {
+      return;
+    }
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
+    // DP0/DP1 have term_arity == 0, handle separately
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
       if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
-        if (parallel) {
-          eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(dup_loc));
-          return;
-        } else {
-          if (!uset_add(&worker->seen, dup_loc)) {
-            return;
-          }
-          loc = dup_loc;
-          continue;
-        }
+        loc = dup_loc;
+        continue;
       }
     }
-
     u32 ari = term_arity(term);
     if (ari == 0) {
       return;
     }
     u32 tloc = term_val(term);
-    if (parallel) {
-      if (tag == DRY) {
-        eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc + 1));
-        eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc));
-        return;
-      }
-      if (tag == LAM) {
-        eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc));
-        return;
-      }
-      for (u32 i = 0; i < ari; i++) {
-        eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc + i));
-      }
-      return;
-    }
-    if (tag == LAM) {
-      if (!uset_add(&worker->seen, tloc)) {
-        return;
-      }
-      loc = tloc;
-      continue;
-    }
-    if (tag == DRY) {
-      eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc + 1));
-      if (!uset_add(&worker->seen, tloc)) {
-        return;
-      }
-      loc = tloc;
-      continue;
-    }
     for (u32 i = ari; i > 1; i--) {
-      eval_normalize_enqueue(ctx, worker, EVAL_NORMALIZE_TASK(tloc + (i - 1)));
-    }
-    if (!uset_add(&worker->seen, tloc)) {
-      return;
+      eval_normalize_enqueue(ctx, worker, tloc + (i - 1));
     }
     loc = tloc;
   }
@@ -132,7 +83,8 @@ static void *eval_normalize_worker(void *arg) {
     u64 task;
 
     if (wsq_pop(&worker->dq, &task)) {
-      eval_normalize_go(ctx, worker, task);
+      u32 loc = (u32)task;
+      eval_normalize_go(ctx, worker, loc);
       atomic_fetch_sub_explicit(&ctx->pending, 1, memory_order_release);
       idle = 0;
       continue;
@@ -151,7 +103,8 @@ static void *eval_normalize_worker(void *arg) {
         continue;
       }
       if (wsq_steal(&ctx->W[vic].dq, &task)) {
-        eval_normalize_go(ctx, worker, task);
+        u32 loc = (u32)task;
+        eval_normalize_go(ctx, worker, loc);
         atomic_fetch_sub_explicit(&ctx->pending, 1, memory_order_release);
         stolen = true;
         idle = 0;
@@ -207,12 +160,7 @@ fn Term eval_normalize(Term term) {
   }
 
   EvalNormalizeWorker *worker0 = &ctx.W[0];
-  u64 root_task = EVAL_NORMALIZE_TASK(root_loc);
-  if (wsq_push(&worker0->dq, root_task)) {
-    atomic_store_explicit(&ctx.pending, 1, memory_order_relaxed);
-  } else {
-    eval_normalize_go(&ctx, worker0, root_task);
-  }
+  eval_normalize_enqueue(&ctx, worker0, root_loc);
 
   pthread_t tids[MAX_THREADS];
   EvalNormalizeArg args[MAX_THREADS];
