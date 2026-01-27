@@ -8,7 +8,7 @@
 // - Linear probing over a power-of-two table.
 // - Key 0 is reserved as the empty slot sentinel.
 // - Hash is multiplicative; index is masked by (cap - 1).
-// - Grows by doubling when load exceeds ~70%.
+// - Grows by doubling when load exceeds 50%.
 //
 // Notes
 // - Not thread-safe; callers must synchronize externally.
@@ -22,15 +22,16 @@ typedef struct {
   u32 cap;
   u32 mask;
   u32 len;
+  u32 thresh;
 } Uset;
 
 // Multiplicative hash for u32 keys (unmasked).
-static inline u32 uset_hash(u32 key) {
+fn u32 uset_hash(u32 key) {
   return key * 2654435761u;
 }
 
 // Round up to next power of two (minimum 2) for mask arithmetic.
-static inline u32 uset_next_pow2(u32 x) {
+fn u32 uset_next_pow2(u32 x) {
   if (x < 2u) {
     return 2u;
   }
@@ -44,31 +45,33 @@ static inline u32 uset_next_pow2(u32 x) {
 }
 
 // Initialize the set with a capacity >= cap_hint.
-static inline void uset_init(Uset *set, u32 cap_hint) {
+fn void uset_init(Uset *set, u32 cap_hint) {
   u32 cap = uset_next_pow2(cap_hint);
   set->table = (u32 *)calloc(cap, sizeof(u32));
   if (!set->table) {
     fprintf(stderr, "uset: allocation failed\n");
     exit(1);
   }
-  set->cap  = cap;
-  set->mask = cap - 1;
-  set->len  = 0;
+  set->cap    = cap;
+  set->thresh = cap >> 1;
+  set->mask   = cap - 1;
+  set->len    = 0;
 }
 
 // Release the backing table and reset the set state.
-static inline void uset_free(Uset *set) {
+fn void uset_free(Uset *set) {
   if (set->table) {
     free(set->table);
-    set->table = NULL;
   }
-  set->cap = 0;
-  set->mask = 0;
-  set->len = 0;
+  *set = (Uset){0};
 }
 
 // Resize to new_cap and reinsert all keys.
-static inline void uset_rehash(Uset *set, u32 new_cap) {
+fn void uset_rehash(Uset *set, u32 new_cap) {
+  if (new_cap < set->cap) {
+    fprintf(stderr, "uset: allocation failed\n");
+    exit(1);
+  }
   u32 *old = set->table;
   u32 old_cap = set->cap;
 
@@ -77,9 +80,10 @@ static inline void uset_rehash(Uset *set, u32 new_cap) {
     fprintf(stderr, "uset: allocation failed\n");
     exit(1);
   }
-  set->cap  = new_cap;
-  set->mask = new_cap - 1;
-  set->len  = 0;
+  set->cap    = new_cap;
+  set->thresh = new_cap >> 1;
+  set->mask   = new_cap - 1;
+  set->len    = 0;
 
   for (u32 i = 0; i < old_cap; i++) {
     u32 key = old[i];
@@ -98,7 +102,7 @@ static inline void uset_rehash(Uset *set, u32 new_cap) {
 }
 
 // Check whether key is present (0 is never present).
-static inline u8 uset_has(Uset *set, u32 key) {
+fn u8 uset_has(Uset *set, u32 key) {
   if (key == 0) {
     return 0;
   }
@@ -117,31 +121,29 @@ static inline u8 uset_has(Uset *set, u32 key) {
 }
 
 // Insert key if missing; returns 1 if inserted, 0 if already present.
-static inline u8 uset_add(Uset *set, u32 key) {
+fn u8 uset_add(Uset *set, u32 key) {
   if (key == 0) {
     return 0;
   }
-  if ((set->len + 1) * 10 >= set->cap * 7) {
-    u32 new_cap = set->cap << 1;
-    if (new_cap < set->cap) {
-      fprintf(stderr, "uset: allocation failed\n");
-      exit(1);
-    }
-    uset_rehash(set, new_cap);
-  }
-  u32 idx = uset_hash(key) & set->mask;
-  for (u32 i = 0; i < set->cap; i++) {
-    u32 cur = set->table[idx];
+
+  if (set->len >= set->thresh) {
+    uset_rehash(set, set->cap << 1);
+  }                                                                       
+
+  u32 *table = set->table;
+  u32 mask   = set->mask;
+  u32 idx    = uset_hash(key) & mask;
+
+  while (1) {
+    u32 cur = table[idx];
     if (cur == key) {
       return 0;
     }
     if (cur == 0) {
-      set->table[idx] = key;
+      table[idx] = key;
       set->len++;
       return 1;
     }
-    idx = (idx + 1) & set->mask;
+    idx = (idx + 1) & mask;
   }
-  uset_rehash(set, set->cap << 1);
-  return uset_add(set, key);
 }
