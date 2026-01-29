@@ -32,9 +32,11 @@ cd clang && clang -O2 -o main main.c
 ## Docs Map
 
 - `README.md`: entry point, build/run examples, links.
-- `STYLEGUIDE.md`: authoritative C style rules for `clang/`.
+- `STYLEGUIDE.md`: authoritative C style rules for `clang/` (mirrored in `clang/STYLE.md`).
+- `docs/primer.md`: quick intro to the language and runtime usage.
 - `docs/theory/interaction_calculus.md`: IC theory + examples.
 - `docs/hvm4/core.md`: core term AST and grammar.
+- `docs/hvm4/syntax.md`: parser syntax, precedence, and desugaring rules.
 - `docs/hvm4/memory.md`: term layout, heap representation, linked/quoted terms.
 - `docs/hvm4/collapser.md`: CNF readback and collapse algorithm.
 - `docs/hvm4/interactions/*.md`: one file per WNF interaction; mirrors the sequent
@@ -86,6 +88,11 @@ cd clang && clang -O2 -o main main.c
 - `clang/heap/alloc.c`: heap allocation helpers.
 - `clang/heap/subst_var.c`: install lam substitutions.
 - `clang/heap/subst_cop.c`: install dup substitutions.
+- `clang/prim/init.c`: register built-in primitives at startup.
+- `clang/prim/register.c`: primitive registration helpers.
+- `clang/prim/fn/*.c`: primitive implementations.
+- `clang/thread/get_count.c`: read worker thread count.
+- `clang/thread/set_count.c`: set worker thread count.
 - `clang/sys/error.c`: error formatting.
 - `clang/sys/file_read.c`: file read utility.
 - `clang/sys/path_join.c`: path joining.
