@@ -45,6 +45,9 @@ for file in "${bench_files[@]}"; do
       gen_*.hvm4 )
         extra_args+=("-C1")
         ;;
+      collapse_*.hvm4 )
+        extra_args+=("-C")
+        ;;
     esac
     out=$(timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
     status=$?
