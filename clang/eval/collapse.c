@@ -95,12 +95,11 @@ static void *eval_collapse_worker(void *arg) {
   u32 steal_batch = EVAL_COLLAPSE_STEAL_BATCH;
   u32 steal_cursor = me + 1;
   u64 limit = C->limit;
-  bool has_limit = limit != UINT64_MAX;
   bool active = true;
   u64 local_printed = 0;
 
   for (;;) {
-    if (has_limit && atomic_load_explicit(&C->printed, memory_order_relaxed) >= limit) {
+    if (atomic_load_explicit(&C->printed, memory_order_relaxed) + local_printed >= limit) {
       break;
     }
 
