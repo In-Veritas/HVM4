@@ -118,8 +118,8 @@ static inline void wspq_free(Wspq *ws) {
 static inline bool wspq_bucket_full_all(Wspq *ws, u8 b) {
   for (u32 t = 0; t < ws->n; ++t) {
     WsDeque *q = &ws->bank[t].q[b];
-    size_t bot = atomic_load_explicit(&q->bot.v, memory_order_relaxed);
-    size_t top = atomic_load_explicit(&q->top.v, memory_order_relaxed);
+    size_t bot = atomic_load_explicit(&q->bot, memory_order_relaxed);
+    size_t top = atomic_load_explicit(&q->top, memory_order_relaxed);
     if (bot - top < q->cap) {
       return false;
     }
@@ -150,9 +150,6 @@ static inline void wspq_push(Wspq *ws, u32 tid, u8 key, u64 task) {
 // Pop the best-key local task; returns false if none are available.
 static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *key, u64 *task) {
   u64 m = atomic_load_explicit(&ws->bank[tid].nonempty, memory_order_relaxed);
-  if (m == 0ull) {
-    return false;
-  }
   bool fifo = (ws->n == 1);
   while (m) {
     u32 b = wspq_lsb64(m);
@@ -210,17 +207,15 @@ static inline u32 wspq_steal_some(
     }
     u32 b = wspq_lsb64(nm);
     u32 got = 0;
-    u64 x = 0;
-    if (!wsq_steal(&ws->bank[v].q[b], &x)) {
-      continue;
-    }
-    wspq_push(ws, me, (u8)(b << WSPQ_KEY_SHIFT), x);
-    got += 1u;
     for (; got < max_batch; ++got) {
-      if (!wsq_steal(&ws->bank[v].q[b], &x)) {
+      u64 task;
+      if (!wsq_steal(&ws->bank[v].q[b], &task)) {
         break;
       }
-      wspq_push(ws, me, (u8)(b << WSPQ_KEY_SHIFT), x);
+      wspq_push(ws, me, (u8)(b << WSPQ_KEY_SHIFT), task);
+    }
+    if (got == 0) {
+      continue;
     }
     *cursor = v + 1;
     return got;

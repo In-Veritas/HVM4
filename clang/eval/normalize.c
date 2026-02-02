@@ -18,7 +18,7 @@ typedef struct __attribute__((aligned(64))) {
 typedef struct {
   EvalNormalizeWorker   W[MAX_THREADS];
   u32         n;
-  _Atomic u64 pending;
+  _Alignas(WSQ_L1) _Atomic u64 pending;
 } EvalNormalizeCtx;
 
 typedef struct {

@@ -135,7 +135,7 @@ static inline void cnf_pool_spawn(CnfPool *pool, CnfTask *task) {
   cnf_task_run_inline(task);
 }
 
-fn u8 cnf_pool_try_run(void) {
+fn u8 cnf_pool_try_run(u32 me) {
   CnfPool *pool = cnf_pool_ctx();
   if (!pool || pool->n <= 1) {
     return 0;
@@ -143,7 +143,6 @@ fn u8 cnf_pool_try_run(void) {
   if (atomic_load_explicit(&pool->pending, memory_order_acquire) == 0) {
     return 0;
   }
-  u32 me = WNF_TID;
   CnfTask *task = cnf_pool_try_pop(pool, me);
   if (!task) {
     return 0;
@@ -235,13 +234,9 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
     case AND:
     case OR:
     case UNS:
-    case C00 ... C16: {
+    case C01 ... C16: {
       u32 ari = term_arity(term);
       u32 loc = (u32)term_val(term);
-
-      if (ari == 0) {
-        return term;
-      }
 
       int  sup_idx = -1;
       Term orig[16];
@@ -254,11 +249,13 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
         for (u32 i = 0; i < ari; i++) {
           Term child = heap_read(loc + i);
           orig[i] = child;
-          tasks[i].term = child;
-          tasks[i].depth = depth;
-          tasks[i].par_depth = next_par;
-          tasks[i].out = &children[i];
-          tasks[i].pending = &pending;
+          tasks[i] = (CnfTask){
+            .term = child,
+            .depth = depth,
+            .par_depth = next_par,
+            .out = &children[i],
+            .pending = &pending,
+          };
           cnf_pool_spawn(pool, &tasks[i]);
         }
 
@@ -330,33 +327,4 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
 
 fn Term cnf(Term term) {
   return cnf_at(term, 0, CNF_POOL_SPAWN_DEPTH);
-}
-
-fn Term cnf_inj(Term template, Term *args, u32 n_args) {
-  if (n_args == 0) {
-    return template;
-  }
-
-  Term head = wnf(args[0]);
-
-  if (term_tag(head) == SUP) {
-    u32  lab     = term_ext(head);
-    u64  sup_loc = term_val(head);
-    Term sup_a   = heap_read(sup_loc + 0);
-    Term sup_b   = heap_read(sup_loc + 1);
-
-    Copy T = term_clone(lab, template);
-    Term args0[16], args1[16];
-    args0[0] = sup_a;
-    args1[0] = sup_b;
-    term_clone_many(lab, args + 1, n_args - 1, args0 + 1, args1 + 1);
-
-    Term r0 = cnf_inj(T.k0, args0, n_args);
-    Term r1 = cnf_inj(T.k1, args1, n_args);
-
-    return term_new_sup(lab, r0, r1);
-  } else {
-    Term applied = term_new_app(template, head);
-    return cnf_inj(applied, args + 1, n_args - 1);
-  }
 }

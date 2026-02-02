@@ -18,6 +18,7 @@ typedef struct {
   _Alignas(WSQ_L1) _Atomic u64     printed;
   _Alignas(WSQ_L1) _Atomic int64_t pending;
   u64  limit;
+  u64  print_batch;
   int  silent;
   int  show_itrs;
   Wspq ws;
@@ -29,7 +30,7 @@ typedef struct {
   u32 tid;
 } EvalCollapseArg;
 
-static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc) {
+static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, u64 *printed) {
   for (;;) {
     Term before = heap_read(loc);
     Term t = cnf(before);
@@ -62,8 +63,7 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
         return;
       }
       default: {
-        u64 prev = atomic_fetch_add_explicit(&C->printed, 1, memory_order_relaxed);
-        if (prev < C->limit) {
+        if (atomic_load_explicit(&C->printed, memory_order_relaxed) + *printed < C->limit) {
           if (!C->silent) {
             print_term_quoted(t);
             if (C->show_itrs) {
@@ -71,6 +71,11 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
             }
             printf("\n");
           }
+        }
+        *printed += 1;
+        if (*printed >= C->print_batch) {
+          atomic_fetch_add_explicit(&C->printed, *printed, memory_order_relaxed);
+          *printed = 0;
         }
         return;
       }
@@ -92,6 +97,7 @@ static void *eval_collapse_worker(void *arg) {
   u64 limit = C->limit;
   bool has_limit = limit != UINT64_MAX;
   bool active = true;
+  u64 local_printed = 0;
 
   for (;;) {
     if (has_limit && atomic_load_explicit(&C->printed, memory_order_relaxed) >= limit) {
@@ -105,11 +111,11 @@ static void *eval_collapse_worker(void *arg) {
       u32 loc0 = (u32)task;
       u32 loc1 = (u32)(task >> 32);
       if (loc0 != 0) {
-        eval_collapse_process_loc(C, me, key, loc0);
+        eval_collapse_process_loc(C, me, key, loc0, &local_printed);
         iter += 1u;
       }
       if (loc1 != 0) {
-        eval_collapse_process_loc(C, me, key, loc1);
+        eval_collapse_process_loc(C, me, key, loc1, &local_printed);
         iter += 1u;
       }
       if ((iter & (steal_period - 1u)) != 0u) {
@@ -135,7 +141,7 @@ static void *eval_collapse_worker(void *arg) {
       }
     }
 
-    if (cnf_pool_try_run()) {
+    if (cnf_pool_try_run(me)) {
       continue;
     }
 
@@ -146,6 +152,11 @@ static void *eval_collapse_worker(void *arg) {
     }
 
     cpu_relax();
+  }
+
+  // Flush remaining local count
+  if (local_printed > 0) {
+    atomic_fetch_add_explicit(&C->printed, local_printed, memory_order_relaxed);
   }
 
   return NULL;
@@ -169,6 +180,12 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
   atomic_store_explicit(&C.printed, 0, memory_order_relaxed);
   atomic_store_explicit(&C.pending, n, memory_order_relaxed);
   C.limit = max_lines;
+
+  u64 batch = max_lines / (100 * (u64)n);
+  if (batch < 1) batch = 1;
+  if (batch > 64) batch = 64;
+  C.print_batch = batch;
+
   C.silent = silent;
   C.show_itrs = show_itrs;
   if (!wspq_init(&C.ws, n)) {
