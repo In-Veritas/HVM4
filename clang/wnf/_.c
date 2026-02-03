@@ -162,6 +162,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case PRI: {
+        WNF_S_POS = s_pos;
         next = wnf_pri(next);
         goto enter;
       }
