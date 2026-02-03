@@ -17,7 +17,6 @@
 typedef struct {
   _Alignas(CACHE_L1) CachePaddedAtomic printed;
   _Alignas(CACHE_L1) CachePaddedAtomic pending;
-  _Alignas(CACHE_L1) CachePaddedAtomic stop;
   u64  limit;
   u64  print_batch;
   int  silent;
@@ -33,10 +32,6 @@ typedef struct {
 
 static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, u64 *printed) {
   for (;;) {
-    if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
-      return;
-    }
-
     Term before = heap_read(loc);
     Term t = cnf(before);
     if (t != before) {
@@ -78,14 +73,13 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
             }
             printf("\n");
           }
-          *printed += 1;
         }
-        if (global_printed + *printed >= C->limit && *printed > 0) {
-          atomic_store_explicit(&C->stop.v, 1, memory_order_release);
+        *printed += 1;
+        if (*printed >= C->print_batch) {
           atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
           *printed = 0;
         }
-        if (*printed >= C->print_batch) {
+        if (global_printed + *printed > C->limit && *printed > 0) {
           atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
           *printed = 0;
         }
@@ -111,7 +105,7 @@ static void *eval_collapse_worker(void *arg) {
   u64 local_printed = 0;
 
   for (;;) {
-    if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
+    if (atomic_load_explicit(&C->printed.v, memory_order_relaxed) + local_printed >= limit) {
       break;
     }
 
@@ -158,14 +152,19 @@ static void *eval_collapse_worker(void *arg) {
 
     if (atomic_load_explicit(&C->pending.v, memory_order_relaxed) == 0) {
       if (atomic_load_explicit(&C->cnf.pending.v, memory_order_relaxed) == 0) {
-        atomic_store_explicit(&C->stop.v, 1, memory_order_release);
+        break;
       }
     }
 
     cpu_relax();
   }
 
-  atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
+  // Flush remaining local count
+  if (local_printed > 0) {
+    atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
+    local_printed = 0;
+  }
+
   return NULL;
 }
 
