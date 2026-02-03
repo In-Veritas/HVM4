@@ -15,8 +15,8 @@
 #endif
 
 typedef struct {
-  _Alignas(WSQ_L1) _Atomic u64     printed;
-  _Alignas(WSQ_L1) _Atomic int64_t pending;
+  _Alignas(CACHE_L1) CachePaddedAtomic printed;
+  _Alignas(CACHE_L1) CachePaddedAtomic pending;
   u64  limit;
   u64  print_batch;
   int  silent;
@@ -63,7 +63,9 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
         return;
       }
       default: {
-        if (atomic_load_explicit(&C->printed, memory_order_relaxed) + *printed < C->limit) {
+        // Increment the printed counter in batches to avoid bottlenecking when collapsing too many leaves.
+        u64 global_printed = atomic_load_explicit(&C->printed.v, memory_order_relaxed);
+        if (global_printed + *printed < C->limit) {
           if (!C->silent) {
             print_term_quoted(t);
             if (C->show_itrs) {
@@ -74,7 +76,11 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
         }
         *printed += 1;
         if (*printed >= C->print_batch) {
-          atomic_fetch_add_explicit(&C->printed, *printed, memory_order_relaxed);
+          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
+          *printed = 0;
+        }
+        if (global_printed + *printed > C->limit && *printed > 0) {
+          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
           *printed = 0;
         }
         return;
@@ -99,7 +105,7 @@ static void *eval_collapse_worker(void *arg) {
   u64 local_printed = 0;
 
   for (;;) {
-    if (atomic_load_explicit(&C->printed, memory_order_relaxed) + local_printed >= limit) {
+    if (atomic_load_explicit(&C->printed.v, memory_order_relaxed) + local_printed >= limit) {
       break;
     }
 
@@ -122,7 +128,7 @@ static void *eval_collapse_worker(void *arg) {
       }
     } else {
       if (active) {
-        atomic_fetch_sub_explicit(&C->pending, 1, memory_order_release);
+        atomic_fetch_sub_explicit(&C->pending.v, 1, memory_order_release);
         active = false;
       }
       iter = steal_period;
@@ -133,7 +139,7 @@ static void *eval_collapse_worker(void *arg) {
       iter = 0;
       if (got > 0u) {
         if (!active) {
-          atomic_fetch_add_explicit(&C->pending, 1, memory_order_release);
+          atomic_fetch_add_explicit(&C->pending.v, 1, memory_order_release);
           active = true;
         }
         continue;
@@ -144,8 +150,8 @@ static void *eval_collapse_worker(void *arg) {
       continue;
     }
 
-    if (atomic_load_explicit(&C->pending, memory_order_relaxed) == 0) {
-      if (atomic_load_explicit(&C->cnf.pending, memory_order_relaxed) == 0) {
+    if (atomic_load_explicit(&C->pending.v, memory_order_relaxed) == 0) {
+      if (atomic_load_explicit(&C->cnf.pending.v, memory_order_relaxed) == 0) {
         break;
       }
     }
@@ -155,7 +161,8 @@ static void *eval_collapse_worker(void *arg) {
 
   // Flush remaining local count
   if (local_printed > 0) {
-    atomic_fetch_add_explicit(&C->printed, local_printed, memory_order_relaxed);
+    atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
+    local_printed = 0;
   }
 
   return NULL;
@@ -176,8 +183,8 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
   heap_set(root_loc, term);
 
   EvalCollapseCtx C;
-  atomic_store_explicit(&C.printed, 0, memory_order_relaxed);
-  atomic_store_explicit(&C.pending, n, memory_order_relaxed);
+  atomic_store_explicit(&C.printed.v, 0, memory_order_relaxed);
+  atomic_store_explicit(&C.pending.v, n, memory_order_relaxed);
   C.limit = max_lines;
 
   u64 batch = max_lines / (100 * (u64)n);

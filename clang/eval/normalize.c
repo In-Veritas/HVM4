@@ -18,7 +18,7 @@ typedef struct __attribute__((aligned(64))) {
 typedef struct {
   EvalNormalizeWorker   W[MAX_THREADS];
   u32         n;
-  _Alignas(WSQ_L1) _Atomic u64 pending;
+  _Alignas(CACHE_L1) CachePaddedAtomic pending;
 } EvalNormalizeCtx;
 
 typedef struct {
@@ -84,7 +84,7 @@ static void *eval_normalize_worker(void *arg) {
       continue;
     }
     if (active) {
-      atomic_fetch_sub_explicit(&ctx->pending, 1, memory_order_release);
+      atomic_fetch_sub_explicit(&ctx->pending.v, 1, memory_order_release);
       active = false;
       idle   = 0;
     }
@@ -103,7 +103,7 @@ static void *eval_normalize_worker(void *arg) {
       if (wsq_steal(&ctx->W[vic].dq, &task)) {
         stolen = true;
         active = true;
-        atomic_fetch_add_explicit(&ctx->pending, 1, memory_order_release);
+        atomic_fetch_add_explicit(&ctx->pending.v, 1, memory_order_release);
         u32 loc = (u32)task;
         eval_normalize_go(ctx, worker, loc);
         break;
@@ -114,7 +114,7 @@ static void *eval_normalize_worker(void *arg) {
       continue;
     }
 
-    if (atomic_load_explicit(&ctx->pending, memory_order_acquire) == 0) {
+    if (atomic_load_explicit(&ctx->pending.v, memory_order_acquire) == 0) {
       break;
     }
 
@@ -148,7 +148,7 @@ fn Term eval_normalize(Term term) {
 
   u32 n = thread_get_count();
   ctx.n = n;
-  atomic_store_explicit(&ctx.pending, n, memory_order_relaxed);
+  atomic_store_explicit(&ctx.pending.v, n, memory_order_relaxed);
   for (u32 i = 0; i < n; i++) {
     if (!wsq_init(&ctx.W[i].dq, EVAL_NORMALIZE_WS_CAP_POW2)) {
       fprintf(stderr, "eval_normalize: queue allocation failed\n");

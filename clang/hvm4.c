@@ -27,6 +27,12 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef const char *str;
 
+#define CACHE_L1 128
+typedef struct {
+  _Alignas(CACHE_L1) _Atomic u64 v;
+  char _pad[CACHE_L1 - sizeof(_Atomic u64)];
+} CachePaddedAtomic;
+
 typedef u64 Term;
 
 typedef struct {

@@ -118,8 +118,8 @@ static inline void wspq_free(Wspq *ws) {
 static inline bool wspq_bucket_full_all(Wspq *ws, u8 b) {
   for (u32 t = 0; t < ws->n; ++t) {
     WsDeque *q = &ws->bank[t].q[b];
-    size_t bot = atomic_load_explicit(&q->bot, memory_order_relaxed);
-    size_t top = atomic_load_explicit(&q->top, memory_order_relaxed);
+    size_t bot = atomic_load_explicit(&q->bot.v, memory_order_relaxed);
+    size_t top = atomic_load_explicit(&q->top.v, memory_order_relaxed);
     if (bot - top < q->cap) {
       return false;
     }
