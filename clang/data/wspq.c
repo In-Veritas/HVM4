@@ -223,3 +223,14 @@ static inline u32 wspq_steal_some(
   *cursor = start + WSPQ_STEAL_ATTEMPTS;
   return 0u;
 }
+
+static inline bool wspq_can_steal(Wspq *ws, u32 me) {
+  u32 n = ws->n;
+  for (u32 k = 1; k < n; k++) {
+    u32 v = (me + k) % n;
+    if (ws->bank[v].nonempty != 0ull) {
+      return true;
+    }
+  }
+  return false;
+}

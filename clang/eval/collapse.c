@@ -17,6 +17,7 @@
 typedef struct {
   _Alignas(CACHE_L1) CachePaddedAtomic printed;
   _Alignas(CACHE_L1) CachePaddedAtomic pending;
+  _Alignas(CACHE_L1) CachePaddedAtomic stop;
   u64  limit;
   u64  print_batch;
   int  silent;
@@ -32,6 +33,10 @@ typedef struct {
 
 static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, u64 *printed) {
   for (;;) {
+    if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
+      return;
+    }
+
     Term before = heap_read(loc);
     Term t = cnf(before);
     if (t != before) {
@@ -73,13 +78,14 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
             }
             printf("\n");
           }
+          *printed += 1;
         }
-        *printed += 1;
-        if (*printed >= C->print_batch) {
+        if (global_printed + *printed >= C->limit && *printed > 0) {
+          atomic_store_explicit(&C->stop.v, 1, memory_order_release);
           atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
           *printed = 0;
         }
-        if (global_printed + *printed > C->limit && *printed > 0) {
+        if (*printed >= C->print_batch) {
           atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
           *printed = 0;
         }
@@ -105,14 +111,14 @@ static void *eval_collapse_worker(void *arg) {
   u64 local_printed = 0;
 
   for (;;) {
-    if (atomic_load_explicit(&C->printed.v, memory_order_relaxed) + local_printed >= limit) {
+    if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
       break;
     }
 
     u8  key  = 0;
     u64 task = 0;
-    bool has_local = wspq_pop(&C->ws, me, &key, &task);
-    if (has_local) {
+    bool popped = wspq_pop(&C->ws, me, &key, &task);
+    if (popped) {
       u32 loc0 = (u32)task;
       u32 loc1 = (u32)(task >> 32);
       if (loc0 != 0) {
@@ -127,21 +133,18 @@ static void *eval_collapse_worker(void *arg) {
         continue;
       }
     } else {
-      if (active) {
-        atomic_fetch_sub_explicit(&C->pending.v, 1, memory_order_release);
-        active = false;
-      }
       iter = steal_period;
     }
 
-    if (iter >= steal_period) {
-      u32 got = wspq_steal_some(&C->ws, me, steal_batch, has_local, &steal_cursor);
+    u32 stolen = 0;
+    if (iter >= steal_period && wspq_can_steal(&C->ws, me)) {
+      if (!active) {
+        atomic_fetch_add_explicit(&C->pending.v, 1, memory_order_release);
+        active = true;
+      }
+      stolen = wspq_steal_some(&C->ws, me, steal_batch, popped, &steal_cursor);
       iter = 0;
-      if (got > 0u) {
-        if (!active) {
-          atomic_fetch_add_explicit(&C->pending.v, 1, memory_order_release);
-          active = true;
-        }
+      if (stolen > 0u) {
         continue;
       }
     }
@@ -150,21 +153,21 @@ static void *eval_collapse_worker(void *arg) {
       continue;
     }
 
-    if (atomic_load_explicit(&C->pending.v, memory_order_relaxed) == 0) {
-      if (atomic_load_explicit(&C->cnf.pending.v, memory_order_relaxed) == 0) {
-        break;
+    if (active && !popped && !stolen) {
+      atomic_fetch_sub_explicit(&C->pending.v, 1, memory_order_release);
+      active = false;
+    }
+
+    if (atomic_load_explicit(&C->pending.v, memory_order_acquire) == 0) {
+      if (atomic_load_explicit(&C->cnf.pending.v, memory_order_acquire) == 0) {
+        atomic_store_explicit(&C->stop.v, 1, memory_order_release);
       }
     }
 
     cpu_relax();
   }
 
-  // Flush remaining local count
-  if (local_printed > 0) {
-    atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
-    local_printed = 0;
-  }
-
+  atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
   return NULL;
 }
 
