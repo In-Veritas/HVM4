@@ -135,3 +135,10 @@ static inline int wsq_steal(WsDeque *q, u64 *out) {
   }
   return 0;
 }
+
+
+static inline bool wsq_can_steal(WsDeque *q) {
+  u64 t = atomic_load_explicit(&q->top.v, memory_order_acquire);
+  u64 b = atomic_load_explicit(&q->bot.v, memory_order_acquire);
+  return t < b;
+}

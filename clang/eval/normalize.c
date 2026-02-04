@@ -78,44 +78,48 @@ static void *eval_normalize_worker(void *arg) {
 
   for (;;) {
     u64 task;
+    if (atomic_load_explicit(&ctx->pending.v, memory_order_acquire) == 0) {
+      break;
+    }
     if (wsq_pop(&worker->dq, &task)) {
       u32 loc = (u32)task;
       eval_normalize_go(ctx, worker, loc);
       continue;
     }
-    if (active) {
-      atomic_fetch_sub_explicit(&ctx->pending.v, 1, memory_order_release);
-      active = false;
-      idle   = 0;
-    }
-
+    
     u32 stolen = false;
     u32 start  = (me + 1 + (r & 7)) % n;
     r ^= r << 13;
     r ^= r >> 17;
     r ^= r << 5;
-
+    
     for (u32 k = 0; k < n - 1; k++) {
       u32 vic = (start + k) % n;
       if (vic == me) {
         continue;
       }
-      if (wsq_steal(&ctx->W[vic].dq, &task)) {
-        stolen = true;
-        active = true;
-        atomic_fetch_add_explicit(&ctx->pending.v, 1, memory_order_release);
-        u32 loc = (u32)task;
-        eval_normalize_go(ctx, worker, loc);
-        break;
+      if (wsq_can_steal(&ctx->W[vic].dq)) {
+        if (!active) {
+          atomic_fetch_add_explicit(&ctx->pending.v, 1, memory_order_release);
+          active = true;
+        }
+        if (wsq_steal(&ctx->W[vic].dq, &task)) {
+          stolen = true;
+          u32 loc = (u32)task;
+          eval_normalize_go(ctx, worker, loc);
+          break;
+        }
       }
     }
-
+      
     if (stolen) {
       continue;
     }
-
-    if (atomic_load_explicit(&ctx->pending.v, memory_order_acquire) == 0) {
-      break;
+    
+    if (active) {
+      atomic_fetch_sub_explicit(&ctx->pending.v, 1, memory_order_release);
+      active = false;
+      idle   = 0;
     }
 
     if (idle < 1024) {

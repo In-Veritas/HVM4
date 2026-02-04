@@ -69,8 +69,19 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
       }
       default: {
         // Increment the printed counter in batches to avoid bottlenecking when collapsing too many leaves.
-        u64 global_printed = atomic_load_explicit(&C->printed.v, memory_order_relaxed);
-        if (global_printed + *printed < C->limit) {
+        u64 global_printed = atomic_load_explicit(&C->printed.v, memory_order_acquire);
+        *printed += 1;
+        if (global_printed + *printed >= C->limit && *printed > 0) {
+          atomic_store_explicit(&C->stop.v, 1, memory_order_release);
+          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_release);
+          *printed = 0;
+        }
+        if (*printed >= C->print_batch) {
+          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_release);
+          *printed = 0;
+        }
+        global_printed = atomic_load_explicit(&C->printed.v, memory_order_acquire);
+        if (global_printed + *printed <= C->limit) {
           if (!C->silent) {
             print_term_quoted(t);
             if (C->show_itrs) {
@@ -78,16 +89,6 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
             }
             printf("\n");
           }
-          *printed += 1;
-        }
-        if (global_printed + *printed >= C->limit && *printed > 0) {
-          atomic_store_explicit(&C->stop.v, 1, memory_order_release);
-          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
-          *printed = 0;
-        }
-        if (*printed >= C->print_batch) {
-          atomic_fetch_add_explicit(&C->printed.v, *printed, memory_order_relaxed);
-          *printed = 0;
         }
         return;
       }
