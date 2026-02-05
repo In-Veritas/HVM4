@@ -30,9 +30,6 @@ typedef struct {
 static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc);
 
 static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
-  if (loc == 0) {
-    return;
-  }
   if (!wsq_push(&worker->dq, (u64)loc)) {
     eval_normalize_go(ctx, worker, loc);
   }
@@ -40,13 +37,13 @@ static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWo
 
 static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
   for (;;) {
-    if (!uset_add(&worker->seen, loc)) {
+    if (loc == 0 || !uset_add(&worker->seen, loc)) {
       return;
     }
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
     u32 tloc = term_val(term);
-    // DP0/DP1 have term_arity == 0, handle separately
     u8  tag  = term_tag(term);
+    // DP0/DP1 have term_arity == 0, handle separately
     if (tag == DP0 || tag == DP1) {
       loc = tloc;
       continue;
@@ -161,8 +158,7 @@ fn Term eval_normalize(Term term) {
     uset_init(&ctx.W[i].seen, EVAL_NORMALIZE_SEEN_INIT);
   }
 
-  EvalNormalizeWorker *worker0 = &ctx.W[0];
-  eval_normalize_enqueue(&ctx, worker0, root_loc);
+  eval_normalize_enqueue(&ctx, &ctx.W[0], root_loc);
 
   pthread_t tids[MAX_THREADS];
   EvalNormalizeArg args[MAX_THREADS];

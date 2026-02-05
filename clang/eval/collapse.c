@@ -32,26 +32,18 @@ typedef struct {
 } EvalCollapseArg;
 
 static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, u64 *printed) {
+  Term before = heap_read(loc);
   for (;;) {
     if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
       return;
     }
 
-    Term before = heap_read(loc);
     Term t = cnf(before);
-    if (t != before) {
-      heap_set(loc, t);
-    }
 
     switch (term_tag(t)) {
       case INC: {
         u32 inc_loc = term_val(t);
-        loc = inc_loc;
-        Term prev = heap_read(loc);
-        t = cnf(prev);
-        if (t != prev) {
-          heap_set(loc, t);
-        }
+        before = heap_read(inc_loc);
         if (key > 0) {
           key -= 1;
         }
@@ -130,7 +122,7 @@ static void *eval_collapse_worker(void *arg) {
         eval_collapse_process_loc(C, me, key, loc1, &local_printed);
         iter += 1u;
       }
-      if ((iter & (steal_period - 1u)) != 0u) {
+      if (iter < steal_period) {
         continue;
       }
     } else {
