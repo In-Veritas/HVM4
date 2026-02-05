@@ -159,8 +159,6 @@ static void *eval_collapse_worker(void *arg) {
 
     if (!active) {
       sched_yield();
-    } else {
-      cpu_relax();
     }
   }
 

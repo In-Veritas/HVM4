@@ -100,21 +100,13 @@ static inline CnfTask *cnf_pool_try_pop(CnfPool *pool, u32 tid) {
 
 static inline void cnf_pool_join(CnfPool *pool, CachePaddedAtomic *pending) {
   u32 me = WNF_TID;
-  u32 idle = 0;
   while (atomic_load_explicit(&pending->v, memory_order_acquire) != 0) {
     CnfTask *task = cnf_pool_try_pop(pool, me);
     if (task) {
       cnf_task_run(pool, task);
-      idle = 0;
       continue;
     }
-    if (idle < 1024) {
-      cpu_relax();
-      idle++;
-    } else {
-      sched_yield();
-      idle = 0;
-    }
+    sched_yield();
   }
 }
 

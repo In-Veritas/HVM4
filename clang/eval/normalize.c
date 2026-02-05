@@ -70,7 +70,6 @@ static void *eval_normalize_worker(void *arg) {
 
   u32 n = ctx->n;
   u32 r = 0x9E3779B9u ^ me;
-  u32 idle = 0;
   bool active = true;
 
   for (;;) {
@@ -116,16 +115,9 @@ static void *eval_normalize_worker(void *arg) {
     if (active) {
       atomic_fetch_sub_explicit(&ctx->pending.v, 1, memory_order_release);
       active = false;
-      idle   = 0;
     }
 
-    if (idle < 1024) {
-      cpu_relax();
-      idle++;
-    } else {
-      sched_yield();
-      idle = 0;
-    }
+    sched_yield();
   }
 
   return NULL;
