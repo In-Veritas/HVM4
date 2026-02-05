@@ -157,7 +157,11 @@ static void *eval_collapse_worker(void *arg) {
       }
     }
 
-    cpu_relax();
+    if (!active) {
+      sched_yield();
+    } else {
+      cpu_relax();
+    }
   }
 
   atomic_fetch_add_explicit(&C->printed.v, local_printed, memory_order_relaxed);
