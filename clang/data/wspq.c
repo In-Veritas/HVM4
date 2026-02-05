@@ -47,8 +47,8 @@
 
 // Per-worker bank of key deques plus a non-empty bucket mask.
 typedef struct __attribute__((aligned(256))) {
-  WsDeque q[WSPQ_BRACKETS];
-  _Atomic u64 nonempty;
+  _Alignas(CACHE_L1) CachePaddedAtomic nonempty;
+  _Alignas(CACHE_L1) WsDeque q[WSPQ_BRACKETS];
 } WspqBank;
 
 // Work-stealing key queue state for all workers.
@@ -64,12 +64,12 @@ static inline u32 wspq_lsb64(u64 m) {
 
 // Mark a bucket as non-empty in the owner's mask.
 static inline void wspq_mask_set(Wspq *ws, u32 tid, u32 b) {
-  atomic_fetch_or_explicit(&ws->bank[tid].nonempty, (1ull << b), memory_order_relaxed);
+  atomic_fetch_or_explicit(&ws->bank[tid].nonempty.v, (1ull << b), memory_order_relaxed);
 }
 
 // Clear a bucket in the owner's mask (used after observing it empty).
 static inline void wspq_mask_clear_owner(Wspq *ws, u32 tid, u32 b) {
-  atomic_fetch_and_explicit(&ws->bank[tid].nonempty, ~(1ull << b), memory_order_relaxed);
+  atomic_fetch_and_explicit(&ws->bank[tid].nonempty.v, ~(1ull << b), memory_order_relaxed);
 }
 
 // Map a key value to a bucket index.
@@ -86,7 +86,7 @@ static inline bool wspq_init(Wspq *ws, u32 nthreads) {
   ws->n = nthreads;
 
   for (u32 t = 0; t < nthreads; ++t) {
-    atomic_store_explicit(&ws->bank[t].nonempty, 0ull, memory_order_relaxed);
+    atomic_store_explicit(&ws->bank[t].nonempty.v, 0ull, memory_order_relaxed);
     for (u32 b = 0; b < WSPQ_BRACKETS; ++b) {
       if (!wsq_init(&ws->bank[t].q[b], WSPQ_CAP_POW2)) {
         for (u32 t2 = 0; t2 <= t; ++t2) {
@@ -149,12 +149,13 @@ static inline void wspq_push(Wspq *ws, u32 tid, u8 key, u64 task) {
 
 // Pop the best-key local task; returns false if none are available.
 static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *key, u64 *task) {
-  u64 m = atomic_load_explicit(&ws->bank[tid].nonempty, memory_order_relaxed);
+  u64 m = atomic_load_explicit(&ws->bank[tid].nonempty.v, memory_order_relaxed);
   bool fifo = (ws->n == 1);
   while (m) {
     u32 b = wspq_lsb64(m);
     u64 x = 0;
-    if (fifo ? wsq_steal(&ws->bank[tid].q[b], &x) : wsq_pop(&ws->bank[tid].q[b], &x)) {
+    WsDeque *q = &ws->bank[tid].q[b];
+    if (fifo ? wsq_steal(q, &x) : wsq_pop(q, &x)) {
       *key = (u8)(b << WSPQ_KEY_SHIFT);
       *task = x;
       return true;
@@ -178,14 +179,13 @@ static inline u32 wspq_steal_some(
     return 0u;
   }
 
-  u64 my_mask = atomic_load_explicit(&ws->bank[me].nonempty, memory_order_relaxed);
-  u32 my_min = WSPQ_BRACKETS;
-  if (my_mask != 0ull) {
-    my_min = wspq_lsb64(my_mask);
-  }
-
   u32 b_limit = WSPQ_BRACKETS;
-  if (restrict_deeper && my_min < b_limit) {
+  if (restrict_deeper) {
+    u64 my_mask = atomic_load_explicit(&ws->bank[me].nonempty.v, memory_order_relaxed);
+    u32 my_min = WSPQ_BRACKETS;
+    if (my_mask != 0ull) {
+      my_min = wspq_lsb64(my_mask);
+    }
     b_limit = my_min;
   }
 
@@ -200,7 +200,7 @@ static inline u32 wspq_steal_some(
     if (v == me) {
       continue;
     }
-    u64 nm = atomic_load_explicit(&ws->bank[v].nonempty, memory_order_relaxed);
+    u64 nm = atomic_load_explicit(&ws->bank[v].nonempty.v, memory_order_relaxed);
     nm &= allowed_mask;
     if (nm == 0ull) {
       continue;
@@ -228,7 +228,7 @@ static inline bool wspq_can_steal(Wspq *ws, u32 me) {
   u32 n = ws->n;
   for (u32 k = 1; k < n; k++) {
     u32 v = (me + k) % n;
-    if (ws->bank[v].nonempty != 0ull) {
+    if (atomic_load_explicit(&ws->bank[v].nonempty.v, memory_order_relaxed)) {
       return true;
     }
   }
