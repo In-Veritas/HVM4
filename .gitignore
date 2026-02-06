@@ -4,3 +4,8 @@
 clang/main
 haskell/main
 hvm4_old/
+.DS_Store
+test/ffi/*.dylib
+test/ffi/*/*.dylib
+test/ffi/*.so
+test/ffi/*/*.so
