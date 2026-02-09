@@ -69,7 +69,6 @@ Term ::=
 
   -- Special
   | "↑" Term                                    -- priority (collapse order)
-  | Term "~>" Term                              -- guarded reduction
   | "&" Label "λ" Names "{" Term ";" Term "}"   -- fork
   | "[" Args "]"                                -- list: [a,b,c]
   | '"' Chars '"'                               -- string

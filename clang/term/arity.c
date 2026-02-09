@@ -37,7 +37,6 @@ static const u8 TERM_ARITY[TAG_MASK + 1] = {
   [OP2] = 2,
   [DSU] = 3,
   [DDU] = 3,
-  [RED] = 2,
   [EQL] = 2,
   [AND] = 2,
   [OR] = 2,

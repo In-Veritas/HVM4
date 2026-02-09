@@ -63,8 +63,6 @@
 
 @strct_eq = λx.x === λa.a
 
-@red = λx.x ~> λy.y
-
 @unsc = ! a = λ b ; λa.2
 
 // sugars

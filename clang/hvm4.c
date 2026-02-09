@@ -86,7 +86,7 @@ typedef struct {
 #define OP2 33  // Op2(opr, x, y): strict on x, then y
 #define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
 #define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP term
-#define RED 36  // Red(f, g): guarded reduction, f ~> g
+// 36 is intentionally unused.
 #define EQL 37  // Eql(a, b): structural equality, strict on a, then b
 #define AND 38  // And(a, b): short-circuit AND, strict on a only
 #define OR  39  // Or(a, b): short-circuit OR, strict on a only
@@ -105,9 +105,6 @@ typedef struct {
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, DP0, DP1, OP2, DSU, DDU) also used as frames
 // These frames reuse existing heap nodes to avoid allocation
-#define F_APP_RED     0x40  // ((f ~> □) x): val=app_loc. RED at HEAP[app_loc], arg at HEAP[app_loc+1]
-#define F_RED_MAT     0x41  // ((f ~> mat) □): val=app_loc. After reducing g, mat stored at HEAP[red_loc+1]
-#define F_RED_USE     0x42  // ((f ~> use) □): val=app_loc. After reducing g, use stored at HEAP[red_loc+1]
 #define F_OP2_NUM     0x43  // (x op □): ext=opr, val=x_num_val
 #define F_EQL_L       0x44  // (□ === b): val=eql_loc, b at HEAP[eql_loc+1]
 #define F_EQL_R       0x45  // (a === □): val=eql_loc, a stored in ext as heap loc
@@ -319,7 +316,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "term/new/op2.c"
 #include "term/new/dsu.c"
 #include "term/new/ddu.c"
-#include "term/new/red.c"
 #include "term/new/eql.c"
 #include "term/new/and.c"
 #include "term/new/or.c"
@@ -447,7 +443,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/mat_inc.c"
 #include "wnf/dup_nam.c"
 #include "wnf/dup_dry.c"
-#include "wnf/dup_red.c"
 #include "wnf/dup_lam.c"
 #include "wnf/dup_sup.c"
 #include "wnf/dup_nod.c"
@@ -476,23 +471,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/use_sup.c"
 #include "wnf/use_val.c"
 #include "wnf/use_inc.c"
-#include "wnf/app_red_era.c"
-#include "wnf/app_red_sup.c"
-#include "wnf/app_red_inc.c"
-#include "wnf/app_red_lam.c"
-#include "wnf/app_red_red.c"
-#include "wnf/app_red_nam.c"
-#include "wnf/app_red_dry.c"
-#include "wnf/app_red_ctr.c"
-#include "wnf/app_red_mat_era.c"
-#include "wnf/app_red_mat_sup.c"
-#include "wnf/app_red_mat_inc.c"
-#include "wnf/app_red_mat_ctr.c"
-#include "wnf/app_red_mat_num.c"
-#include "wnf/app_red_use_era.c"
-#include "wnf/app_red_use_sup.c"
-#include "wnf/app_red_use_inc.c"
-#include "wnf/app_red_use_val.c"
 #include "wnf/eql_era.c"
 #include "wnf/eql_any.c"
 #include "wnf/eql_sup.c"

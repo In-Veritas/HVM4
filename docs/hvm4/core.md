@@ -31,7 +31,6 @@ Term ::=
   | Or   "(" Term ".|." Term ")"                     -- short-circuit OR
   | DSu  "&" "(" Term ")" "{" Term "," Term "}"      -- dynamic superposition
   | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term -- dynamic duplication term
-  | Red  Term "~>" Term                              -- reduction
   | Inc  "↑" Term                                    -- priority wrapper
   | Alo  "@" "{" Name,* "}" Term                     -- allocation
   | Uns  "!" "$" "{" Name "," Name "}" ";" Term      -- unscoped binding
