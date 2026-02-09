@@ -95,17 +95,16 @@ typedef struct {
 #define OP2 33
 #define DSU 34
 #define DDU 35
-#define RED 36
-#define EQL 37
-#define AND 38
-#define OR  39
-#define UNS 40
-#define ANY 41
-#define INC 42
-#define BJV 43
-#define BJ0 44
-#define BJ1 45
-#define PRI 46
+#define EQL 36
+#define AND 37
+#define OR  38
+#define UNS 39
+#define ANY 40
+#define INC 41
+#define BJV 42
+#define BJ0 43
+#define BJ1 44
+#define PRI 45
 
 // LAM Ext Flags
 #define LAM_ERA_MASK 0x800000

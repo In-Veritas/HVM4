@@ -86,17 +86,16 @@ typedef struct {
 #define OP2 33  // Op2(opr, x, y): strict on x, then y
 #define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
 #define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP term
-// 36 is intentionally unused.
-#define EQL 37  // Eql(a, b): structural equality, strict on a, then b
-#define AND 38  // And(a, b): short-circuit AND, strict on a only
-#define OR  39  // Or(a, b): short-circuit OR, strict on a only
-#define UNS 40  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
-#define ANY 41  // Any: wildcard that duplicates itself and equals anything
-#define INC 42  // Inc(x): priority wrapper for collapse ordering - decreases priority
-#define BJV 43  // Bjv(n): quoted lambda-bound variable (de Bruijn level)
-#define BJ0 44  // Bj0(n): quoted dup-bound variable (side 0, de Bruijn level)
-#define BJ1 45  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
-#define PRI 46  // Pri(p): primitive (native) function
+#define EQL 36  // Eql(a, b): structural equality, strict on a, then b
+#define AND 37  // And(a, b): short-circuit AND, strict on a only
+#define OR  38  // Or(a, b): short-circuit OR, strict on a only
+#define UNS 39  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
+#define ANY 40  // Any: wildcard that duplicates itself and equals anything
+#define INC 41  // Inc(x): priority wrapper for collapse ordering - decreases priority
+#define BJV 42  // Bjv(n): quoted lambda-bound variable (de Bruijn level)
+#define BJ0 43  // Bj0(n): quoted dup-bound variable (side 0, de Bruijn level)
+#define BJ1 44  // Bj1(n): quoted dup-bound variable (side 1, de Bruijn level)
+#define PRI 45  // Pri(p): primitive (native) function
 
 // LAM Ext Flags
 // =============
