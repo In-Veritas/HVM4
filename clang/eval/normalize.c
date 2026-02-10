@@ -8,15 +8,13 @@
 #define EVAL_NORMALIZE_WS_CAP_POW2 21
 #endif
 
-#define EVAL_NORMALIZE_SEEN_INIT (1u << 20)
-
 typedef struct __attribute__((aligned(64))) {
   WsDeque dq;
-  Uset  seen;
 } EvalNormalizeWorker;
 
 typedef struct {
   EvalNormalizeWorker   W[MAX_THREADS];
+  Uset        seen;
   u32         n;
   _Alignas(CACHE_L1) CachePaddedAtomic pending;
 } EvalNormalizeCtx;
@@ -37,7 +35,7 @@ static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWo
 
 static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
   for (;;) {
-    if (loc == 0 || !uset_add(&worker->seen, loc)) {
+    if (loc == 0 || !uset_add(&ctx->seen, loc)) {
       return;
     }
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
@@ -147,8 +145,8 @@ fn Term eval_normalize(Term term) {
       fprintf(stderr, "eval_normalize: queue allocation failed\n");
       exit(1);
     }
-    uset_init(&ctx.W[i].seen, EVAL_NORMALIZE_SEEN_INIT);
   }
+  uset_init(&ctx.seen);
 
   eval_normalize_enqueue(&ctx, &ctx.W[0], root_loc);
 
@@ -169,8 +167,8 @@ fn Term eval_normalize(Term term) {
 
   for (u32 i = 0; i < n; i++) {
     wsq_free(&ctx.W[i].dq);
-    uset_free(&ctx.W[i].seen);
   }
+  uset_free(&ctx.seen);
 
   if (STEPS_ENABLE) {
     STEPS_ROOT_LOC = 0;
