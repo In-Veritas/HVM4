@@ -327,6 +327,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // =================
 
 #include "heap/subst_var.c"
+#include "heap/subst_var_dup.c"
 #include "heap/subst_cop.c"
 
 // Nick

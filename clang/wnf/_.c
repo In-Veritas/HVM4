@@ -496,8 +496,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
             default: {
               u64 new_loc   = heap_alloc(1);
               heap_set(new_loc, whnf);
-              heap_subst_var(loc, term_new(0, side == 0 ? DP1 : DP0, lab, new_loc));
-              whnf          = term_new(0, side == 0 ? DP0 : DP1, lab, new_loc);
+              Term r0 = term_new(0, DP0, lab, new_loc);
+              Term r1 = term_new(0, DP1, lab, new_loc);
+              whnf = heap_subst_cop(side, loc, r0, r1);
               continue;
             }
           }
