@@ -5,6 +5,19 @@ MAIN=${MAIN:-./clang/main}
 TIMEOUT=${TIMEOUT:-10}
 threads=(1 2 4 8 12)
 
+run_with_timeout() {
+  local t="$1" m p s
+  shift
+  m="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
+  rm -f "$m"
+  "$@" & p=$!
+  ( sleep "$t"; kill -0 "$p" 2>/dev/null || exit 0; : > "$m"; kill -KILL "$p" 2>/dev/null || true ) &
+  wait "$p" 2>/dev/null; s=$?
+  [ -f "$m" ] && s=124
+  rm -f "$m"
+  return $s
+}
+
 if [ ! -x "$MAIN" ]; then
   echo "error: $MAIN not found or not executable" >&2
   exit 1
@@ -49,7 +62,7 @@ for file in "${bench_files[@]}"; do
         extra_args+=("-C")
         ;;
     esac
-    out=$(timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
+    out=$(run_with_timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
     status=$?
     if [ $status -eq 124 ]; then
       val="timeout"

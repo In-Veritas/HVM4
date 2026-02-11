@@ -18,38 +18,16 @@ ROOT_DIR="$DIR/.."
 TEST_TIMEOUT_SECS=2
 
 run_with_timeout() {
-  local timeout_secs="$1"
+  local t="$1" m p s
   shift
-  local marker
-  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
-  rm -f "$marker"
-
-  "$@" &
-  local cmd_pid=$!
-
-  (
-    trap 'exit 0' TERM INT
-    sleep "$timeout_secs"
-    if kill -0 "$cmd_pid" 2>/dev/null; then
-        : > "$marker"
-        kill -TERM "$cmd_pid" 2>/dev/null || true
-        sleep 0.2
-        kill -KILL "$cmd_pid" 2>/dev/null || true
-    fi
-  ) &
-  local timer_pid=$!
-
-  wait "$cmd_pid" 2>/dev/null
-  local cmd_status=$?
-  kill -TERM "$timer_pid" 2>/dev/null || true
-
-  if [ -f "$marker" ]; then
-    rm -f "$marker"
-    return 142
-  fi
-
-  rm -f "$marker"
-  return "$cmd_status"
+  m="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
+  rm -f "$m"
+  "$@" & p=$!
+  ( sleep "$t"; kill -0 "$p" 2>/dev/null || exit 0; : > "$m"; kill -KILL "$p" 2>/dev/null || true ) &
+  wait "$p" 2>/dev/null; s=$?
+  [ -f "$m" ] && s=124
+  rm -f "$m"
+  return $s
 }
 
 # Build C
@@ -220,7 +198,7 @@ run_tests() {
     run_with_timeout "$TEST_TIMEOUT_SECS" "${cmd[@]}" >"$out_file" 2>&1
     cmd_status=$?
     actual="$(cat "$out_file")"
-    if [ $cmd_status -eq 142 ]; then
+    if [ $cmd_status -eq 124 ]; then
       echo "[FAIL] $name (timeout after ${TEST_TIMEOUT_SECS}s)"
       status=1
       continue
