@@ -6,16 +6,21 @@ TIMEOUT=${TIMEOUT:-10}
 threads=(1 2 4 8 12)
 
 run_with_timeout() {
-  local t="$1" m p s
-  shift
-  m="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
-  rm -f "$m"
-  "$@" & p=$!
-  ( sleep "$t"; kill -0 "$p" 2>/dev/null || exit 0; : > "$m"; kill -KILL "$p" 2>/dev/null || true ) &
-  wait "$p" 2>/dev/null; s=$?
-  [ -f "$m" ] && s=124
-  rm -f "$m"
-  return $s
+  local out_var="$1" t="$2" marker cap_file pid status
+  shift 2
+  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
+  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm4-capture.XXXXXX")" || {
+    rm -f "$marker"
+    return 1
+  }
+  rm -f "$marker"
+  "$@" >"$cap_file" 2>&1 & pid=$!
+  ( sleep "$t"; kill -0 "$pid" 2>/dev/null || exit 0; : > "$marker"; kill -KILL "$pid" 2>/dev/null || true ) &
+  wait "$pid" 2>/dev/null; status=$?
+  [ -f "$marker" ] && status=124
+  printf -v "$out_var" '%s' "$(cat "$cap_file")"
+  rm -f "$cap_file" "$marker"
+  return $status
 }
 
 if [ ! -x "$MAIN" ]; then
@@ -62,7 +67,7 @@ for file in "${bench_files[@]}"; do
         extra_args+=("-C")
         ;;
     esac
-    out=$(run_with_timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
+    run_with_timeout out "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}"
     status=$?
     if [ $status -eq 124 ]; then
       val="timeout"

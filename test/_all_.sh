@@ -18,16 +18,21 @@ ROOT_DIR="$DIR/.."
 TEST_TIMEOUT_SECS=2
 
 run_with_timeout() {
-  local t="$1" m p s
-  shift
-  m="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
-  rm -f "$m"
-  "$@" & p=$!
-  ( sleep "$t"; kill -0 "$p" 2>/dev/null || exit 0; : > "$m"; kill -KILL "$p" 2>/dev/null || true ) &
-  wait "$p" 2>/dev/null; s=$?
-  [ -f "$m" ] && s=124
-  rm -f "$m"
-  return $s
+  local out_var="$1" t="$2" marker cap_file pid status
+  shift 2
+  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
+  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm4-capture.XXXXXX")" || {
+    rm -f "$marker"
+    return 1
+  }
+  rm -f "$marker"
+  "$@" >"$cap_file" 2>&1 & pid=$!
+  ( sleep "$t"; kill -0 "$pid" 2>/dev/null || exit 0; : > "$marker"; kill -KILL "$pid" 2>/dev/null || true ) &
+  wait "$pid" 2>/dev/null; status=$?
+  [ -f "$marker" ] && status=124
+  printf -v "$out_var" '%s' "$(cat "$cap_file")"
+  rm -f "$cap_file" "$marker"
+  return $status
 }
 
 # Build C
@@ -193,11 +198,8 @@ run_tests() {
       cmd+=("$ffi_flag" "$ffi_target")
     fi
 
-    out_file="$(mktemp "${DIR}/.tmp.out.${name}.XXXXXX")"
-    tmp_files+=("$out_file")
-    run_with_timeout "$TEST_TIMEOUT_SECS" "${cmd[@]}" >"$out_file" 2>&1
+    run_with_timeout actual "$TEST_TIMEOUT_SECS" "${cmd[@]}"
     cmd_status=$?
-    actual="$(cat "$out_file")"
     if [ $cmd_status -eq 124 ]; then
       echo "[FAIL] $name (timeout after ${TEST_TIMEOUT_SECS}s)"
       status=1
