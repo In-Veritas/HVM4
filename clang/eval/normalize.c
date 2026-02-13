@@ -35,7 +35,7 @@ static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWo
 
 static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
   for (;;) {
-    if (loc == 0) {
+    if (loc == 0 || !uset_add(&ctx->seen, loc)) {
       return;
     }
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
@@ -43,11 +43,8 @@ static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker 
     u8  tag  = term_tag(term);
     // DP0/DP1 have term_arity == 0, handle separately
     if (tag == DP0 || tag == DP1) {
-      if (uset_add(&ctx->seen, loc)) {
-        loc = tloc;
-        continue;
-      }
-      return;
+      loc = tloc;
+      continue;
     }
     u32 ari = term_arity(term);
     if (ari == 0) {
