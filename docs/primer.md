@@ -8,8 +8,7 @@ extends inside lambdas, not just at the data level.
 ## Running HVM4
 
 ```bash
-cd clang && clang -O2 -o main main.c   # build
-./clang/main file.hvm4 -s -C10         # run with collapse
+hvm4 file.hvm4 -s -C10 # run with collapse
 ```
 
 **Flags:**
