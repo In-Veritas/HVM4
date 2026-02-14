@@ -58,7 +58,7 @@ Term ::=
 
   -- Constructors
   | "#" Name "{" Args "}"                       -- constructor: #Pair{a,b}
-  | "#" Name "{" "}"                            -- nullary: #Zer{} or #True{}
+  | "#" Name "{" "}"                            -- nullary: #ZER{} or #True{}
 
   -- Operators
   | Term Op Term                                -- binary: (a + b), (x == y)
@@ -72,7 +72,8 @@ Term ::=
   | "&" Label "λ" Names "{" Term ";" Term "}"   -- fork
   | "[" Args "]"                                -- list: [a,b,c]
   | '"' Chars '"'                               -- string
-  | Integer "n"                                 -- nat: 2n -> #Suc{#Suc{#Zer}}
+  | "'" Char "'"                                -- char: 'x' -> #CHR{120}
+  | Integer "n"                                 -- nat: 2n -> #SUC{#SUC{#ZER}}
 
 Cases    ::= (Pattern ":" Term ";")* [Default]
 Pattern  ::= "#" Name | Integer | "[]" | "<>" | Integer "n" | Integer "n+"
@@ -225,8 +226,8 @@ Match cases bind constructor fields as lambda arguments.
 
 ### Peano Naturals
 
-`Nn` is sugar for `#Suc{...#Suc{#Zer}...}`. Patterns: `0n:` matches
-`#Zer`, `1n+:` matches `#Suc` and binds predecessor:
+`Nn` is sugar for `#SUC{...#SUC{#ZER}...}`. Patterns: `0n:` matches
+`#ZER`, `1n+:` matches `#SUC` and binds predecessor:
 
 ```hvm4
 @add = λ{
@@ -237,9 +238,41 @@ Match cases bind constructor fields as lambda arguments.
 //5n
 ```
 
-### Lists and Strings
+### Characters
 
-Lists use `#Con` and `#Nil`. Sugar: `[a,b,c]`, `"str"`, `a <> b` (cons).
+A char literal `'x'` desugars to `#CHR{120}` (the constructor `#CHR` wrapping the
+Unicode codepoint as a number). Escape sequences: `'\n'`, `'\t'`, `'\r'`, `'\0'`,
+`'\\'`, `'\''`, `'\"'`.
+
+```hvm4
+@main = 'A'
+//'A'
+```
+
+To match on a character, match the `#CHR` constructor to extract the codepoint,
+then switch on the numeric value:
+
+```hvm4
+@is_a = λ{
+  #CHR: λ{'A': #T; λn. #F}
+}
+
+@main = @is_a('A')
+//#T{}
+```
+
+### Lists
+
+Lists use the built-in constructors `#CON` and `#NIL` (all caps).
+
+Sugar:
+- `[]` desugars to `#NIL{}`
+- `[a, b, c]` desugars to `#CON{a, #CON{b, #CON{c, #NIL{}}}}`
+- `a <> b` desugars to `#CON{a, b}` (cons)
+
+Pattern sugar:
+- `[]:` matches `#NIL`
+- `<>:` matches `#CON`
 
 ```hvm4
 @len = λ{
@@ -247,6 +280,27 @@ Lists use `#Con` and `#Nil`. Sugar: `[a,b,c]`, `"str"`, `a <> b` (cons).
   <>: λh. λt. (1 + @len(t))
 }
 @main = @len([1, 2, 3, 4, 5])
+//5
+```
+
+### Strings
+
+Strings are lists of `#CHR`. `"hi"` desugars to:
+
+  #CON{#CHR{104}, #CON{#CHR{105}, #NIL{}}}
+
+Backtick can be used instead of quotes.
+
+```hvm4
+@main = "hi"
+//"hi"
+```
+
+Since strings are just lists, list functions work on them directly:
+
+```hvm4
+...
+@main = @len("hello")
 //5
 ```
 
@@ -490,7 +544,7 @@ Numeric switch (machine ints):
 2. **Variables are affine**: use `&` for multiple uses
 3. **Subscripts required**: dup-bound vars need `₀` or `₁`
 4. **Labels matter**: same labels annihilate, different multiply branches
-5. **Constructor syntax**: always `#Name{...}`, even nullary `#Zer{}`
+5. **Constructor syntax**: always `#Name{...}`, even nullary `#ZER{}`
 6. **Pattern arms are lambdas**: `1n+: λpred. body` "binds" the field
 7. **No inline match application**: avoid writting `λ{...}(x)`
 
