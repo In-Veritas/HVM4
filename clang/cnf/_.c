@@ -2,7 +2,7 @@
 // - cnf reduces to WNF, then lifts the first SUP to the top.
 // - Output is either SUP/ERA/INC at the root with arbitrary fields, or a term
 //   with no SUP/ERA/INC at any position.
-// - RED keeps only RHS; ERA propagates upward.
+// - ERA propagates upward.
 
 #include <stdatomic.h>
 
@@ -155,11 +155,6 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
 
     case INC: {
       return term;
-    }
-
-    case RED: {
-      u64 loc = term_val(term);
-      return cnf_at(heap_read(loc + 1), depth, next_par);
     }
 
     case LAM: {

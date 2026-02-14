@@ -8,8 +8,7 @@ for desugaring only; the parser itself does not accept whitespace application.
 
 - Base unit: an atom.
 - Postfix call: `f(...)` binds tightest.
-- `~>` and `<>` bind tighter than infix operators; the right side is a full term
-  (so they are effectively right-associative).
+- `<>` binds tighter than infix operators.
 - `===`, `.&.`, `.|.` bind tighter than infix operators (same precedence class
   as `==`, `&&`, `||`, but separate nodes).
 - Infix operators are left-associative, by the precedence table below.
@@ -265,12 +264,6 @@ These are separate nodes (not `Op2`):
 - `a === b` structural equality
 - `a .&. b` short-circuit AND
 - `a .|. b` short-circuit OR
-
-## Reduction
-
-- `a ~> b` is core `Red`.
-- `~>` is parsed before infix ops, so `a + b ~> c` becomes `a + (b ~> c)`.
-  Use parentheses for other grouping.
 
 ## Dup variables and subscripts
 

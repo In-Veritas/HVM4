@@ -1,104 +1,46 @@
-// data/uset.c - open-addressing set for non-zero u32 keys.
+// data/uset.c - concurrent set for non-zero u32 keys.
 //
 // Context
-// - Used by parallel normalization to track visited heap locations cheaply.
-// - Optimized for insert/contains; there is no deletion.
+// - Used by parallel normalization to track visited heap locations.
+// - Optimized for concurrent insert/contains; there is no deletion.
 //
 // Design
-// - Linear probing over a power-of-two table.
-// - Key 0 is reserved as the empty slot sentinel.
-// - Hash is multiplicative; index is masked by (cap - 1).
-// - Grows by doubling when load exceeds 50%.
+// - Direct-addressed bitmap over heap locations [0, HEAP_CAP).
+// - One bit per location; key 0 remains unused by callers.
+// - Concurrent insertion uses atomic fetch_or on the owning 64-bit word.
 //
 // Notes
-// - Not thread-safe; callers must synchronize externally.
-// - cap_hint is rounded up to a power of two (minimum 2).
+// - Thread-safe for concurrent reads/writes from multiple threads.
 // - On allocation failure, the process exits with an error.
-// - Because 0 is reserved, 0 is always reported as "not present".
+// - Because 0 is reserved by convention, 0 is always reported as "not present".
 
-// Uset stores the open-addressing table and its load metadata.
 typedef struct {
-  u32 *table;
-  u32 cap;
-  u32 mask;
-  u32 len;
-  u32 thresh;
+  _Atomic u64 *words;
+  u64 word_count;
 } Uset;
 
-// Multiplicative hash for u32 keys (unmasked).
-fn u32 uset_hash(u32 key) {
-  return key * 2654435761u;
+// Number of 64-bit words needed to represent all heap locations.
+fn u64 uset_words_for_heap(void) {
+  return (HEAP_CAP + 63ull) >> 6;
 }
 
-// Round up to next power of two (minimum 2) for mask arithmetic.
-fn u32 uset_next_pow2(u32 x) {
-  if (x < 2u) {
-    return 2u;
-  }
-  x--;
-  x |= x >> 1;
-  x |= x >> 2;
-  x |= x >> 4;
-  x |= x >> 8;
-  x |= x >> 16;
-  return x + 1;
-}
-
-// Initialize the set with a capacity >= cap_hint.
-fn void uset_init(Uset *set, u32 cap_hint) {
-  u32 cap = uset_next_pow2(cap_hint);
-  set->table = (u32 *)calloc(cap, sizeof(u32));
-  if (!set->table) {
+// Initialize the set bitmap.
+fn void uset_init(Uset *set) {
+  u64 words = uset_words_for_heap();
+  set->words = (_Atomic u64 *)calloc((size_t)words, sizeof(u64));
+  if (!set->words) {
     fprintf(stderr, "uset: allocation failed\n");
     exit(1);
   }
-  set->cap    = cap;
-  set->thresh = cap >> 1;
-  set->mask   = cap - 1;
-  set->len    = 0;
+  set->word_count = words;
 }
 
-// Release the backing table and reset the set state.
+// Release the bitmap and reset the set state.
 fn void uset_free(Uset *set) {
-  if (set->table) {
-    free(set->table);
+  if (set->words) {
+    free((void *)set->words);
   }
   *set = (Uset){0};
-}
-
-// Resize to new_cap and reinsert all keys.
-fn void uset_rehash(Uset *set, u32 new_cap) {
-  if (new_cap < set->cap) {
-    fprintf(stderr, "uset: allocation failed\n");
-    exit(1);
-  }
-  u32 *old = set->table;
-  u32 old_cap = set->cap;
-
-  set->table = (u32 *)calloc(new_cap, sizeof(u32));
-  if (!set->table) {
-    fprintf(stderr, "uset: allocation failed\n");
-    exit(1);
-  }
-  set->cap    = new_cap;
-  set->thresh = new_cap >> 1;
-  set->mask   = new_cap - 1;
-  set->len    = 0;
-
-  for (u32 i = 0; i < old_cap; i++) {
-    u32 key = old[i];
-    if (key == 0) {
-      continue;
-    }
-    u32 idx = uset_hash(key) & set->mask;
-    while (set->table[idx] != 0) {
-      idx = (idx + 1) & set->mask;
-    }
-    set->table[idx] = key;
-    set->len++;
-  }
-
-  free(old);
 }
 
 // Check whether key is present (0 is never present).
@@ -106,18 +48,13 @@ fn u8 uset_has(Uset *set, u32 key) {
   if (key == 0) {
     return 0;
   }
-  u32 idx = uset_hash(key) & set->mask;
-  for (u32 i = 0; i < set->cap; i++) {
-    u32 cur = set->table[idx];
-    if (cur == 0) {
-      return 0;
-    }
-    if (cur == key) {
-      return 1;
-    }
-    idx = (idx + 1) & set->mask;
+  u64 word_idx = ((u64)key) >> 6;
+  u64 bit_mask = 1ull << (key & 63u);
+  if (word_idx >= set->word_count) {
+    return 0;
   }
-  return 0;
+  u64 word = atomic_load_explicit(&set->words[word_idx], memory_order_relaxed);
+  return (word & bit_mask) != 0;
 }
 
 // Insert key if missing; returns 1 if inserted, 0 if already present.
@@ -125,25 +62,11 @@ fn u8 uset_add(Uset *set, u32 key) {
   if (key == 0) {
     return 0;
   }
-
-  if (set->len >= set->thresh) {
-    uset_rehash(set, set->cap << 1);
-  }                                                                       
-
-  u32 *table = set->table;
-  u32 mask   = set->mask;
-  u32 idx    = uset_hash(key) & mask;
-
-  while (1) {
-    u32 cur = table[idx];
-    if (cur == key) {
-      return 0;
-    }
-    if (cur == 0) {
-      table[idx] = key;
-      set->len++;
-      return 1;
-    }
-    idx = (idx + 1) & mask;
+  u64 word_idx = ((u64)key) >> 6;
+  if (word_idx >= set->word_count) {
+    return 0;
   }
+  u64 bit_mask = 1ull << (key & 63u);
+  u64 prev = atomic_fetch_or_explicit(&set->words[word_idx], bit_mask, memory_order_relaxed);
+  return (prev & bit_mask) == 0;
 }

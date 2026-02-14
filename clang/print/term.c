@@ -567,13 +567,6 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       fputc('}', f);
       break;
     }
-    case RED: {
-      u32 loc = term_val(term);
-      print_term_at(f, HEAP[loc + 0], depth, st);
-      fputs(" ~> ", f);
-      print_term_at(f, HEAP[loc + 1], depth, st);
-      break;
-    }
     case EQL: {
       u32 loc = term_val(term);
       fputc('(', f);

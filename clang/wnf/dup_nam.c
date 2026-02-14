@@ -4,6 +4,6 @@
 // X₁ ← name
 fn Term wnf_dup_nam(u32 lab, u32 loc, u8 side, Term nam) {
   ITRS_INC("DUP-NAM");
-  heap_subst_var(loc, nam);
+  heap_subst_var_dup(loc, nam);
   return nam;
 }

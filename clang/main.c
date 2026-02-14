@@ -70,6 +70,10 @@ fn CliOpts parse_opts(int argc, char **argv) {
         num = argv[++i];
       }
       opts.threads = atoi(num);
+      if (opts.threads > MAX_THREADS) {
+        fprintf(stderr, "Error: -T value (%d) exceeds MAX_THREADS (%d)\n", opts.threads, MAX_THREADS);
+        exit(1);
+      }
     } else if (strcmp(argv[i], "-d") == 0) {
       opts.debug = 1;
     } else if (strcmp(argv[i], "-D") == 0) {

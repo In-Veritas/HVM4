@@ -1,4 +1,0 @@
-// Test: RED with switch (zero case)
-@not = ^not ~> λ{0: 1; λp.0}
-@main = @not(0)
-//1

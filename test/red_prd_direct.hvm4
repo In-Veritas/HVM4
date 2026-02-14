@@ -1,3 +1,0 @@
-// Test: direct RED in match using Scott numerals
-@main = λ{#ZER: #ZER{}; #SUC: λp.p}(^prd ~> λ{#ZER: #ZER{}; #SUC: λp.p}(#SUC{#SUC{#SUC{#SUC{#ZER{}}}}}))
-//2n

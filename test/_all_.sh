@@ -15,6 +15,25 @@ C_BIN="$DIR/../clang/main"
 C_MAIN="${C_BIN}.c"
 FFI_DIR="$DIR/ffi"
 ROOT_DIR="$DIR/.."
+TEST_TIMEOUT_SECS=2
+
+run_with_timeout() {
+  local out_var="$1" t="$2" marker cap_file pid status
+  shift 2
+  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
+  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm4-capture.XXXXXX")" || {
+    rm -f "$marker"
+    return 1
+  }
+  rm -f "$marker"
+  "$@" >"$cap_file" 2>&1 & pid=$!
+  ( sleep "$t"; kill -0 "$pid" 2>/dev/null || exit 0; : > "$marker"; kill -KILL "$pid" 2>/dev/null || true ) &
+  wait "$pid" 2>/dev/null; status=$?
+  [ -f "$marker" ] && status=124
+  printf -v "$out_var" '%s' "$(cat "$cap_file")"
+  rm -f "$cap_file" "$marker"
+  return $status
+}
 
 # Build C
 if [ ! -f "$C_MAIN" ]; then
@@ -179,7 +198,13 @@ run_tests() {
       cmd+=("$ffi_flag" "$ffi_target")
     fi
 
-    actual="$("${cmd[@]}" 2>&1)"
+    run_with_timeout actual "$TEST_TIMEOUT_SECS" "${cmd[@]}"
+    cmd_status=$?
+    if [ $cmd_status -eq 124 ]; then
+      echo "[FAIL] $name (timeout after ${TEST_TIMEOUT_SECS}s)"
+      status=1
+      continue
+    fi
 
     # Strip ANSI escape codes for comparison
     actual_clean="$(echo "$actual" | sed 's/\x1b\[[0-9;]*m//g')"

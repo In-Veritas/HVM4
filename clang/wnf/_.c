@@ -2,7 +2,7 @@
 // - Enter/reduce: walk into the head position, pushing eliminators as frames.
 //   APP/OP2/EQL/AND/OR/DSU/DDU push their term as a frame and descend into the
 //   left/strict field (APP fun, OP2 lhs, etc). DP0/DP1 push and descend into the
-//   shared dup expr. MAT/USE/RED add specialized frames when their scrutinee is ready.
+//   shared dup expr. MAT/USE add specialized frames when their scrutinee is ready.
 // - Apply: once WHNF is reached, pop frames and dispatch the interaction using
 //   the WHNF result. Frames reuse existing heap nodes to avoid allocations.
 __attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u32 s_pos, u32 base) {
@@ -55,21 +55,6 @@ __attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u
         u32 loc = term_val(frame);
         heap_set(loc + 1, cur);
         cur = term_new(0, EQL, 0, loc);
-        break;
-      }
-      case F_APP_RED: {
-        u32  app_loc = term_val(frame);
-        Term red     = heap_read(app_loc + 0);
-        u32  red_loc = term_val(red);
-        heap_set(red_loc + 1, cur);
-        cur = term_new(0, APP, 0, app_loc);
-        break;
-      }
-      case F_RED_MAT:
-      case F_RED_USE: {
-        u32 app_loc = term_val(frame);
-        heap_set(app_loc + 1, cur);
-        cur = term_new(0, APP, 0, app_loc);
         break;
       }
       default: {
@@ -222,8 +207,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case AND:
           case OR:
           case DSU:
-          case DDU:
-          case RED: {
+          case DDU: {
             next = wnf_alo_nod(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
@@ -292,7 +276,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto enter;
       }
 
-      case RED:
       case NAM:
       case BJV:
       case BJ0:
@@ -379,15 +362,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = arg;
               goto enter;
             }
-            case RED: {
-              // ((f ~> g) x): write RED to heap, push F_APP_RED(app_loc), enter g
-              heap_set(app_loc + 0, whnf);  // update heap so F_APP_RED can read it
-              u32  red_loc = term_val(whnf);
-              Term g       = heap_read(red_loc + 1);
-              stack[s_pos++] = term_new(0, F_APP_RED, 0, app_loc);
-              next = g;
-              goto enter;
-            }
             case NUM: {
               fprintf(stderr, "RUNTIME_ERROR: cannot apply a number\n");
               exit(1);
@@ -398,75 +372,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             default: {
               whnf = term_new_app(whnf, arg);
-              continue;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // F_APP_RED frame: ((f ~> □) x) - we reduced g, now dispatch on g
-        // -----------------------------------------------------------------------
-        case F_APP_RED: {
-          u32  app_loc = term_val(frame);
-          Term red     = heap_read(app_loc + 0);
-          u32  red_loc = term_val(red);
-          Term f       = heap_read(red_loc + 0);
-          Term arg     = heap_read(app_loc + 1);
-          Term g       = whnf;
-
-          switch (term_tag(g)) {
-            case ERA: {
-              whnf = wnf_app_red_era();
-              continue;
-            }
-            case SUP: {
-              whnf = wnf_app_red_sup(f, g, arg);
-              continue;
-            }
-            case INC: {
-              whnf = wnf_app_red_inc(f, g, arg);
-              continue;
-            }
-            case LAM: {
-              whnf = wnf_app_red_lam(f, g, arg);
-              continue;
-            }
-            case RED: {
-              whnf = wnf_app_red_red(f, g, arg);
-              continue;
-            }
-            case MAT:
-            case SWI: {
-              // ((f ~> mat) x): store mat in RED's g slot, push F_RED_MAT, enter arg
-              heap_set(red_loc + 1, g);  // store mat where g was
-              stack[s_pos++] = term_new(0, F_RED_MAT, 0, app_loc);
-              next = arg;
-              goto enter;
-            }
-            case USE: {
-              // ((f ~> use) x): store use in RED's g slot, push F_RED_USE, enter arg
-              heap_set(red_loc + 1, g);
-              stack[s_pos++] = term_new(0, F_RED_USE, 0, app_loc);
-              next = arg;
-              goto enter;
-            }
-            case NAM:
-            case BJV:
-            case BJ0:
-            case BJ1: {
-              whnf = wnf_app_red_nam(f, g, arg);
-              continue;
-            }
-            case DRY: {
-              whnf = wnf_app_red_dry(f, g, arg);
-              continue;
-            }
-            case C00 ... C16: {
-              whnf = wnf_app_red_ctr(f, g, arg);
-              continue;
-            }
-            default: {
-              whnf = term_new_app(term_new_red(f, g), arg);
               continue;
             }
           }
@@ -499,14 +404,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_app_mat_num(mat, whnf);
               goto enter;
             }
-            case RED: {
-              // (mat (g ~> h)): drop g, reduce (mat h)
-              u32  red_loc = term_val(whnf);
-              Term h = heap_read(red_loc + 1);
-              stack[s_pos++] = mat;
-              next = h;
-              goto enter;
-            }
             case NAM:
             case BJV:
             case BJ0:
@@ -518,60 +415,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             default: {
               whnf = term_new_app(mat, whnf);
-              continue;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // F_RED_MAT frame: ((f ~> mat) □) - we reduced arg, dispatch guarded mat
-        // -----------------------------------------------------------------------
-        case F_RED_MAT: {
-          u32  app_loc = term_val(frame);
-          Term red     = heap_read(app_loc + 0);
-          u32  red_loc = term_val(red);
-          Term f       = heap_read(red_loc + 0);
-          Term mat     = heap_read(red_loc + 1);  // mat was stored here
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_red_mat_era();
-              continue;
-            }
-            case SUP: {
-              whnf = wnf_app_red_mat_sup(f, mat, whnf);
-              continue;
-            }
-            case INC: {
-              whnf = wnf_app_red_mat_inc(f, mat, whnf);
-              continue;
-            }
-            case C00 ... C16: {
-              if (term_ext(mat) == term_ext(whnf)) {
-                next = wnf_app_red_mat_ctr_match(f, mat, whnf);
-              } else {
-                next = wnf_app_red_mat_ctr_miss(f, mat, whnf);
-              }
-              goto enter;
-            }
-            case NUM: {
-              if (term_ext(mat) == term_val(whnf)) {
-                next = wnf_app_red_mat_num_match(f, mat, whnf);
-              } else {
-                next = wnf_app_red_mat_num_miss(f, mat, whnf);
-              }
-              goto enter;
-            }
-            case RED: {
-              // ((f ~> mat) (g ~> h)): drop g, reduce (mat h) in guarded context
-              u32  arg_red_loc = term_val(whnf);
-              Term h = heap_read(arg_red_loc + 1);
-              stack[s_pos++] = frame;  // keep F_RED_MAT frame
-              next = h;
-              goto enter;
-            }
-            default: {
-              // Stuck - drop g, return ^(f arg)
-              whnf = term_new_dry(f, whnf);
               continue;
             }
           }
@@ -595,63 +438,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_use_inc(use, whnf);
               continue;
             }
-            case RED: {
-              // (use (g ~> h)): drop g, reduce (use h)
-              u32  red_loc = term_val(whnf);
-              Term h = heap_read(red_loc + 1);
-              stack[s_pos++] = use;
-              next = h;
-              goto enter;
-            }
             default: {
               next = wnf_use_val(use, whnf);
               goto enter;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // F_RED_USE frame: ((f ~> use) □) - we reduced arg, dispatch guarded use
-        // -----------------------------------------------------------------------
-        case F_RED_USE: {
-          u32  app_loc = term_val(frame);
-          Term red     = heap_read(app_loc + 0);
-          u32  red_loc = term_val(red);
-          Term f       = heap_read(red_loc + 0);
-          Term use     = heap_read(red_loc + 1);  // use was stored here
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_red_use_era();
-              continue;
-            }
-            case SUP: {
-              whnf = wnf_app_red_use_sup(f, use, whnf);
-              continue;
-            }
-            case INC: {
-              whnf = wnf_app_red_use_inc(f, use, whnf);
-              continue;
-            }
-            case RED: {
-              // ((f ~> use) (g ~> h)): drop g, reduce (use h) in guarded context
-              u32  arg_red_loc = term_val(whnf);
-              Term h = heap_read(arg_red_loc + 1);
-              stack[s_pos++] = frame;  // keep F_RED_USE frame
-              next = h;
-              goto enter;
-            }
-            case NAM:
-            case BJV:
-            case BJ0:
-            case BJ1:
-            case DRY: {
-              // Stuck - drop g, return ^(f arg)
-              whnf = term_new_dry(f, whnf);
-              continue;
-            }
-            default: {
-              whnf = wnf_app_red_use_val(f, use, whnf);
-              continue;
             }
           }
         }
@@ -675,10 +464,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case DRY: {
               whnf = wnf_dup_dry(lab, loc, side, whnf);
-              continue;
-            }
-            case RED: {
-              whnf = wnf_dup_red(lab, loc, side, whnf);
               continue;
             }
             case LAM: {
@@ -711,8 +496,9 @@ __attribute__((hot)) fn Term wnf(Term term) {
             default: {
               u64 new_loc   = heap_alloc(1);
               heap_set(new_loc, whnf);
-              heap_subst_var(loc, term_new(0, side == 0 ? DP1 : DP0, lab, new_loc));
-              whnf          = term_new(0, side == 0 ? DP0 : DP1, lab, new_loc);
+              Term r0 = term_new(0, DP0, lab, new_loc);
+              Term r1 = term_new(0, DP1, lab, new_loc);
+              whnf = heap_subst_cop(side, loc, r0, r1);
               continue;
             }
           }
@@ -777,14 +563,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
               Term x = term_new_num(x_val);
               whnf = wnf_op2_num_sup(opr, x, whnf);
               continue;
-            }
-            case RED: {
-              // (x op (f ~> g)): drop f, reduce (x op g)
-              u32  red_loc = term_val(whnf);
-              Term g = heap_read(red_loc + 1);
-              stack[s_pos++] = frame;
-              next = g;
-              goto enter;
             }
             case INC: {
               Term x = term_new_num(x_val);
@@ -1057,7 +835,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
 fn Term wnf_at(u32 loc) {
   Term cur = heap_read(loc);
   switch (term_tag(cur)) {
-    case RED:
     case NAM:
     case BJV:
     case BJ0:
@@ -1101,7 +878,6 @@ __attribute__((cold, noinline)) fn void steps_print_line(str itr) {
 __attribute__((cold, noinline)) fn Term wnf_steps_at(u32 loc) {
   Term cur = heap_read(loc);
   switch (term_tag(cur)) {
-    case RED:
     case NAM:
     case BJV:
     case BJ0:

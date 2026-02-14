@@ -251,7 +251,7 @@ of computation described by Lafont (1997). This similarity can be visualized as:
 │     │  ↓   a      ↓   a   │ (λx.f)(a)        │
 │     │  |___|      |   |   │ --------         │
 │ APP │   \ /        \ /    │ x ← a            │
-│  X  │    |    ~>    X     │ f                │
+│  X  │    |    =>    X     │ f                │
 │ LAM │   / \        / \    │                  │
 │     │  |‾‾‾|      |   |   │                  │
 │     │  x   f      x   f   │                  │
@@ -259,7 +259,7 @@ of computation described by Lafont (1997). This similarity can be visualized as:
 │     │  ↓   x      ↓   x   │ (&L{a,b} x)      │
 │     │  |___|      |   |   │ -----------      │
 │ APP │   \ /      /L\ /L\  │ ! X &L= x        │
-│  X  │    |   ~>  |_ X _|  │ &L{a(X₀),b(X₁)}  │
+│  X  │    |   =>  |_ X _|  │ &L{a(X₀),b(X₁)}  │
 │ SUP │   /L\      \ / \ /  │                  │
 │     │  |‾‾‾|      |   |   │                  │
 │     │  a   b      a   b   │                  │
@@ -267,7 +267,7 @@ of computation described by Lafont (1997). This similarity can be visualized as:
 │     │  F₁  F₀     F₁  F₀  │ ! F &L= λx.g     │
 │     │  |___|      |   |   │ ------------     │
 │ DUP │   \L/      /_\ /_\  │ F₀ ← λ$y.G₀      │
-│  X  │    |   ~>  |_ X _|  │ F₁ ← λ$z.G₁      │
+│  X  │    |   =>  |_ X _|  │ F₁ ← λ$z.G₁      │
 │ LAM │   / \      \L/ \L/  │ x  ← &L{$y,$z}   │
 │     │  |‾‾‾|      |   |   │ ! G &L= g        │
 │     │  x   g      x   g   │                  │
@@ -275,7 +275,7 @@ of computation described by Lafont (1997). This similarity can be visualized as:
 │     │  S₁  S₀     S₁  S₀  │ ! S &L= &L{a,b}  │
 │     │  |___|      |   |   │ ---------------  │
 │ DUP │   \L/        \ /    │ S₀ ← a           │
-│  X  │    |    ~>    X     │ S₁ ← b           │
+│  X  │    |    =>    X     │ S₁ ← b           │
 │ SUP │   /L\        / \    │ t                │
 │     │  |‾‾‾|      |   |   │                  │
 │     │  a   b      a   b   │                  │

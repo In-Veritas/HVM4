@@ -8,6 +8,9 @@ fn Term parse_term_ctr(PState *s, u32 depth) {
   if (parse_match(s, "{")) {
     parse_skip(s);
     while (parse_peek(s) != '}') {
+      if (cnt >= 16) {
+        parse_error(s, "at most 16 constructor fields", parse_peek(s));
+      }
       args[cnt++] = parse_term(s, depth);
       parse_skip(s);
       parse_match(s, ",");  // optional comma

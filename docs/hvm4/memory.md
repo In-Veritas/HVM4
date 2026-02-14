@@ -37,7 +37,6 @@ binary op               | OP2    | op code          | node: [lhs, rhs]          
 equality                | EQL    | 0                | node: [lhs, rhs]             | structural equality
 logical AND             | AND    | 0                | node: [lhs, rhs]             | short-circuit AND
 logical OR              | OR     | 0                | node: [lhs, rhs]             | short-circuit OR
-reduction               | RED    | 0                | node: [lhs, rhs]             | guarded reduction (f ~> g)
 priority wrapper        | INC    | 0                | node: [term]                 | collapse priority wrapper
 name literal            | NAM    | name id          | 0                            | literal ^name
 stuck application       | DRY    | 0                | node: [fun, arg]             | literal ^(f x)
