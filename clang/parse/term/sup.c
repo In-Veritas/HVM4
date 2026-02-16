@@ -1,7 +1,7 @@
-fn Term parse_term(PState *s, u32 depth);
-fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth);
+fn Term parse_term(PState *s, u16 depth);
+fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u16 lab, u32 depth);
 
-fn Term parse_term_sup(PState *s, u32 depth) {
+fn Term parse_term_sup(PState *s, u16 depth) {
   parse_skip(s);
   if (parse_peek(s) == '{') {
     parse_consume(s, "{");
@@ -10,7 +10,7 @@ fn Term parse_term_sup(PState *s, u32 depth) {
   }
   int  dyn      = parse_peek(s) == '(';
   Term lab_term = 0;
-  u32  lab      = 0;
+  u16  lab      = 0;
   if (dyn) {
     parse_consume(s, "(");
     lab_term = parse_term(s, depth);

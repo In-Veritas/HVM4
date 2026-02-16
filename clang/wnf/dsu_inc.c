@@ -3,7 +3,7 @@
 // ↑(&(x){a, b})
 fn Term wnf_dsu_inc(Term inc, Term a, Term b) {
   ITRS_INC("DSU-INC");
-  u32  inc_loc = term_val(inc);
+  u64  inc_loc = term_val(inc);
   Term x       = heap_read(inc_loc);
   Term new_dsu = term_new_dsu(x, a, b);
   heap_set(inc_loc, new_dsu);

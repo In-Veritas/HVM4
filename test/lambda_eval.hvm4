@@ -15,12 +15,10 @@
 @sgo = λ{
   #Var: λi. λd.
     #Var{i}
-  #Lam: λf. λd.
-    ! D &snf = d;
-    #Lam{λx. @snf(f(#Var{D₀}), D₁ + 1)}
-  #App: λf. λx. λd.
-    ! D &snf = d;
-    #App{@snf(f,D₀), @snf(x,D₁)}
+  #Lam: λf. λ&d.
+    #Lam{λx. @snf(f(#Var{d}), d + 1)}
+  #App: λf. λx. λ&d.
+    #App{@snf(f,d), @snf(x,d)}
 }
 
 @C2 = #Lam{λs. #Lam{λz. ! S &C2 = s; #App{S₀, #App{S₁, z}}}}

@@ -5,7 +5,7 @@
 fn Term wnf_op2_sup(u32 opr, Term sup, Term y) {
   ITRS_INC("OP2-SUP");
   u32  lab     = term_ext(sup);
-  u32  sup_loc = term_val(sup);
+  u64  sup_loc = term_val(sup);
   Copy Y       = term_clone(lab, y);
   Term op0     = term_new_op2(opr, heap_read(sup_loc + 0), Y.k0);
   Term op1     = term_new_op2(opr, heap_read(sup_loc + 1), Y.k1);

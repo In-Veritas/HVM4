@@ -32,7 +32,7 @@
 
 // Per-bucket deque capacity (log2).
 #ifndef WSPQ_CAP_POW2
-#define WSPQ_CAP_POW2 21u
+#define WSPQ_CAP_POW2 22u
 #endif
 
 // Number of victim attempts per steal call.

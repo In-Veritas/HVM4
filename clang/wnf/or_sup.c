@@ -5,7 +5,7 @@
 fn Term wnf_or_sup(Term sup, Term b) {
   ITRS_INC("OR-SUP");
   u32  lab = term_ext(sup);
-  u32  loc = term_val(sup);
+  u64  loc = term_val(sup);
   Term a0  = heap_read(loc + 0);
   Term a1  = heap_read(loc + 1);
   u64  dup_loc = heap_alloc(1);

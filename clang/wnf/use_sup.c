@@ -4,10 +4,10 @@
 // &L{(λ{F₀} a), (λ{F₁} b)}
 fn Term wnf_use_sup(Term use, Term sup) {
   ITRS_INC("USE-SUP");
-  u32  use_loc = term_val(use);
+  u64  use_loc = term_val(use);
   Term f       = heap_read(use_loc);
-  u32  lab     = term_ext(sup);
-  u32  sup_loc = term_val(sup);
+  u16  lab     = term_ext(sup);
+  u64  sup_loc = term_val(sup);
   Copy F       = term_clone(lab, f);
   Term use0    = term_new_use(F.k0);
   Term use1    = term_new_use(F.k1);

@@ -11,7 +11,7 @@ __attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u
 
     switch (term_tag(frame)) {
       case APP: {
-        u32  loc = term_val(frame);
+        u64  loc = term_val(frame);
         Term arg = heap_read(loc + 1);
         cur = term_new_app_at(loc, cur, arg);
         break;
@@ -24,20 +24,20 @@ __attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u
       }
       case DP0:
       case DP1: {
-        u32 loc = term_val(frame);
+        u64 loc = term_val(frame);
         heap_set(loc, cur);
         cur = frame;
         break;
       }
       case OP2: {
-        u32 loc = term_val(frame);
+        u64 loc = term_val(frame);
         heap_set(loc + 0, cur);
         cur = frame;
         break;
       }
       case F_OP2_NUM: {
         u32  opr = term_ext(frame);
-        Term x   = term_new_num(term_val(frame));
+        Term x   = term_new_num((u32)term_val(frame));
         cur = term_new_op2(opr, x, cur);
         break;
       }
@@ -46,13 +46,13 @@ __attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u
       case OR:
       case DSU:
       case DDU: {
-        u32 loc = term_val(frame);
+        u64 loc = term_val(frame);
         heap_set(loc + 0, cur);
         cur = frame;
         break;
       }
       case F_EQL_R: {
-        u32 loc = term_val(frame);
+        u64 loc = term_val(frame);
         heap_set(loc + 1, cur);
         cur = term_new(0, EQL, 0, loc);
         break;
@@ -91,7 +91,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
     switch (term_tag(next)) {
       case VAR: {
-        u32 loc = term_val(next);
+        u64 loc = term_val(next);
         Term cell = heap_read(loc);
         if (term_sub_get(cell)) {
           next = term_sub_set(cell, 0);
@@ -103,7 +103,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case DP0:
       case DP1: {
-        u32 loc = term_val(next);
+        u64 loc = term_val(next);
         Term cell = heap_take(loc);
         if (term_sub_get(cell)) {
           next = term_sub_set(cell, 0);
@@ -115,7 +115,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case APP: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term fun = heap_read(loc);
         stack[s_pos++] = next;
         next = fun;
@@ -123,7 +123,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case DUP: {
-        u32  loc  = term_val(next);
+        u64  loc  = term_val(next);
         Term body = heap_read(loc + 1);
         next = body;
         goto enter;
@@ -135,7 +135,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case REF: {
-        u32 nam = term_ext(next);
+        u16 nam = term_ext(next);
         if (BOOK[nam] != 0) {
           next = term_new_alo(0, 0, BOOK[nam]);
           goto enter;
@@ -151,19 +151,18 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case ALO: {
-        u32  len     = term_ext(next);
-        u32  alo_loc;
-        u32  tm_loc;
-        u32  ls_loc;
+        u16 len     = term_ext(next);
+        u64 alo_loc = 0;
+        u64 tm_loc;
+        u64 ls_loc;
         if (len == 0) {
-          alo_loc = 0;
           tm_loc = term_val(next);
           ls_loc = 0;
         } else {
-          alo_loc  = term_val(next);
+          alo_loc = term_val(next);
           u64 pair = heap_read(alo_loc);
-          tm_loc = (u32)(pair & 0xFFFFFFFF);
-          ls_loc = (u32)(pair >> 32);
+          tm_loc = (pair & 0xFFFFFFFF);
+          ls_loc = (pair >> 32);
         }
         Term book    = heap_read(tm_loc);
 
@@ -219,7 +218,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case OP2: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term x   = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = x;
@@ -227,7 +226,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case EQL: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term a   = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = a;
@@ -235,7 +234,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case AND: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term a   = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = a;
@@ -243,7 +242,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case OR: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term a   = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = a;
@@ -251,7 +250,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case DSU: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term lab = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = lab;
@@ -259,7 +258,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case DDU: {
-        u32  loc = term_val(next);
+        u64  loc = term_val(next);
         Term lab = heap_read(loc + 0);
         stack[s_pos++] = next;
         next = lab;
@@ -310,7 +309,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // APP frame: (□ x) - we reduced func, now dispatch
         // -----------------------------------------------------------------------
         case APP: {
-          u32  app_loc = term_val(frame);
+          u64  app_loc = term_val(frame);
           Term arg     = heap_read(app_loc + 1);
 
           switch (term_tag(whnf)) {
@@ -442,7 +441,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         case DP0:
         case DP1: {
           u8  side = (term_tag(frame) == DP0) ? 0 : 1;
-          u32 loc  = term_val(frame);
+          u64 loc  = term_val(frame);
           u32 lab  = term_ext(frame);
 
           switch (term_tag(whnf)) {
@@ -500,7 +499,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // -----------------------------------------------------------------------
         case OP2: {
           u32  opr = term_ext(frame);
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term y   = heap_read(loc + 1);
 
           switch (term_tag(whnf)) {
@@ -511,7 +510,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case NUM: {
               u8 y_tag = term_tag(y);
               if (y_tag == NUM) {
-                whnf = wnf_op2_num_num_raw(opr, term_val(whnf), term_val(y));
+                whnf = wnf_op2_num_num_raw(opr, (u32)term_val(whnf), (u32)term_val(y));
                 continue;
               }
               // x is NUM, now reduce y: push F_OP2_NUM frame
@@ -540,7 +539,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // -----------------------------------------------------------------------
         case F_OP2_NUM: {
           u32 opr   = term_ext(frame);
-          u32 x_val = term_val(frame);
+          u32 x_val = (u32)term_val(frame);
 
           switch (term_tag(whnf)) {
             case ERA: {
@@ -548,7 +547,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case NUM: {
-              whnf = wnf_op2_num_num_raw(opr, x_val, term_val(whnf));
+              whnf = wnf_op2_num_num_raw(opr, x_val, (u32)term_val(whnf));
               continue;
             }
             case SUP: {
@@ -574,7 +573,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // EQL frame: (□ === b) - we reduced a, transition to F_EQL_R or dispatch
         // -----------------------------------------------------------------------
         case EQL: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term b   = heap_read(loc + 1);
 
           switch (term_tag(whnf)) {
@@ -609,7 +608,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // F_EQL_R frame: (a === □) - we reduced b, now compare both WHNFs
         // -----------------------------------------------------------------------
         case F_EQL_R: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term a   = heap_read(loc + 0);  // a's WHNF was stored here
 
           switch (term_tag(whnf)) {
@@ -687,7 +686,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // DSU frame: &(□){a,b} - we reduced lab, dispatch
         // -----------------------------------------------------------------------
         case DSU: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term a   = heap_read(loc + 1);
           Term b   = heap_read(loc + 2);
 
@@ -720,7 +719,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // DDU frame: ! x &(□) = val; bod - we reduced lab, dispatch
         // -----------------------------------------------------------------------
         case DDU: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term val = heap_read(loc + 1);
           Term bod = heap_read(loc + 2);
 
@@ -753,7 +752,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // AND frame: (□ .&. b) - we reduced a, dispatch
         // -----------------------------------------------------------------------
         case AND: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term b   = heap_read(loc + 1);
 
           switch (term_tag(whnf)) {
@@ -785,7 +784,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         // OR frame: (□ .|. b) - we reduced a, dispatch
         // -----------------------------------------------------------------------
         case OR: {
-          u32  loc = term_val(frame);
+          u64  loc = term_val(frame);
           Term b   = heap_read(loc + 1);
 
           switch (term_tag(whnf)) {
@@ -828,7 +827,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
   }
 }
 
-fn Term wnf_at(u32 loc) {
+fn Term wnf_at(u64 loc) {
   Term cur = heap_read(loc);
   switch (term_tag(cur)) {
     case NAM:
@@ -871,7 +870,7 @@ __attribute__((cold, noinline)) fn void steps_print_line(str itr) {
   fputc('\n', stdout);
 }
 
-__attribute__((cold, noinline)) fn Term wnf_steps_at(u32 loc) {
+__attribute__((cold, noinline)) fn Term wnf_steps_at(u64 loc) {
   Term cur = heap_read(loc);
   switch (term_tag(cur)) {
     case NAM:

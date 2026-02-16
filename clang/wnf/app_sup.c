@@ -4,8 +4,8 @@
 // &L{(f A₀),(g A₁)}
 fn Term wnf_app_sup(Term app, Term sup) {
   ITRS_INC("APP-SUP");
-  u32  app_loc = term_val(app);
-  u32  sup_loc = term_val(sup);
+  u64  app_loc = term_val(app);
+  u64  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
   Term arg     = heap_read(app_loc + 1);
   Term tm1     = heap_read(sup_loc + 1);

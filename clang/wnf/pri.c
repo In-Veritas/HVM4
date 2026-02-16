@@ -13,7 +13,7 @@ fn Term wnf_pri(Term pri) {
     exit(1);
   }
 
-  u32  loc = term_val(pri);
+  u64  loc = term_val(pri);
   Term args_stack[16];
   Term *args = args_stack;
   if (arity > 16) {

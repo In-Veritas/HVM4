@@ -26,8 +26,8 @@ fn Term wnf_eql_ctr(Term a, Term b) {
     return term_new_num(1);
   }
 
-  u32  a_loc = term_val(a);
-  u32  b_loc = term_val(b);
+  u64  a_loc = term_val(a);
+  u64  b_loc = term_val(b);
 
   // SUC (1n+): recursive natural - wrap in INC for priority
   if (a_ext == SYM_SUC && arity == 1) {

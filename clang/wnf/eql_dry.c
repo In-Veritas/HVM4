@@ -3,8 +3,8 @@
 // (af === bf) & (ax === bx)
 fn Term wnf_eql_dry(Term a, Term b) {
   ITRS_INC("EQL-DRY");
-  u32  a_loc = term_val(a);
-  u32  b_loc = term_val(b);
+  u64  a_loc = term_val(a);
+  u64  b_loc = term_val(b);
   Term af    = heap_read(a_loc + 0);
   Term ax    = heap_read(a_loc + 1);
   Term bf    = heap_read(b_loc + 0);

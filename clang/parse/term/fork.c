@@ -3,7 +3,7 @@ fn Term parse_term(PState *s, u32 depth);
 // Fork: &Lλx,y,z{A;B} or &(L)λx,y,z{A;B}
 // Desugars to: λx&L.λy&L.λz&L.&L{A';B'}
 // where A' uses x₀,y₀,z₀ and B' uses x₁,y₁,z₁
-fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
+fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u16 lab, u32 depth) {
   if (PARSE_FORK_SIDE != -1) {
     fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
     fprintf(stderr, "- nested forks are not allowed\n");

@@ -8,7 +8,7 @@ fn Term wnf_app_mat_sup(Term mat, Term sup) {
   ITRS_INC("APP-MAT-SUP");
   u32  lab = term_ext(sup);
   Copy M   = term_clone(lab, mat);
-  u32  loc = term_val(sup);
+  u64  loc = term_val(sup);
   Term a   = heap_read(loc + 0);
   Term b   = heap_read(loc + 1);
   return term_new_sup_at(loc, lab, term_new_app(M.k0, a), term_new_app(M.k1, b));

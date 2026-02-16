@@ -4,9 +4,9 @@
 // F₁ ← λ$x1.G₁
 // x  ← &L{$x0,$x1}
 // ! G &L = f
-fn Term wnf_dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
+fn Term wnf_dup_lam(u32 lab, u64 loc, u8 side, Term lam) {
   ITRS_INC("DUP-LAM");
-  u32  lam_loc        = term_val(lam);
+  u64  lam_loc        = term_val(lam);
   u32  lam_ext        = term_ext(lam);
   Term bod            = heap_read(lam_loc);
 

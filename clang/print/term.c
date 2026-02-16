@@ -13,13 +13,13 @@
 // - Name tables are fixed-size (PRINT_NAME_MAX) to keep the printer simple.
 
 typedef struct {
-  u32 loc;
+  u64 loc;
   u32 name;
 } LamBind;
 
 // DupBind records a DUP node keyed by its expr location.
 typedef struct {
-  u32 loc;
+  u64 loc;
   u32 name;
   u32 lab;
 } DupBind;
@@ -38,7 +38,7 @@ typedef struct {
   u32 next_lam;
   u32 next_dup;
   u8  quoted;
-  u32 subst;
+  u64 subst;
   u32 subst_len;
 } PrintState;
 
@@ -51,9 +51,9 @@ fn void print_term_at(FILE *f, Term term, u32 depth, PrintState *st) {
 }
 
 // Temporarily switches print mode (quoted + subst) for nested ALO rendering.
-fn void print_term_mode(FILE *f, Term term, u32 depth, u8 quoted, u32 subst, u32 subst_len, PrintState *st) {
+fn void print_term_mode(FILE *f, Term term, u32 depth, u8 quoted, u64 subst, u32 subst_len, PrintState *st) {
   u8  old_quoted = st->quoted;
-  u32 old_subst  = st->subst;
+  u64 old_subst  = st->subst;
   u32 old_len    = st->subst_len;
   st->quoted = quoted;
   st->subst  = subst;
@@ -105,7 +105,7 @@ fn void print_state_free(PrintState *st) {
 }
 
 // Returns the global name for a lambda body location, allocating if needed.
-fn u32 print_state_lam(PrintState *st, u32 loc) {
+fn u32 print_state_lam(PrintState *st, u64 loc) {
   for (u32 i = 0; i < st->lam_len; i++) {
     if (PRINT_LAMS[i].loc == loc) {
       return PRINT_LAMS[i].name;
@@ -122,7 +122,7 @@ fn u32 print_state_lam(PrintState *st, u32 loc) {
 }
 
 // Returns the global name for a DUP node keyed by its expr location.
-fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
+fn u32 print_state_dup(PrintState *st, u64 loc, u32 lab) {
   for (u32 i = 0; i < st->dup_len; i++) {
     if (PRINT_DUPS[i].loc == loc) {
       return PRINT_DUPS[i].name;
@@ -139,8 +139,8 @@ fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
 }
 
 // Looks up an ALO bind list entry by index (0 = innermost), returning a dynamic loc.
-fn u32 alo_subst_get(u32 ls_loc, u32 idx) {
-  u32 ls = ls_loc;
+fn u64 alo_subst_get(u64 ls_loc, u32 idx) {
+  u64 ls = ls_loc;
   for (u32 i = 0; i < idx && ls != 0; i++) {
     ls = term_val(HEAP[ls + 1]);
   }
@@ -190,7 +190,7 @@ fn void print_app(FILE *f, Term term, u32 depth, PrintState *st) {
   u32  len  = 0;
   Term curr = term;
   while ((term_tag(curr) == APP || term_tag(curr) == DRY) && len < 256) {
-    u32 loc = term_val(curr);
+    u64 loc = term_val(curr);
     spine[len++] = HEAP[loc + 1];
     curr = HEAP[loc];
   }
@@ -213,7 +213,8 @@ fn void print_app(FILE *f, Term term, u32 depth, PrintState *st) {
 
 // Prints constructors, with sugar for nat, char, string, and list forms.
 fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
-  u32 nam = term_ext(t), loc = term_val(t), ari = term_tag(t) - C00;
+  u32 nam = term_ext(t), ari = term_tag(t) - C00;
+  u64 loc = term_val(t);
   // Nat: count SUCs, print as Nn or Nn+x
   if (nam == SYM_ZER || nam == SYM_SUC) {
     u32 n = 0;
@@ -307,7 +308,7 @@ fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
 // Recursive printer that handles both dynamic (linked) and quoted (book) terms.
 fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
   u8  quoted = st->quoted;
-  u32 subst  = st->subst;
+  u64 subst  = st->subst;
   switch (term_tag(term)) {
     case NAM: {
       // Literal stuck name (^x).
@@ -321,8 +322,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case BJV: {
       // Quoted VAR: val is de Bruijn level; try ALO substitution.
-      u32 lvl  = term_val(term);
-      u32 bind = 0;
+      u64 lvl  = term_val(term);
+      u64 bind = 0;
       if (quoted && lvl > 0 && lvl <= st->subst_len) {
         bind = alo_subst_get(subst, st->subst_len - lvl);
       }
@@ -344,7 +345,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case NUM: {
-      fprintf(f, "%u", term_val(term));
+      fprintf(f, "%u", (u32)term_val(term));
       break;
     }
     case REF: {
@@ -357,7 +358,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       print_def_name(f, term_ext(term));
       u32 ari = term_arity(term);
       if (ari > 0) {
-        u32 loc = term_val(term);
+        u64 loc = term_val(term);
         fputc('(', f);
         for (u32 i = 0; i < ari; i++) {
           if (i > 0) {
@@ -380,8 +381,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     case BJ0:
     case BJ1: {
       // Quoted BJ_: val is de Bruijn level; try ALO substitution.
-      u32 lvl  = term_val(term);
-      u32 bind = 0;
+      u64 lvl  = term_val(term);
+      u64 bind = 0;
       if (quoted && lvl > 0 && lvl <= st->subst_len) {
         bind = alo_subst_get(subst, st->subst_len - lvl);
       }
@@ -411,7 +412,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case VAR: {
       // Runtime VAR: val is binding lam body location.
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       if (loc != 0 && term_sub_get(HEAP[loc])) {
         print_term_mode(f, term_sub_set(HEAP[loc], 0), depth, 0, 0, 0, st);
       } else {
@@ -423,7 +424,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     case DP0:
     case DP1: {
       // Runtime DP_: val is a DUP node expr location.
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       if (loc != 0 && term_sub_get(HEAP[loc])) {
         print_term_mode(f, term_sub_set(HEAP[loc], 0), depth, 0, 0, 0, st);
       } else {
@@ -435,7 +436,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case LAM: {
       // Quoted mode uses depth-based names; dynamic mode uses global naming.
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputs("λ", f);
       if (quoted) {
         print_alpha_name(f, depth + 1, 'a');
@@ -454,7 +455,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case SUP: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputc('&', f);
       print_name(f, term_ext(term));
       fputc('{', f);
@@ -466,7 +467,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case DUP: {
       // DUP term is a syntactic binder; dynamic mode queues its DUP node and prints the body.
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       if (quoted) {
         fputc('!', f);
         print_alpha_name(f, depth + 1, 'A');
@@ -487,7 +488,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       fputs("λ{", f);
       Term cur = term;
       while (term_tag(cur) == MAT || term_tag(cur) == SWI) {
-        u32 loc = term_val(cur);
+        u64 loc = term_val(cur);
         if (term_tag(cur) == SWI) {
           fprintf(f, "%u", term_ext(cur));
         } else {
@@ -515,7 +516,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case USE: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputs("λ{", f);
       print_term_at(f, HEAP[loc], depth, st);
       fputc('}', f);
@@ -527,7 +528,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case OP2: {
       u32 opr = term_ext(term);
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       static const char *op_syms[] = {
         "+", "-", "*", "/", "%", "&&", "||", "^", "<<", ">>",
         "~", "==", "!=", "<", "<=", ">", ">="
@@ -546,7 +547,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case DSU: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputs("&(", f);
       print_term_at(f, HEAP[loc + 0], depth, st);
       fputs("){", f);
@@ -557,7 +558,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case DDU: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputs("!(", f);
       print_term_at(f, HEAP[loc + 0], depth, st);
       fputs(")=", f);
@@ -568,14 +569,14 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case ALO: {
       // ALO prints as @{book_term}, applying ALO substitutions to book vars.
-      u32 len     = term_ext(term);
-      u32 tm_loc;
-      u32 ls_loc;
+      u16 len     = term_ext(term);
+      u64 tm_loc;
+      u64 ls_loc;
       if (len == 0) {
         tm_loc = term_val(term);
         ls_loc = 0;
       } else {
-        u32 alo_loc = term_val(term);
+        u64 alo_loc = term_val(term);
         u64 pair    = HEAP[alo_loc];
         tm_loc = (u32)(pair & 0xFFFFFFFF);
         ls_loc = (u32)(pair >> 32);
@@ -586,7 +587,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case EQL: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputc('(', f);
       print_term_at(f, HEAP[loc + 0], depth, st);
       fputs(" === ", f);
@@ -595,7 +596,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case AND: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputc('(', f);
       print_term_at(f, HEAP[loc + 0], depth, st);
       fputs(" .&. ", f);
@@ -604,7 +605,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case OR: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputc('(', f);
       print_term_at(f, HEAP[loc + 0], depth, st);
       fputs(" .|. ", f);
@@ -614,11 +615,11 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case UNS: {
       // UNS binds an unscoped lam/var pair; show them with global names.
-      u32 loc   = term_val(term);
+      u64 loc   = term_val(term);
       Term lamf = HEAP[loc];
-      u32 locf  = term_val(lamf);
+      u64 locf  = term_val(lamf);
       Term lamv = HEAP[locf];
-      u32 locv  = term_val(lamv);
+      u64 locv  = term_val(lamv);
       u32 namf  = print_state_lam(st, locf);
       u32 namv  = print_state_lam(st, locv);
       Term body = HEAP[locv];
@@ -631,7 +632,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case INC: {
-      u32 loc = term_val(term);
+      u64 loc = term_val(term);
       fputs("↑", f);
       print_term_at(f, HEAP[loc], depth, st);
       break;
@@ -648,7 +649,7 @@ fn void print_term_finish(FILE *f, PrintState *st) {
       need_sep = 0;
     }
     u32 idx = st->dup_print++;
-    u32 loc = PRINT_DUPS[idx].loc;
+    u64 loc = PRINT_DUPS[idx].loc;
     u32 lab = PRINT_DUPS[idx].lab;
     u32 nam = PRINT_DUPS[idx].name;
     fputc('!', f);

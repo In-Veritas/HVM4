@@ -25,21 +25,21 @@ typedef struct {
 } EvalNormalizeArg;
 
 
-static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc);
+static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 loc);
 
-static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
+static inline void eval_normalize_enqueue(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 loc) {
   if (!wsq_push(&worker->dq, (u64)loc)) {
     eval_normalize_go(ctx, worker, loc);
   }
 }
 
-static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u32 loc) {
+static inline void eval_normalize_go(EvalNormalizeCtx *ctx, EvalNormalizeWorker *worker, u64 loc) {
   for (;;) {
     if (loc == 0 || !uset_add(&ctx->seen, loc)) {
       return;
     }
     Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
-    u32 tloc = term_val(term);
+    u64 tloc = term_val(term);
     u8  tag  = term_tag(term);
     // DP0/DP1 have term_arity == 0, handle separately
     if (tag == DP0 || tag == DP1) {
@@ -76,7 +76,7 @@ static void *eval_normalize_worker(void *arg) {
       break;
     }
     if (wsq_pop(&worker->dq, &task)) {
-      u32 loc = (u32)task;
+      u64 loc = task;
       eval_normalize_go(ctx, worker, loc);
       continue;
     }
@@ -99,7 +99,7 @@ static void *eval_normalize_worker(void *arg) {
         }
         if (wsq_steal(&ctx->W[vic].dq, &task)) {
           stolen = true;
-          u32 loc = (u32)task;
+          u64 loc = task;
           eval_normalize_go(ctx, worker, loc);
           break;
         }
@@ -124,7 +124,7 @@ static void *eval_normalize_worker(void *arg) {
 fn Term eval_normalize(Term term) {
   wnf_set_tid(0);
 
-  u32 root_loc = (u32)heap_alloc(1);
+  u64 root_loc = heap_alloc(1);
   heap_set(root_loc, term);
 
   if (STEPS_ENABLE) {

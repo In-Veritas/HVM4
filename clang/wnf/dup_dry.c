@@ -4,11 +4,11 @@
 // ! A &L = x
 // X₀ ← ^(F₀ A₀)
 // X₁ ← ^(F₁ A₁)
-fn Term wnf_dup_dry(u32 lab, u32 loc, u8 side, Term dry) {
+fn Term wnf_dup_dry(u32 lab, u64 loc, u8 side, Term dry) {
   ITRS_INC("DUP-DRY");
-  u32  d_loc = term_val(dry);
+  u64  d_loc = term_val(dry);
   u64  base  = heap_alloc(6);
-  u32  at    = (u32)base;
+  u64  at    = base;
   heap_set(at + 0, heap_read(d_loc + 0));
   heap_set(at + 1, heap_read(d_loc + 1));
   Copy F     = term_clone_at(at + 0, lab);

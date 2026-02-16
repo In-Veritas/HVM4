@@ -27,7 +27,7 @@ fn Term prim_fn_log_go_2(Term *args) {
       // %log_go_2(acc, ↑x, t)
       // --------------------- log-go-2-inc
       // ↑(%log(acc(#Con{#Chr{x}, t})))
-      u32  inc_loc     = term_val(code_wnf);
+      u64  inc_loc     = term_val(code_wnf);
       Term inner       = heap_read(inc_loc);
       Term chr         = term_new_ctr(SYM_CHR, 1, &inner);
       Term con_args[2] = {chr, tail};
@@ -42,7 +42,7 @@ fn Term prim_fn_log_go_2(Term *args) {
       // -------------------------- log-go-2-sup
       // &L{%log(acc0(#Con{#Chr{x}, t0})), %log(acc1(#Con{#Chr{y}, t1}))}
       u32  lab          = term_ext(code_wnf);
-      u32  sup_loc      = term_val(code_wnf);
+      u64  sup_loc      = term_val(code_wnf);
       Term x            = heap_read(sup_loc + 0);
       Term y            = heap_read(sup_loc + 1);
       Copy A            = term_clone(lab, acc);

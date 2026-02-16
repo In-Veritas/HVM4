@@ -31,7 +31,7 @@ typedef struct {
   u32 tid;
 } EvalCollapseArg;
 
-static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, u64 *printed) {
+static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u64 loc, u64 *printed) {
   Term before = heap_read(loc);
   for (;;) {
     if (atomic_load_explicit(&C->stop.v, memory_order_acquire)) {
@@ -42,7 +42,7 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
 
     switch (term_tag(t)) {
       case INC: {
-        u32 inc_loc = term_val(t);
+        u64 inc_loc = term_val(t);
         before = heap_read(inc_loc);
         if (key > 0) {
           key -= 1;
@@ -50,10 +50,10 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
         continue;
       }
       case SUP: {
-        u32 sup_loc = term_val(t);
+        u64 sup_loc = term_val(t);
         u8  nkey = (u8)(key + 1);
-        u64 task = ((u64)(sup_loc + 1) << 32) | (u64)(sup_loc + 0);
-        wspq_push(&C->ws, me, nkey, task);
+        wspq_push(&C->ws, me, nkey, sup_loc + 0);
+        wspq_push(&C->ws, me, nkey, sup_loc + 1);
         return;
       }
       case ERA: {
@@ -112,14 +112,8 @@ static void *eval_collapse_worker(void *arg) {
     u64 task = 0;
     bool popped = wspq_pop(&C->ws, me, &key, &task);
     if (popped) {
-      u32 loc0 = (u32)task;
-      u32 loc1 = (u32)(task >> 32);
-      if (loc0 != 0) {
-        eval_collapse_process_loc(C, me, key, loc0, &local_printed);
-        iter += 1u;
-      }
-      if (loc1 != 0) {
-        eval_collapse_process_loc(C, me, key, loc1, &local_printed);
+      if (task != 0) {
+        eval_collapse_process_loc(C, me, key, task, &local_printed);
         iter += 1u;
       }
       if (iter < steal_period) {
@@ -177,7 +171,7 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
     max_lines = (u64)limit;
   }
 
-  u32 root_loc = heap_alloc(1);
+  u64 root_loc = heap_alloc(1);
   heap_set(root_loc, term);
 
   EvalCollapseCtx C;

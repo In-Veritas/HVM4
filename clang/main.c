@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
   wnf_set_tid(0);
 
   // Allocate memory
-  BOOK       = calloc(BOOK_CAP, sizeof(u32));
+  BOOK       = calloc(BOOK_CAP, sizeof(u64));
   HEAP       = calloc(HEAP_CAP, sizeof(Term));
   TABLE.data = calloc(BOOK_CAP, sizeof(char*));
 

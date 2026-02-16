@@ -6,7 +6,7 @@
 fn Term wnf_ddu_sup(Term lab_sup, Term val, Term bod) {
   ITRS_INC("DDU-SUP");
   u32  lab     = term_ext(lab_sup);
-  u32  sup_loc = term_val(lab_sup);
+  u64  sup_loc = term_val(lab_sup);
   Copy V;
   Copy B;
   term_clone2(lab, val, bod, &V, &B);

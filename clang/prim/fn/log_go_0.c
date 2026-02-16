@@ -27,14 +27,14 @@ fn void log_print(Term acc) {
           return;
         }
         if (term_tag(cur) == C02 && term_ext(cur) == SYM_CON) {
-          u32  con_loc = term_val(cur);
+          u64  con_loc = term_val(cur);
           Term head    = heap_read(con_loc + 0);
           Term tail    = heap_read(con_loc + 1);
           Term head_wnf = wnf(head);
           if (!(term_tag(head_wnf) == C01 && term_ext(head_wnf) == SYM_CHR)) {
             log_fail("%log expected #Chr head");
           }
-          u32  chr_loc  = term_val(head_wnf);
+          u64  chr_loc  = term_val(head_wnf);
           Term code     = heap_read(chr_loc + 0);
           Term code_wnf  = wnf(code);
           if (term_tag(code_wnf) != NUM) {
@@ -68,7 +68,7 @@ fn Term prim_fn_log_go_0(Term *args) {
       // %log_go_0(acc, ↑x)
       // ------------------- log-go-0-inc
       // ↑(%log(acc(x)))
-      u32  inc_loc     = term_val(list_wnf);
+      u64  inc_loc     = term_val(list_wnf);
       Term inner       = heap_read(inc_loc);
       Term app         = term_new_app(acc, inner);
       Term log         = term_new_pri(table_find("log", 3), 1, &app);
@@ -80,7 +80,7 @@ fn Term prim_fn_log_go_0(Term *args) {
       // ------------------------ log-go-0-sup
       // &L{%log(acc0(x)), %log(acc1(y))}
       u32  lab         = term_ext(list_wnf);
-      u32  sup_loc     = term_val(list_wnf);
+      u64  sup_loc     = term_val(list_wnf);
       Term x           = heap_read(sup_loc + 0);
       Term y           = heap_read(sup_loc + 1);
       Copy A           = term_clone(lab, acc);
@@ -102,7 +102,7 @@ fn Term prim_fn_log_go_0(Term *args) {
         // %log_go_0(acc, #Con{h,t})
         // -------------------------- log-go-0-con
         // %log_go_1(acc, h, t)
-        u32  con_loc  = term_val(list_wnf);
+        u64  con_loc  = term_val(list_wnf);
         Term head     = heap_read(con_loc + 0);
         Term tail     = heap_read(con_loc + 1);
         Term args0[3] = {acc, head, tail};

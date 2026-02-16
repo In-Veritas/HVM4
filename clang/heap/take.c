@@ -1,10 +1,10 @@
-fn Term heap_take(u32 loc) {
+fn Term heap_take(u64 loc) {
   if (__builtin_expect(THREAD_COUNT == 1, 1)) {
     Term term = HEAP[loc];
     if (__builtin_expect(term != 0, 1)) {
       return term;
     }
-    fprintf(stderr, "ERROR: heap_take saw zero at %u in single-threaded mode\n", loc);
+    fprintf(stderr, "ERROR: heap_take saw zero at %llu in single-threaded mode\n", loc);
     abort();
   }
   for (;;) {

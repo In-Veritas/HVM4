@@ -6,7 +6,7 @@
 // -------------------- AND-ONE
 // b
 fn Term wnf_and_num(Term num, Term b) {
-  u32 val = term_val(num);
+  u64 val = term_val(num);
   if (val == 0) {
     ITRS_INC("AND-ZER");
     return term_new_num(0);

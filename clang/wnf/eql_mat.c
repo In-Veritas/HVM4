@@ -15,8 +15,8 @@ fn Term wnf_eql_mat(Term a, Term b) {
     return term_new_num(0);
   }
 
-  u32  a_loc = term_val(a);
-  u32  b_loc = term_val(b);
+  u64  a_loc = term_val(a);
+  u64  b_loc = term_val(b);
   Term ah    = heap_read(a_loc + 0);
   Term am    = heap_read(a_loc + 1);
   Term bh    = heap_read(b_loc + 0);

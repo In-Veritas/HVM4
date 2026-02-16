@@ -5,7 +5,7 @@
 fn Term wnf_eql_sup_l(Term sup, Term b) {
   ITRS_INC("EQL-SUP-L");
   u32  lab = term_ext(sup);
-  u32  loc = term_val(sup);
+  u64  loc = term_val(sup);
   Term a0  = heap_read(loc + 0);
   Term a1  = heap_read(loc + 1);
   u64  dup_loc = heap_alloc(1);
@@ -24,7 +24,7 @@ fn Term wnf_eql_sup_l(Term sup, Term b) {
 fn Term wnf_eql_sup_r(Term a, Term sup) {
   ITRS_INC("EQL-SUP-R");
   u32  lab = term_ext(sup);
-  u32  loc = term_val(sup);
+  u64  loc = term_val(sup);
   Term b0  = heap_read(loc + 0);
   Term b1  = heap_read(loc + 1);
   u64  dup_loc = heap_alloc(1);

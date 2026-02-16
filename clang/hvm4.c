@@ -99,7 +99,7 @@ typedef struct {
 
 // LAM Ext Flags
 // =============
-#define LAM_ERA_MASK 0x800000  // binder unused in lambda body
+#define LAM_ERA_MASK 0x8000  // binder unused in lambda body
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, DP0, DP1, OP2, DSU, DDU) also used as frames
@@ -127,49 +127,28 @@ typedef struct {
 #define OP_GT  15
 #define OP_GE  16
 
-// Nick-encoded primitive names
-#define NAM_ADD 4356
-#define NAM_SUB 79170
-#define NAM_MUL 54604
-#define NAM_DIV 16982
-#define NAM_MOD 54212
-#define NAM_AND 4996
-#define NAM_OR  978
-#define NAM_XOR 99282
-#define NAM_LSH 50376
-#define NAM_RSH 74952
-#define NAM_NOT 58324
-#define NAM_EQ  337
-#define NAM_NE  901
-#define NAM_LT  788
-#define NAM_LE  773
-#define NAM_GT  468
-#define NAM_GE  453
-#define NAM_DUP 17744
-#define NAM_SUP 79184
-
 // Bit Layout
 // ==========
 
 #define SUB_BITS 1
 #define TAG_BITS 7
-#define EXT_BITS 24
-#define VAL_BITS 32
+#define EXT_BITS 16
+#define VAL_BITS 40
 
 #define SUB_SHIFT 63
 #define TAG_SHIFT 56
-#define EXT_SHIFT 32
+#define EXT_SHIFT 40
 #define VAL_SHIFT 0
 
 #define SUB_MASK 0x1
 #define TAG_MASK 0x7F
-#define EXT_MASK 0xFFFFFF
-#define VAL_MASK 0xFFFFFFFF
+#define EXT_MASK 0xFFFF
+#define VAL_MASK 0xFFFFFFFFFFULL
 
 // Capacities
 // ==========
 
-#define HEAP_CAP (1ULL << 32)
+#define HEAP_CAP (1ULL << 40)
 #define BOOK_CAP (1ULL << 24)
 #define WNF_CAP  (1ULL << 32)
 #define MAX_THREADS 64
@@ -195,7 +174,7 @@ static u64      HEAP_END[MAX_THREADS * HEAP_STRIDE] __attribute__((aligned(256))
 // Book Globals
 // ============
 
-static u32 *BOOK;
+static u64 *BOOK;
 
 // WNF Globals
 // ===========
@@ -234,7 +213,7 @@ static int DEBUG          = 0;
 static int SILENT         = 0;
 static int STEPS_ENABLE   = 0;
 static u64 STEPS_ITRS_LIM = 0;
-static u32 STEPS_ROOT_LOC = 0;
+static u64 STEPS_ROOT_LOC = 0;
 static str STEPS_LAST_ITR = NULL;
 
 // Nick Alphabet
@@ -269,9 +248,9 @@ static char  *PARSE_SEEN_FILES[1024];
 static u32    PARSE_SEEN_FILES_LEN = 0;
 static PBind  PARSE_BINDS[16384];
 static u32    PARSE_BINDS_LEN = 0;
-static u32    PARSE_FRESH_LAB = 0x800000; // start at 2^23 to avoid collision with user labels
+static u32    PARSE_FRESH_LAB = 0x8000; // start near top of 16-bit label space
 static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 = right branch (DP1)
-#define PARSE_DYN_LAB 0xFFFFFFFFu
+#define PARSE_DYN_LAB 0xFFFFu
 
 // Term
 // ====

@@ -173,7 +173,7 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
       }
 
       if (body_tag == INC) {
-        u32 inc_loc = term_val(body_collapsed);
+        u64 inc_loc = term_val(body_collapsed);
         heap_set(body_loc, heap_read(inc_loc));
         return term_new_inc(lam);
       }
@@ -214,7 +214,7 @@ fn Term cnf_at(Term term, u32 depth, u32 par_depth) {
     case UNS:
     case C01 ... C16: {
       u32 ari = term_arity(term);
-      u32 loc = (u32)term_val(term);
+      u64 loc = term_val(term);
 
       int  sup_idx = -1;
       Term orig[16];

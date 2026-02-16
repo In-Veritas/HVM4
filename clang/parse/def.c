@@ -15,7 +15,7 @@ fn void parse_def(PState *s) {
     Term val        = parse_term(s, 0);
     u64  loc        = heap_alloc(1);
     HEAP[loc]       = val;
-    BOOK[id]        = (u32)loc;
+    BOOK[id]        = loc;
     parse_def(s);
     return;
   }

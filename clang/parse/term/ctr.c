@@ -1,7 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
 fn Term parse_term_ctr(PState *s, u32 depth) {
-  u32  nam = parse_name(s);
+  u32  nam = parse_name_ref(s);
   Term args[16];
   u32  cnt = 0;
   parse_skip(s);

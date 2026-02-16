@@ -3,8 +3,8 @@
 // ↑(f x)
 fn Term wnf_app_inc(Term app, Term inc) {
   ITRS_INC("APP-INC");
-  u32  app_loc = term_val(app);
-  u32  inc_loc = term_val(inc);
+  u64  app_loc = term_val(app);
+  u64  inc_loc = term_val(inc);
   Term f       = heap_read(inc_loc);
   Term x       = heap_read(app_loc + 1);
   // Build APP(f, x) in-place at app_loc, then store it under INC at inc_loc.
