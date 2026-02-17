@@ -97,6 +97,19 @@ ALO has two runtime encodings:
 - `len > 0`: `ALO.val` points to one heap word packing
   `low32 = book term location` and `high32 = bind-list head`.
 
+### ALO Bind-List Nodes
+
+For `len > 0`, the bind list is a linked list of 2-slot nodes:
+
+- `node[0]`: bound term cell (the substitution target term lives here).
+- `node[1]`: `NUM(next_node_loc)`; `0` means end of list.
+
+This means the pointer used by variables/copiers is the bind-node location
+itself (slot `0`), not a separate allocation.
+
+- In `ALO-LAM`, `node[0]` is the lambda body slot.
+- In `ALO-DUP`, `node[0]` is the shared DUP expr slot.
+
 ## LAM Ext Flags
 
 - `LAM_ERA_MASK` (0x800000): binder is unused in lambda body (erasing lambda).

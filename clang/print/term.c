@@ -142,9 +142,9 @@ fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
 fn u32 alo_subst_get(u32 ls_loc, u32 idx) {
   u32 ls = ls_loc;
   for (u32 i = 0; i < idx && ls != 0; i++) {
-    ls = (u32)(HEAP[ls] & 0xFFFFFFFF);
+    ls = term_val(HEAP[ls + 1]);
   }
-  return ls != 0 ? (u32)(HEAP[ls] >> 32) : 0;
+  return ls;
 }
 
 // Prints an interned name (used by refs/primitives), with fallback for unknown ids.
