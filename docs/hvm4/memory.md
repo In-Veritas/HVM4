@@ -6,7 +6,7 @@ terms (mutable heap entries) and static terms (immutable book entries).
 ## Term Pointer Layout (64-bit)
 
 ```
-SUB (1 bit) | TAG (7 bits) | EXT (24 bits) | VAL (32 bits)
+SUB (1 bit) | TAG (7 bits) | EXT (16 bits) | VAL (40 bits)
 ```
 
 - `SUB`: marks a substitution cell; ignored for immediates.
@@ -42,7 +42,7 @@ name literal            | NAM    | name id          | 0                         
 stuck application       | DRY    | 0                | node: [fun, arg]             | literal ^(f x)
 reference               | REF    | name id          | 0                            | book reference @name
 primitive               | PRI    | name id          | node: [arg0..argN-1]         | native function call; arity from prim table
-allocation              | ALO    | bind list length | direct or packed pair        | len=0: VAL=book term; len>0: VAL->(low32=book term, high32=bind list head)
+allocation              | ALO    | bind list length | direct or packed pair        | len=0: VAL=book term; len>0: VAL->(low24=book term, high40=bind list head)
 unscoped binding        | UNS    | 0                | node: [body]                 | helper to construct unscoped lams
 wildcard                | ANY    | 0                | 0                            | duplicates itself, equals anything
 quoted lam var          | BJV    | 0                | de Bruijn level              | quoted lam-bound var
@@ -90,12 +90,23 @@ bind list, lazily expanding one layer into a dynamic term when forced. This
 keeps static definitions compact while still allowing dynamic sharing during
 execution.
 
-ALO has two runtime encodings:
+### ALO Runtime Encodings
 
-- `len == 0` (no substitutions): `ALO.val` stores the book-term location
-  directly, with no extra heap allocation for the pair.
-- `len > 0`: `ALO.val` points to one heap word packing
-  `low32 = book term location` and `high32 = bind-list head`.
+- `ALO` with `len == 0` (empty substitution list) is stored directly:
+  - `ALO.val = book_term_loc`
+  - no extra heap allocation for an ALO pair node.
+- `ALO` with `len > 0` stores one packed ALO pair word at `ALO.val`:
+  - `high 40 bits = bind list head location`
+  - `low 24 bits  = book term location` (truncated static location)
+
+This keeps `len > 0` ALO pairs at one heap word while preserving full 40-bit
+dynamic locations for bind-list heads.
+
+### Static Book Location Bound
+
+Because packed ALO pairs store book term locations in 24 bits, static/book
+allocation must fit in that range. After parsing, the runtime checks this bound
+and reports an error if static locations exceed `2^24` words.
 
 ### ALO Bind-List Nodes
 
@@ -112,4 +123,4 @@ itself (slot `0`), not a separate allocation.
 
 ## LAM Ext Flags
 
-- `LAM_ERA_MASK` (0x800000): binder is unused in lambda body (erasing lambda).
+- `LAM_ERA_MASK` (0x8000): binder is unused in lambda body (erasing lambda).

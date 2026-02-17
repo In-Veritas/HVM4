@@ -161,8 +161,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
         } else {
           alo_loc = term_val(next);
           u64 pair = heap_read(alo_loc);
-          tm_loc = (pair & 0xFFFFFFFF);
-          ls_loc = (pair >> 32);
+          ls_loc = alo_pair_ls(pair);
+          tm_loc = alo_pair_tm(pair);
         }
         Term book    = heap_read(tm_loc);
 

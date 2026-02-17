@@ -204,6 +204,14 @@ int main(int argc, char **argv) {
   parse_def(&s);
   free(src);
 
+  // ALO packed pairs store static/book locations in 24 bits.
+  // Parsing allocates all static terms first in thread 0.
+  if (HEAP_NEXT_AT(0) > (ALO_TM_MASK + 1)) {
+    fprintf(stderr, "Error: static book exceeds 24-bit location space (%llu words used)\n",
+            HEAP_NEXT_AT(0));
+    return 1;
+  }
+
   // Get @main id
   u32 main_id = table_find("main", 4);
 
