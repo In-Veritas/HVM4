@@ -137,9 +137,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case REF: {
         u32 nam = term_ext(next);
         if (BOOK[nam] != 0) {
-          u64 alo_loc = heap_alloc(1);
-          heap_set(alo_loc, (u64)BOOK[nam]);
-          next = term_new(0, ALO, 0, alo_loc);
+          next = term_new(0, ALO, 0, BOOK[nam]);
           goto enter;
         }
         whnf = next;
@@ -153,11 +151,18 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case ALO: {
-        u32  alo_loc = term_val(next);
-        u64  pair    = heap_read(alo_loc);
-        u32  tm_loc  = (u32)(pair & 0xFFFFFFFF);
-        u32  ls_loc  = (u32)(pair >> 32);
         u32  len     = term_ext(next);
+        u32  tm_loc;
+        u32  ls_loc;
+        if (len == 0) {
+          tm_loc = term_val(next);
+          ls_loc = 0;
+        } else {
+          u32 alo_loc = term_val(next);
+          u64 pair    = heap_read(alo_loc);
+          tm_loc = (u32)(pair & 0xFFFFFFFF);
+          ls_loc = (u32)(pair >> 32);
+        }
         Term book    = heap_read(tm_loc);
 
         switch (term_tag(book)) {

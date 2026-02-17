@@ -568,12 +568,20 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     }
     case ALO: {
       // ALO prints as @{book_term}, applying ALO substitutions to book vars.
-      u32 alo_loc = term_val(term);
-      u64 pair    = HEAP[alo_loc];
-      u32 tm_loc  = (u32)(pair & 0xFFFFFFFF);
-      u32 ls_loc  = (u32)(pair >> 32);
+      u32 len     = term_ext(term);
+      u32 tm_loc;
+      u32 ls_loc;
+      if (len == 0) {
+        tm_loc = term_val(term);
+        ls_loc = 0;
+      } else {
+        u32 alo_loc = term_val(term);
+        u64 pair    = HEAP[alo_loc];
+        tm_loc = (u32)(pair & 0xFFFFFFFF);
+        ls_loc = (u32)(pair >> 32);
+      }
       fputs("@{", f);
-      print_term_mode(f, HEAP[tm_loc], 0, 1, ls_loc, term_ext(term), st);
+      print_term_mode(f, HEAP[tm_loc], 0, 1, ls_loc, len, st);
       fputc('}', f);
       break;
     }

@@ -42,7 +42,7 @@ name literal            | NAM    | name id          | 0                         
 stuck application       | DRY    | 0                | node: [fun, arg]             | literal ^(f x)
 reference               | REF    | name id          | 0                            | book reference @name
 primitive               | PRI    | name id          | node: [arg0..argN-1]         | native function call; arity from prim table
-allocation              | ALO    | bind list length | heap slot with packed pair   | low32=book term, high32=bind list head
+allocation              | ALO    | bind list length | direct or packed pair        | len=0: VAL=book term; len>0: VAL->(low32=book term, high32=bind list head)
 unscoped binding        | UNS    | 0                | node: [body]                 | helper to construct unscoped lams
 wildcard                | ANY    | 0                | 0                            | duplicates itself, equals anything
 quoted lam var          | BJV    | 0                | de Bruijn level              | quoted lam-bound var
@@ -89,6 +89,13 @@ Allocation (ALO) terms bridge the two: they reference a static book term and a
 bind list, lazily expanding one layer into a dynamic term when forced. This
 keeps static definitions compact while still allowing dynamic sharing during
 execution.
+
+ALO has two runtime encodings:
+
+- `len == 0` (no substitutions): `ALO.val` stores the book-term location
+  directly, with no extra heap allocation for the pair.
+- `len > 0`: `ALO.val` points to one heap word packing
+  `low32 = book term location` and `high32 = bind-list head`.
 
 ## LAM Ext Flags
 
