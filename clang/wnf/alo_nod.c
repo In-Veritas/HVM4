@@ -15,7 +15,7 @@ fn Term wnf_alo_nod(u64 ls_loc, u16 len, Term book) {
   }
   for (u32 i = 0; i < ari; i++) {
     u64 alo_loc = heap_alloc(1);
-    heap_set(alo_loc, alo_pair_pack(ls_loc, loc + i));
+    heap_set(alo_loc, ((ls_loc & ALO_LS_MASK) << ALO_TM_BITS) | ((loc + i) & ALO_TM_MASK));
     args[i] = term_new(0, ALO, len, alo_loc);
   }
   return term_new_(tag, ext, ari, args);

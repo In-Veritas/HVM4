@@ -578,8 +578,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       } else {
         u64 alo_loc = term_val(term);
         u64 pair = HEAP[alo_loc];
-        ls_loc = alo_pair_ls(pair);
-        tm_loc = alo_pair_tm(pair);
+        ls_loc = (pair >> ALO_TM_BITS) & ALO_LS_MASK;
+        tm_loc = pair & ALO_TM_MASK;
       }
       fputs("@{", f);
       print_term_mode(f, HEAP[tm_loc], 0, 1, ls_loc, len, st);
