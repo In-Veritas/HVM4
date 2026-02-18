@@ -5,7 +5,11 @@
 // @{s} n₁
 // ------- ALO-DP1
 // s[n]₁ or n₁ when substitution missing (n is a de Bruijn level)
-fn Term wnf_alo_cop(u32 ls, u32 len, u32 lvl, u32 lab, u8 side, u8 tag) {
+fn Term wnf_alo_cop(u32 ls, u32 len, Term book) {
+  u32 lvl  = term_val(book);
+  u32 lab  = term_ext(book);
+  u8  tag  = term_tag(book);
+  u8  side = (tag == DP0 || tag == BJ0) ? 0 : 1;
   if (lvl == 0 || lvl > len) {
     return term_new(0, tag, lab, lvl);
   }

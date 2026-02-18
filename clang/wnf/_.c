@@ -137,7 +137,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case REF: {
         u32 nam = term_ext(next);
         if (BOOK[nam] != 0) {
-          next = term_new(0, ALO, 0, BOOK[nam]);
+          next = term_new_alo(0, 0, BOOK[nam]);
           goto enter;
         }
         whnf = next;
@@ -167,38 +167,33 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
         switch (term_tag(book)) {
           case VAR: {
-            next = wnf_alo_var(ls_loc, len, term_val(book), VAR);
+            next = wnf_alo_var(ls_loc, len, book);
             goto enter;
           }
           case DP0:
           case DP1: {
-            next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
-                               term_tag(book) == DP0 ? 0 : 1, term_tag(book));
+            next = wnf_alo_cop(ls_loc, len, book);
             goto enter;
           }
           case BJV: {
-            next = wnf_alo_var(ls_loc, len, term_val(book), BJV);
+            next = wnf_alo_var(ls_loc, len, book);
             goto enter;
           }
           case BJ0:
           case BJ1: {
-            next = wnf_alo_cop(ls_loc, len, term_val(book), term_ext(book),
-                               term_tag(book) == BJ0 ? 0 : 1, term_tag(book));
-            goto enter;
-          }
-          case NAM: {
-            next = wnf_alo_nam(term_ext(book));
-            goto enter;
-          }
-          case DRY: {
-            next = wnf_alo_dry(ls_loc, len, term_val(book));
+            next = wnf_alo_cop(ls_loc, len, book);
             goto enter;
           }
           case LAM: {
-            next = wnf_alo_lam(ls_loc, len, term_ext(book), term_val(book));
+            next = wnf_alo_lam(ls_loc, len, book);
+            goto enter;
+          }
+          case DUP: {
+            next = wnf_alo_dup(ls_loc, len, book);
             goto enter;
           }
           case APP:
+          case DRY:
           case SUP:
           case MAT:
           case SWI:
@@ -213,17 +208,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case OR:
           case DSU:
           case DDU: {
-            next = wnf_alo_nod(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
+            next = wnf_alo_nod(ls_loc, len, book);
             goto enter;
           }
-          case DUP: {
-            next = wnf_alo_dup(ls_loc, len, term_val(book), term_ext(book));
-            goto enter;
-          }
-          case NUM: {
-            next = term_new_num(term_val(book));
-            goto enter;
-          }
+          case NAM:
+          case NUM:
           case REF:
           case ERA:
           case ANY: {

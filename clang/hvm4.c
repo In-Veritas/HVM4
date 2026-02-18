@@ -298,6 +298,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "term/new/_.c"
 #include "term/new/nam.c"
+#include "term/new/alo.c"
 #include "term/new/dry.c"
 #include "term/new/var.c"
 #include "term/new/ref.c"
@@ -450,8 +451,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/dup_nod.c"
 #include "wnf/alo_var.c"
 #include "wnf/alo_cop.c"
-#include "wnf/alo_nam.c"
-#include "wnf/alo_dry.c"
 #include "wnf/alo_lam.c"
 #include "wnf/alo_dup.c"
 #include "wnf/alo_nod.c"
