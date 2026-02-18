@@ -17,9 +17,14 @@ fn Term wnf_app_mat_ctr(Term mat, Term ctr) {
       return res;
     }
     u32 ctr_loc = term_val(ctr);
-    u64 apps = heap_alloc(2 * (u64)ari);
-    for (u32 i = 0; i < ari; i++) {
-      res = term_new_app_at((u32)(apps + 2 * (u64)i), res, heap_read(ctr_loc + i));
+    // Reuse MAT node storage for the first APP in the chain.
+    res = term_new_app_at(mat_loc, res, heap_read(ctr_loc + 0));
+    if (ari == 1) {
+      return res;
+    }
+    u64 apps = heap_alloc(2 * (u64)(ari - 1));
+    for (u32 i = 1; i < ari; i++) {
+      res = term_new_app_at((u32)(apps + 2 * (u64)(i - 1)), res, heap_read(ctr_loc + i));
     }
     return res;
   } else {

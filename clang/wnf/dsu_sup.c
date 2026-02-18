@@ -12,5 +12,5 @@ fn Term wnf_dsu_sup(Term lab_sup, Term a, Term b) {
   term_clone2(lab, a, b, &A, &B);
   Term ds0     = term_new_dsu(heap_read(sup_loc + 0), A.k0, B.k0);
   Term ds1     = term_new_dsu(heap_read(sup_loc + 1), A.k1, B.k1);
-  return term_new_sup(lab, ds0, ds1);
+  return term_new_sup_at(sup_loc, lab, ds0, ds1);
 }

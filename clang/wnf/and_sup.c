@@ -8,11 +8,11 @@ fn Term wnf_and_sup(Term sup, Term b) {
   u32  loc = term_val(sup);
   Term a0  = heap_read(loc + 0);
   Term a1  = heap_read(loc + 1);
-  u64  dup_loc = heap_alloc(2);
-  heap_set(dup_loc + 0, b);
+  u64  dup_loc = heap_alloc(1);
+  heap_set(dup_loc, b);
   Term b0 = term_new_dp0(lab, dup_loc);
   Term b1 = term_new_dp1(lab, dup_loc);
   Term r0 = term_new_and(a0, b0);
   Term r1 = term_new_and(a1, b1);
-  return term_new_sup(lab, r0, r1);
+  return term_new_sup_at(loc, lab, r0, r1);
 }

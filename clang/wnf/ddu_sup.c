@@ -12,5 +12,5 @@ fn Term wnf_ddu_sup(Term lab_sup, Term val, Term bod) {
   term_clone2(lab, val, bod, &V, &B);
   Term dd0     = term_new_ddu(heap_read(sup_loc + 0), V.k0, B.k0);
   Term dd1     = term_new_ddu(heap_read(sup_loc + 1), V.k1, B.k1);
-  return term_new_sup(lab, dd0, dd1);
+  return term_new_sup_at(sup_loc, lab, dd0, dd1);
 }

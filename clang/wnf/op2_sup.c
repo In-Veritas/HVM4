@@ -9,5 +9,5 @@ fn Term wnf_op2_sup(u32 opr, Term sup, Term y) {
   Copy Y       = term_clone(lab, y);
   Term op0     = term_new_op2(opr, heap_read(sup_loc + 0), Y.k0);
   Term op1     = term_new_op2(opr, heap_read(sup_loc + 1), Y.k1);
-  return term_new_sup(lab, op0, op1);
+  return term_new_sup_at(sup_loc, lab, op0, op1);
 }

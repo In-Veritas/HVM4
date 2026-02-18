@@ -8,13 +8,13 @@ fn Term wnf_eql_sup_l(Term sup, Term b) {
   u32  loc = term_val(sup);
   Term a0  = heap_read(loc + 0);
   Term a1  = heap_read(loc + 1);
-  u64  dup_loc = heap_alloc(2);
-  heap_set(dup_loc + 0, b);
+  u64  dup_loc = heap_alloc(1);
+  heap_set(dup_loc, b);
   Term b0 = term_new_dp0(lab, dup_loc);
   Term b1 = term_new_dp1(lab, dup_loc);
   Term eq0 = term_new_eql(a0, b0);
   Term eq1 = term_new_eql(a1, b1);
-  return term_new_sup(lab, eq0, eq1);
+  return term_new_sup_at(loc, lab, eq0, eq1);
 }
 
 // (a === &L{b0,b1})
@@ -27,11 +27,11 @@ fn Term wnf_eql_sup_r(Term a, Term sup) {
   u32  loc = term_val(sup);
   Term b0  = heap_read(loc + 0);
   Term b1  = heap_read(loc + 1);
-  u64  dup_loc = heap_alloc(2);
-  heap_set(dup_loc + 0, a);
+  u64  dup_loc = heap_alloc(1);
+  heap_set(dup_loc, a);
   Term a0 = term_new_dp0(lab, dup_loc);
   Term a1 = term_new_dp1(lab, dup_loc);
   Term eq0 = term_new_eql(a0, b0);
   Term eq1 = term_new_eql(a1, b1);
-  return term_new_sup(lab, eq0, eq1);
+  return term_new_sup_at(loc, lab, eq0, eq1);
 }

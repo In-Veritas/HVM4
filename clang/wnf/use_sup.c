@@ -13,5 +13,5 @@ fn Term wnf_use_sup(Term use, Term sup) {
   Term use1    = term_new_use(F.k1);
   Term app0    = term_new_app(use0, heap_read(sup_loc + 0));
   Term app1    = term_new_app(use1, heap_read(sup_loc + 1));
-  return term_new_sup(lab, app0, app1);
+  return term_new_sup_at(sup_loc, lab, app0, app1);
 }

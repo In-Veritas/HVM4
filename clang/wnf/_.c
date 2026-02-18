@@ -365,7 +365,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               exit(1);
             }
             default: {
-              whnf = term_new_app(whnf, arg);
+              heap_set(app_loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
@@ -531,7 +532,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             default: {
-              whnf = term_new_op2(opr, whnf, y);
+              heap_set(loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
@@ -711,7 +713,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             default: {
-              whnf = term_new_dsu(whnf, a, b);
+              heap_set(loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
@@ -743,7 +746,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             default: {
-              whnf = term_new_ddu(whnf, val, bod);
+              heap_set(loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
@@ -774,7 +778,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             default: {
-              whnf = term_new_and(whnf, b);
+              heap_set(loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
@@ -805,7 +810,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             default: {
-              whnf = term_new_or(whnf, b);
+              heap_set(loc + 0, whnf);
+              whnf = frame;
               continue;
             }
           }
