@@ -238,12 +238,14 @@ int main(int argc, char **argv) {
   if (opts.stats) {
     double dt  = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     double ips = total_itrs / dt;
+    u64 total_heap = heap_alloc_total();
     printf("- Itrs: %llu interactions\n", total_itrs);
     if (thread_get_count() > 1) {
       for (u32 t = 0; t < thread_get_count(); t++) {
         printf("- Itrs[%u]: %llu interactions\n", t, wnf_itrs_thread(t));
       }
     }
+    printf("- Heap: %llu nodes\n", total_heap);
     printf("- Time: %.3f seconds\n", dt);
     printf("- Perf: %.2f M interactions/s\n", ips / 1e6);
   } else if (opts.silent) {

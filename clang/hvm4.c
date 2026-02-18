@@ -287,6 +287,8 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // ====
 
 #include "heap/alloc.c"
+#include "heap/alloc_thread.c"
+#include "heap/alloc_total.c"
 #include "heap/read.c"
 #include "heap/take.c"
 #include "heap/set.c"
