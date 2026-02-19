@@ -7,7 +7,7 @@ fn Term wnf_op2_inc_x(u32 opr, Term inc, Term y) {
   Term x       = heap_read(inc_loc);
   Term op      = term_new_op2(opr, x, y);
   heap_set(inc_loc, op);
-  return term_new(0, INC, 0, inc_loc);
+  return inc;
 }
 
 // (#n op ↑y)
@@ -19,5 +19,5 @@ fn Term wnf_op2_inc_y(u32 opr, Term x, Term inc) {
   Term y       = heap_read(inc_loc);
   Term op      = term_new_op2(opr, x, y);
   heap_set(inc_loc, op);
-  return term_new(0, INC, 0, inc_loc);
+  return inc;
 }

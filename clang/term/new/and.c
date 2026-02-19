@@ -1,9 +1,9 @@
-// And(a, b): short-circuit AND, strict on a only
-// Layout: heap_read(loc+0) = a, heap_read(loc+1) = b
-// Returns b if a is non-zero, #0 if a is zero
-fn Term term_new_and(Term a, Term b) {
-  u64 loc = heap_alloc(2);
+fn Term term_new_and_at(u64 loc, Term a, Term b) {
   heap_set(loc + 0, a);
   heap_set(loc + 1, b);
   return term_new(0, AND, 0, loc);
+}
+
+fn Term term_new_and(Term a, Term b) {
+  return term_new_and_at(heap_alloc(2), a, b);
 }

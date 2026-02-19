@@ -76,12 +76,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
   u32  base   = s_pos;
   Term next   = term;
   Term whnf;
-  Term rebuild_term;
 
   enter: {
     if (__builtin_expect(STEPS_ITRS_LIM != 0, 0) && ITRS >= STEPS_ITRS_LIM) {
-      rebuild_term = next;
-      goto rebuild;
+      return wnf_rebuild(next, stack, s_pos, base);
     }
     if (__builtin_expect(DEBUG, 0)) {
       printf("wnf_enter: ");
@@ -299,8 +297,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
     while (s_pos > base) {
       if (__builtin_expect(STEPS_ITRS_LIM != 0, 0) && ITRS >= STEPS_ITRS_LIM) {
-        rebuild_term = whnf;
-        goto rebuild;
+        return wnf_rebuild(whnf, stack, s_pos, base);
       }
       Term frame = stack[--s_pos];
 
@@ -519,7 +516,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case SUP: {
-              whnf = wnf_op2_sup(opr, whnf, y);
+              whnf = wnf_op2_sup(loc, opr, whnf, y);
               continue;
             }
             case INC: {
@@ -586,11 +583,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case SUP: {
-              whnf = wnf_eql_sup_l(whnf, b);
+              whnf = wnf_eql_sup_l(loc, whnf, b);
               continue;
             }
             case INC: {
-              whnf = wnf_eql_inc_l(whnf, b);
+              whnf = wnf_eql_inc_l(loc, whnf, b);
               continue;
             }
             default: {
@@ -621,11 +618,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case SUP: {
-              whnf = wnf_eql_sup_r(a, whnf);
+              whnf = wnf_eql_sup_r(loc, a, whnf);
               continue;
             }
             case INC: {
-              whnf = wnf_eql_inc_r(a, whnf);
+              whnf = wnf_eql_inc_r(loc, a, whnf);
               continue;
             }
             default: {
@@ -761,11 +758,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case SUP: {
-              whnf = wnf_and_sup(whnf, b);
+              whnf = wnf_and_sup(loc, whnf, b);
               continue;
             }
             case INC: {
-              whnf = wnf_and_inc(whnf, b);
+              whnf = wnf_and_inc(loc, whnf, b);
               continue;
             }
             case NUM: {
@@ -793,11 +790,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             case SUP: {
-              whnf = wnf_or_sup(whnf, b);
+              whnf = wnf_or_sup(loc, whnf, b);
               continue;
             }
             case INC: {
-              whnf = wnf_or_inc(whnf, b);
+              whnf = wnf_or_inc(loc, whnf, b);
               continue;
             }
             case NUM: {
@@ -821,10 +818,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
   WNF_S_POS = s_pos;
   return whnf;
-
-  rebuild: {
-    return wnf_rebuild(rebuild_term, stack, s_pos, base);
-  }
 }
 
 fn Term wnf_at(u64 loc) {
