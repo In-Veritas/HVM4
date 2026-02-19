@@ -152,44 +152,40 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case ALO: {
         u32  len     = term_ext(next);
+        u32  alo_loc;
         u32  tm_loc;
         u32  ls_loc;
         if (len == 0) {
+          alo_loc = 0;
           tm_loc = term_val(next);
           ls_loc = 0;
         } else {
-          u32 alo_loc = term_val(next);
-          u64 pair    = heap_read(alo_loc);
+          alo_loc  = term_val(next);
+          u64 pair = heap_read(alo_loc);
           tm_loc = (u32)(pair & 0xFFFFFFFF);
           ls_loc = (u32)(pair >> 32);
         }
         Term book    = heap_read(tm_loc);
 
         switch (term_tag(book)) {
-          case VAR: {
-            next = wnf_alo_var(ls_loc, len, book);
-            goto enter;
-          }
-          case DP0:
-          case DP1: {
-            next = wnf_alo_cop(ls_loc, len, book);
-            goto enter;
-          }
+          case VAR:
           case BJV: {
             next = wnf_alo_var(ls_loc, len, book);
             goto enter;
           }
+          case DP0:
+          case DP1:
           case BJ0:
           case BJ1: {
             next = wnf_alo_cop(ls_loc, len, book);
             goto enter;
           }
           case LAM: {
-            next = wnf_alo_lam(ls_loc, len, book);
+            next = wnf_alo_lam(alo_loc, ls_loc, len, book);
             goto enter;
           }
           case DUP: {
-            next = wnf_alo_dup(ls_loc, len, book);
+            next = wnf_alo_dup(alo_loc, ls_loc, len, book);
             goto enter;
           }
           case APP:
