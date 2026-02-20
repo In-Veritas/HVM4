@@ -449,10 +449,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_dup_nam(lab, loc, side, whnf);
               continue;
             }
-            case DRY: {
-              whnf = wnf_dup_dry(lab, loc, side, whnf);
-              continue;
-            }
             case LAM: {
               whnf = wnf_dup_lam(lab, loc, side, whnf);
               continue;
@@ -469,6 +465,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               continue;
             }
             // case APP: // !! DO NOT ADD: DP0/DP1 do not interact with APP.
+            case DRY:
             case MAT:
             case SWI:
             case USE:
@@ -481,11 +478,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             default: {
-              u64 new_loc   = heap_alloc(1);
-              heap_set(new_loc, whnf);
-              Term r0 = term_new(0, DP0, lab, new_loc);
-              Term r1 = term_new(0, DP1, lab, new_loc);
-              whnf = heap_subst_cop(side, loc, r0, r1);
+              heap_set(loc, whnf);
+              whnf = frame;
               continue;
             }
           }

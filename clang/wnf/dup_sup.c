@@ -17,14 +17,12 @@ fn Term wnf_dup_sup(u32 lab, u64 loc, u8 side, Term sup) {
     Term tm1 = heap_read(sup_loc + 1);
     return heap_subst_cop(side, loc, tm0, tm1);
   } else {
-    u64 base = heap_alloc(6);
+    u64 base = heap_alloc(4);
     u64 at   = base;
-    heap_set(at + 0, heap_read(sup_loc + 0));
-    heap_set(at + 1, heap_read(sup_loc + 1));
-    Copy A  = term_clone_at(at + 0, lab);
-    Copy B  = term_clone_at(at + 1, lab);
-    Term s0 = term_new_sup_at(at + 2, sup_lab, A.k0, B.k0);
-    Term s1 = term_new_sup_at(at + 4, sup_lab, A.k1, B.k1);
+    Copy A  = term_clone_at(sup_loc + 0, lab);
+    Copy B  = term_clone_at(sup_loc + 1, lab);
+    Term s0 = term_new_sup_at(at + 0, sup_lab, A.k0, B.k0);
+    Term s1 = term_new_sup_at(at + 2, sup_lab, A.k1, B.k1);
     return heap_subst_cop(side, loc, s0, s1);
   }
 }
