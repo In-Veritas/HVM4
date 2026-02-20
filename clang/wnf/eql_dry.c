@@ -1,7 +1,7 @@
 // (^(af ax) === ^(bf bx))
 // ----------------------- EQL-DRY
 // (af === bf) & (ax === bx)
-fn Term wnf_eql_dry(Term a, Term b) {
+fn Term wnf_eql_dry(u64 eql_loc, Term a, Term b) {
   ITRS_INC("EQL-DRY");
   u64  a_loc = term_val(a);
   u64  b_loc = term_val(b);
@@ -13,5 +13,5 @@ fn Term wnf_eql_dry(Term a, Term b) {
   // (af === bf) .&. (ax === bx)
   Term eq_f = term_new_eql(af, bf);
   Term eq_x = term_new_eql(ax, bx);
-  return term_new_and(eq_f, eq_x);
+  return term_new_and_at(eql_loc, eq_f, eq_x);
 }

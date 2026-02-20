@@ -5,7 +5,7 @@
 // (λ{#K:...} === λ{#L:...})  (different tag)
 // ----------------------------------------- EQL-MAT-MIS
 // #0
-fn Term wnf_eql_mat(Term a, Term b) {
+fn Term wnf_eql_mat(u64 eql_loc, Term a, Term b) {
   ITRS_INC("EQL-MAT-MIS");
   u32 a_ext = term_ext(a);
   u32 b_ext = term_ext(b);
@@ -25,5 +25,5 @@ fn Term wnf_eql_mat(Term a, Term b) {
   // (ah === bh) .&. (am === bm)
   Term eq_h = term_new_eql(ah, bh);
   Term eq_m = term_new_eql(am, bm);
-  return term_new_and(eq_h, eq_m);
+  return term_new_and_at(eql_loc, eq_h, eq_m);
 }

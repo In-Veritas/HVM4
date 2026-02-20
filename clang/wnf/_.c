@@ -150,10 +150,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case ALO: {
         u16 len     = term_ext(next);
-        u64 alo_loc = 0;
+        u64 alo_loc;
         u64 tm_loc;
         u64 ls_loc;
         if (len == 0) {
+          alo_loc = 0;
           tm_loc = term_val(next);
           ls_loc = 0;
         } else {
@@ -201,7 +202,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case OR:
           case DSU:
           case DDU: {
-            next = wnf_alo_nod(ls_loc, len, book);
+            next = wnf_alo_nod(alo_loc, ls_loc, len, book);
             goto enter;
           }
           case NAM:
@@ -318,11 +319,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case BJV:
             case BJ0:
             case BJ1: {
-              whnf = wnf_app_nam(whnf, arg);
+              whnf = wnf_app_nam(app_loc, whnf);
               continue;
             }
             case DRY: {
-              whnf = wnf_app_dry(whnf, arg);
+              whnf = wnf_app_dry(app_loc, whnf);
               continue;
             }
             case LAM: {
@@ -330,7 +331,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case SUP: {
-              whnf = wnf_app_sup(frame, whnf);
+              whnf = wnf_app_sup(app_loc, whnf, arg);
               continue;
             }
             case INC: {
@@ -641,17 +642,17 @@ __attribute__((hot)) fn Term wnf(Term term) {
               }
               // CTR === CTR
               if (a_tag >= C00 && a_tag <= C16 && b_tag >= C00 && b_tag <= C16) {
-                next = wnf_eql_ctr(a, whnf);
+                next = wnf_eql_ctr(loc, a, whnf);
                 goto enter;
               }
               // MAT/SWI === MAT/SWI
               if ((a_tag == MAT || a_tag == SWI) && (b_tag == MAT || b_tag == SWI)) {
-                next = wnf_eql_mat(a, whnf);
+                next = wnf_eql_mat(loc, a, whnf);
                 goto enter;
               }
               // USE === USE
               if (a_tag == USE && b_tag == USE) {
-                next = wnf_eql_use(a, whnf);
+                next = wnf_eql_use(loc, a, whnf);
                 goto enter;
               }
               // NAM/BJ* === NAM/BJ*
@@ -662,7 +663,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               }
               // DRY === DRY
               if (a_tag == DRY && b_tag == DRY) {
-                next = wnf_eql_dry(a, whnf);
+                next = wnf_eql_dry(loc, a, whnf);
                 goto enter;
               }
               // Otherwise: not equal

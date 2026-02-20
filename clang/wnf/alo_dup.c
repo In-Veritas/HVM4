@@ -6,17 +6,8 @@
 fn Term wnf_alo_dup(u64 alo_loc, u64 ls_loc, u16 len, Term book) {
   u64 book_loc = term_val(book);
   u64 bind_ent = heap_alloc(2);
-  Term alo_v;
-  if (len == 0) {
-    alo_v = term_new(0, ALO, 0, book_loc + 0);
-  } else {
-    u64 alo0 = heap_alloc(1);
-    heap_set(alo0, ((ls_loc & ALO_LS_MASK) << ALO_TM_BITS) | ((book_loc + 0) & ALO_TM_MASK));
-    alo_v = term_new(0, ALO, len, alo0);
-  }
+  Term alo_v = term_new_alo_at(alo_loc, ls_loc, len, book_loc + 0);
   heap_set(bind_ent + 0, alo_v);
   heap_set(bind_ent + 1, term_new(0, NUM, 0, ls_loc));
-  u64 t_loc = (len > 0) ? alo_loc : heap_alloc(1);
-  heap_set(t_loc, ((bind_ent & ALO_LS_MASK) << ALO_TM_BITS) | ((book_loc + 1) & ALO_TM_MASK));
-  return term_new(0, ALO, len + 1, t_loc);
+  return term_new_alo(bind_ent, len + 1, book_loc + 1);
 }
