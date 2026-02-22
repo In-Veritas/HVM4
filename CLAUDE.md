@@ -2,7 +2,7 @@
 
 ## Quick Onboarding
 
-HVM4 is a runtime for the Interaction Calculus (IC), a lambda-calculus extension with
+HVM is a runtime for the Interaction Calculus (IC), a lambda-calculus extension with
 explicit duplication (DUP) and superposition (SUP). These primitives enable optimal
 sharing for lazy evaluation, even inside lambdas. This repo is the C runtime:
 parse source -> build static book terms -> lazily allocate dynamic heap terms ->
@@ -23,7 +23,7 @@ Key terms:
 cd clang && clang -O2 -o main main.c
 
 # Run a file
-./clang/main test/file.hvm4 -s -C10
+./clang/main test/file.hvm -s -C10
 
 # Run all tests
 ./test/_all_.sh
@@ -35,17 +35,17 @@ cd clang && clang -O2 -o main main.c
 - `STYLEGUIDE.md`: authoritative C style rules for `clang/` (mirrored in `clang/STYLE.md`).
 - `docs/primer.md`: quick intro to the language and runtime usage.
 - `docs/theory/interaction_calculus.md`: IC theory + examples.
-- `docs/hvm4/core.md`: core term AST and grammar.
-- `docs/hvm4/syntax.md`: parser syntax, precedence, and desugaring rules.
-- `docs/hvm4/memory.md`: term layout, heap representation, linked/quoted terms.
-- `docs/hvm4/collapser.md`: CNF readback and collapse algorithm.
-- `docs/hvm4/interactions/*.md`: one file per WNF interaction; mirrors the sequent
+- `docs/hvm/core.md`: core term AST and grammar.
+- `docs/hvm/syntax.md`: parser syntax, precedence, and desugaring rules.
+- `docs/hvm/memory.md`: term layout, heap representation, linked/quoted terms.
+- `docs/hvm/collapser.md`: CNF readback and collapse algorithm.
+- `docs/hvm/interactions/*.md`: one file per WNF interaction; mirrors the sequent
   calculus comment in the matching `clang/wnf/<name>.c`.
 
 ## Code Map (C Runtime)
 
 ### Top-Level Entry
-- `clang/hvm4.c`: single translation unit; defines tags/bit layout/globals and
+- `clang/hvm.c`: single translation unit; defines tags/bit layout/globals and
   includes every module in build order. Start here to understand the whole runtime.
 - `clang/main.c`: CLI entry point and runtime setup.
 
@@ -68,7 +68,7 @@ cd clang && clang -O2 -o main main.c
 ### Evaluation
 - `clang/wnf/_.c`: stack-based WNF evaluator and interaction dispatch.
 - `clang/wnf/*.c`: one interaction per file; see matching doc in
-  `docs/hvm4/interactions/`.
+  `docs/hvm/interactions/`.
 - `clang/eval/normalize.c`: SNF normalization (WNFs every reachable node).
 
 ### Collapse (CNF Readback)

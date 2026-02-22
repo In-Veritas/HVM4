@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test runner for HVM4
+# Test runner for HVM
 #
 # Test format:
 #   @main = <expression>
@@ -20,22 +20,22 @@ FFI_DIR="$DIR/ffi"
 ROOT_DIR="$DIR/.."
 TEST_TIMEOUT_SECS=2
 
-if [ -n "${HVM4_TEST_TIMEOUT_SECS:-}" ]; then
-  TEST_TIMEOUT_SECS="$HVM4_TEST_TIMEOUT_SECS"
+if [ -n "${HVM_TEST_TIMEOUT_SECS:-}" ]; then
+  TEST_TIMEOUT_SECS="$HVM_TEST_TIMEOUT_SECS"
 fi
 
 global_flags=()
-if [ -n "${HVM4_TEST_FLAGS:-}" ]; then
-  read -r -a global_flags <<< "$HVM4_TEST_FLAGS"
+if [ -n "${HVM_TEST_FLAGS:-}" ]; then
+  read -r -a global_flags <<< "$HVM_TEST_FLAGS"
 fi
 
-as_c_only="${HVM4_TEST_AS_C_ONLY:-0}"
+as_c_only="${HVM_TEST_AS_C_ONLY:-0}"
 
 run_with_timeout() {
   local out_var="$1" t="$2" marker cap_file pid status
   shift 2
-  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
-  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm4-capture.XXXXXX")" || {
+  marker="$(mktemp "${TMPDIR:-/tmp}/hvm-timeout.XXXXXX")" || return 1
+  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm-capture.XXXXXX")" || {
     rm -f "$marker"
     return 1
   }
@@ -66,7 +66,7 @@ trap cleanup EXIT
 
 shopt -s nullglob
 tests=()
-for f in "$DIR"/*.hvm4 "$FFI_DIR"/*.hvm4; do
+for f in "$DIR"/*.hvm "$FFI_DIR"/*.hvm; do
   name="$(basename "$f")"
   if [ "$as_c_only" = "1" ]; then
     case "$name" in
@@ -83,7 +83,7 @@ done
 shopt -u nullglob
 
 if [ ${#tests[@]} -eq 0 ]; then
-  echo "no .hvm4 files found under $DIR for selected test class" >&2
+  echo "no .hvm files found under $DIR for selected test class" >&2
   exit 1
 fi
 
@@ -94,7 +94,7 @@ run_tests() {
 
   echo "=== Testing $label ==="
   for test_file in "${tests[@]}"; do
-    name="$(basename "${test_file%.hvm4}")"
+    name="$(basename "${test_file%.hvm}")"
 
     # Read leading //!... directive lines as CLI flags.
     extra_flags=()
@@ -182,7 +182,7 @@ run_tests() {
     ffi_flag=""
     ffi_target=""
     if [[ "$test_file" == "$FFI_DIR/"* ]]; then
-      base="${test_file%.hvm4}"
+      base="${test_file%.hvm}"
       if [ -d "$base" ]; then
         ffi_flag="--ffi-dir"
         ffi_target="$base"

@@ -1,6 +1,6 @@
-#define HVM4_RUNTIME
-#include "../hvm4_ffi.h"
-#undef HVM4_RUNTIME
+#define HVM_RUNTIME
+#include "../hvm_ffi.h"
+#undef HVM_RUNTIME
 
 fn Term wnf(Term term);
 fn u32 prim_register(const char *name, u32 len, u32 arity, HvmPrimFn fun);

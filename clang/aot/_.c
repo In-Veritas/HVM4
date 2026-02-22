@@ -1,5 +1,5 @@
-// HVM4 AOT Runtime State
-// ======================
+// HVM AOT Runtime State
+// =====================
 //
 // This module owns runtime state used by ahead-of-time compiled definitions.
 //
@@ -8,7 +8,7 @@
 //   - `--to-c` emits a standalone C program to stdout.
 //   - `--as-c` emits + compiles + runs once, then removes only the executable.
 // - Generated program model:
-//   - Includes the real runtime translation unit (`clang/hvm4.c`) directly.
+//   - Includes the real runtime translation unit (`clang/hvm.c`) directly.
 //   - Emits one native C function per top-level definition.
 //   - Registers those symbols in `AOT_FNS[id]` before evaluation.
 // - Fast path:

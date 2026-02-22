@@ -235,7 +235,7 @@ x₁ ← &R{A₁, B₁}
 t
 ```
 
-These four rules form a complete system. Every other interaction in HVM4 is an
+These four rules form a complete system. Every other interaction in HVM is an
 extension for practical constructs: numbers, constructors, pattern-matching.
 
 ## Relation to Interaction Combinators

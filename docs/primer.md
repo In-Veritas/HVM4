@@ -1,14 +1,14 @@
-# HVM4 Primer
+# HVM Primer
 
-HVM4 is a runtime for the Interaction Calculus, a model of computation that
+HVM is a runtime for the Interaction Calculus, a model of computation that
 extends lambda calculus to achieve **optimal reduction**: no work is ever
 duplicated, even when copying functions. It's lazy like Haskell, but sharing
 extends inside lambdas, not just at the data level.
 
-## Running HVM4
+## Running HVM
 
 ```bash
-hvm4 file.hvm4 -s -C10 # run with collapse
+hvm file.hvm -s -C10 # run with collapse
 ```
 
 **Flags:**
@@ -86,7 +86,7 @@ Operators (low to high): || && == != < <= > >= << >> + - * / % ^
 
 Variables are **affine**: used at most once.
 
-```hvm4
+```hvm
 // WRONG: x used twice
 @bad = λx. (x + x)
 
@@ -101,7 +101,7 @@ The `&` prefix tells the parser to auto-insert duplication nodes.
 **Common affinity errors:**
 
 1. Using a variable in multiple match branches:
-```hvm4
+```hvm
 // WRONG: x appears in both branches
 @bad = λx. λ{
   #T: x
@@ -118,7 +118,7 @@ The `&` prefix tells the parser to auto-insert duplication nodes.
 ```
 
 2. Using unnecessary clones:
-```hvm4
+```hvm
 // BAD: inline λ{...}(x) is poor style
 
 @filter = λ&f. λ{
@@ -153,7 +153,7 @@ applications (such as `λ{...}(x)`).
 
 A SUP `&L{a,b}` represents two values in one location:
 
-```hvm4
+```hvm
 @main = (&X{10, 20} + 5)
 //15
 //25
@@ -170,7 +170,7 @@ Labels control how DUPs interact with SUPs:
 To observe this, use explicit DUP syntax `!x&L = val; body` which
 binds `x₀` and `x₁`:
 
-```hvm4
+```hvm
 // Same label: pairwise extraction
 @main =
   !x&A = &A{1, 2};
@@ -178,7 +178,7 @@ binds `x₀` and `x₁`:
 //[1,2]
 ```
 
-```hvm4
+```hvm
 // Different labels: the DUP stays inside each SUP branch
 @main =
   !x&A = &B{1, 2};
@@ -187,7 +187,7 @@ binds `x₀` and `x₁`:
 //[2,2]
 ```
 
-```hvm4
+```hvm
 // Cross product from two SUPs with different labels (4 results)
 @main = [&A{1, 2}, &B{10, 20}]
 //[1,10]
@@ -203,7 +203,7 @@ need label control (pairwise extraction or explicit SUP/DUP interactions).
 
 Match on constructors with `λ{...}`:
 
-```hvm4
+```hvm
 @not = λ{
   #T: #F{}
   #F: #T{}
@@ -212,7 +212,7 @@ Match on constructors with `λ{...}`:
 //#F{}
 ```
 
-```hvm4
+```hvm
 @pred = λ{
   0n:  0n
   1n+: λp. p
@@ -228,7 +228,7 @@ Match cases bind constructor fields as lambda arguments.
 `Nn` is sugar for `#SUC{...#SUC{#ZER}...}`. Patterns: `0n:` matches
 `#ZER`, `1n+:` matches `#SUC` and binds predecessor:
 
-```hvm4
+```hvm
 @add = λ{
   0n:  λb. b
   1n+: λa. λb. 1n+@add(a, b)
@@ -243,7 +243,7 @@ A char literal `'x'` desugars to `#CHR{120}` (the constructor `#CHR` wrapping th
 Unicode codepoint as a number). Escape sequences: `'\n'`, `'\t'`, `'\r'`, `'\0'`,
 `'\\'`, `'\''`, `'\"'`.
 
-```hvm4
+```hvm
 @main = 'A'
 //'A'
 ```
@@ -251,7 +251,7 @@ Unicode codepoint as a number). Escape sequences: `'\n'`, `'\t'`, `'\r'`, `'\0'`
 To match on a character, match the `#CHR` constructor to extract the codepoint,
 then switch on the numeric value:
 
-```hvm4
+```hvm
 @is_a = λ{
   #CHR: λ{'A': #T; λn. #F}
 }
@@ -273,7 +273,7 @@ Pattern sugar:
 - `[]:` matches `#NIL`
 - `<>:` matches `#CON`
 
-```hvm4
+```hvm
 @len = λ{
   []: 0
   <>: λh. λt. (1 + @len(t))
@@ -290,14 +290,14 @@ Strings are lists of `#CHR`. `"hi"` desugars to:
 
 Backtick can be used instead of quotes.
 
-```hvm4
+```hvm
 @main = "hi"
 //"hi"
 ```
 
 Since strings are just lists, list functions work on them directly:
 
-```hvm4
+```hvm
 ...
 @main = @len("hello")
 //5
@@ -307,7 +307,7 @@ Since strings are just lists, list functions work on them directly:
 
 Switch on machine ints with `0:`, `1:`, etc., and `λn.` for default:
 
-```hvm4
+```hvm
 @fib = λ{
   0: 0
   1: 1
@@ -322,7 +322,7 @@ Switch on machine ints with `0:`, `1:`, etc., and `λn.` for default:
 `&Lλx,y{A;B}` is sugar for parallel branching. A uses `x₀,y₀`; B uses
 `x₁,y₁`:
 
-```hvm4
+```hvm
 @main = (&Lλx,y{(x + y); (x * y)})(3, 4)
 //7
 //12
@@ -330,7 +330,7 @@ Switch on machine ints with `0:`, `1:`, etc., and `λn.` for default:
 
 This desugars to:
 
-```hvm4
+```hvm
 @main =
   !x&L = 3;
   !y&L = 4;
@@ -360,7 +360,7 @@ This declares in `body`:
 
 So `λ$x.body` is equivalent to constructing it as `f(body)`:
 
-```hvm4
+```hvm
 @main = (λ$x. (x + 1))(10)
 //11
 ```
@@ -370,7 +370,7 @@ Applying the unscoped lambda to `10` binds `x` to `10`, yielding `11`.
 
 Another example using the unscoped variable in a pair:
 
-```hvm4
+```hvm
 @main = ! f = λ v ; #P{f(1, 2), v}
 //#P{1,2}
 ```
@@ -385,7 +385,7 @@ nested context.
 
 ### Factorial with Peano Naturals
 
-```hvm4
+```hvm
 @add = λ{
   0n:  λb. b
   1n+: λa. λb. 1n+@add(a, b)
@@ -407,7 +407,7 @@ nested context.
 
 ### List Map
 
-```hvm4
+```hvm
 @map = λ&f. λ{
   []: []
   <>: λh. λt. (f(h) <> @map(f, t))
@@ -421,7 +421,7 @@ nested context.
 Superpositions can enumerate multiple results; each branch prints separately
 in collapse mode:
 
-```hvm4
+```hvm
 @bits = λ{
   0n:  #E{}
   1n+: λ&p.
@@ -438,7 +438,7 @@ in collapse mode:
 
 Standard lambda encoding with a cloned binder for `s`:
 
-```hvm4
+```hvm
 @c2   = λ&s. λz. s(s(z))
 @cmul = λa. λb. λs. λz. a(b(s), z)
 @main = @cmul(@c2, @c2)
@@ -447,7 +447,7 @@ Standard lambda encoding with a cloned binder for `s`:
 
 ### Solving Equations via Enumeration
 
-```hvm4
+```hvm
 @add = λ{
   0n:  λb. b
   1n+: λa. λb. 1n+@add(a, b)
@@ -479,7 +479,7 @@ Standard lambda encoding with a cloned binder for `s`:
 
 ### Filter
 
-```hvm4
+```hvm
 @even = λ{
   0: #T{}
   1: #F{}
@@ -512,7 +512,7 @@ Standard lambda encoding with a cloned binder for `s`:
 
 Constructor match:
 
-```hvm4
+```hvm
 λ{
   #C: ...
 }
@@ -520,7 +520,7 @@ Constructor match:
 
 Peano natural match:
 
-```hvm4
+```hvm
 λ{
   0n:  ...
   1n+: λp. ...
@@ -529,7 +529,7 @@ Peano natural match:
 
 Numeric switch (machine ints):
 
-```hvm4
+```hvm
 λ{
   0:  ...
   1:  ...

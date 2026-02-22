@@ -77,7 +77,7 @@ fn char *aot_build_resolve_argv0(const char *argv0) {
   return NULL;
 }
 
-// Resolves absolute runtime path (`.../clang/hvm4.c`) from argv0.
+// Resolves absolute runtime path (`.../clang/hvm.c`) from argv0.
 fn void aot_build_runtime_path(char *out, u32 out_len, const char *argv0) {
   char *exe = aot_build_resolve_argv0(argv0);
   if (exe == NULL) {
@@ -91,7 +91,7 @@ fn void aot_build_runtime_path(char *out, u32 out_len, const char *argv0) {
   }
 
   *slash = '\0';
-  int n = snprintf(out, out_len, "%s/hvm4.c", exe);
+  int n = snprintf(out, out_len, "%s/hvm.c", exe);
   free(exe);
 
   if (n < 0 || n >= (int)out_len) {

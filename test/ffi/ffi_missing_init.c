@@ -1,4 +1,4 @@
-#include "clang/hvm4_ffi.h"
+#include "clang/hvm_ffi.h"
 
 int ffi_dummy(void) {
   return 1;

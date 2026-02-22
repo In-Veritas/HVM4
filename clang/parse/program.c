@@ -1,6 +1,6 @@
 // Parse Program Entry
 // -------------------
-// Parses one source buffer as a top-level HVM4 program.
+// Parses one source buffer as a top-level HVM program.
 
 fn void parse_def(PState *s);
 

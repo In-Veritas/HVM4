@@ -1,6 +1,6 @@
-# HVM4
+# HVM
 
-HVM4 is a high-performance runtime for the [Interaction Calculus](docs/theory/interaction_calculus.md).
+HVM is a high-performance runtime for the [Interaction Calculus](docs/theory/interaction_calculus.md).
 
 **NOTE: you're here before launch. Use at your own risk.**
 
@@ -12,7 +12,7 @@ cd clang && clang -O2 -o main main.c
 # On Linux, add: -ldl
 
 # Run a file (use collapse mode by default)
-./clang/main test/file.hvm4 -s -C10
+./clang/main test/file.hvm -s -C10
 
 # Run all tests
 ./test/_all_.sh
@@ -49,6 +49,6 @@ Flags:
 ## Documentation
 
 - Theory: [docs/theory/interaction_calculus.md](docs/theory/interaction_calculus.md)
-- Core language: [docs/hvm4/core.md](docs/hvm4/core.md)
-- Memory layout: [docs/hvm4/memory.md](docs/hvm4/memory.md)
-- Interaction rules: [docs/hvm4/interactions/](docs/hvm4/interactions/)
+- Core language: [docs/hvm/core.md](docs/hvm/core.md)
+- Memory layout: [docs/hvm/memory.md](docs/hvm/memory.md)
+- Interaction rules: [docs/hvm/interactions/](docs/hvm/interactions/)

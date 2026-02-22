@@ -1,10 +1,10 @@
-// HVM4 CLI Entry Point
+// HVM CLI Entry Point
 // ====================
 //
-// This file provides the command-line interface for the HVM4 runtime,
+// This file provides the command-line interface for the HVM runtime,
 // mirroring the structure of main.hs for the Haskell implementation.
 //
-// Usage: ./main <file.hvm4> [options]
+// Usage: ./main <file.hvm> [options]
 //   -s, --stats: Show statistics (interactions, time, performance)
 //   -S, --silent: Silent output (omit term printing)
 //   -D, --step-by-step: Step-by-step reduction trace
@@ -14,7 +14,7 @@
 //   --to-c: Emit standalone AOT C program to stdout
 //   --as-c: Emit + compile + run standalone AOT executable once
 
-#include "hvm4.c"
+#include "hvm.c"
 
 // CLI
 // ===
@@ -28,6 +28,7 @@ typedef struct {
   int   step_by_step;
   int   threads;
   int   help;
+  int   version;
   int   as_c;
   int   to_c;
   u32            ffi_loads_len;
@@ -38,7 +39,7 @@ typedef struct {
 // Returns the executable basename for help text.
 fn const char *cli_prog_name(const char *argv0) {
   if (argv0 == NULL || argv0[0] == '\0') {
-    return "hvm4";
+    return "hvm";
   }
 
   const char *slash = strrchr(argv0, '/');
@@ -95,7 +96,8 @@ fn void cli_print_help_opt(const char *sht, const char *lng, const char *desc) {
 fn void cli_print_help(const char *argv0) {
   const char *prog = cli_prog_name(argv0);
 
-  fprintf(stdout, "Usage: %s <file.hvm4> [options]\n\n", prog);
+  fprintf(stdout, "HVM 4.0\n\n");
+  fprintf(stdout, "Usage: %s <file.hvm> [options]\n\n", prog);
   fprintf(stdout, "A massively parallel Interaction Calculus runtime.\n\n");
 
   fprintf(stdout, "Options:\n");
@@ -111,12 +113,13 @@ fn void cli_print_help(const char *argv0) {
   cli_print_help_opt(NULL, "--ffi <path>",     "Load an FFI shared library");
   cli_print_help_opt(NULL, "--ffi-dir <path>", "Load all FFI libraries from a directory");
   fprintf(stdout, "\n");
+  cli_print_help_opt("-v", "--version",      "Print version");
   cli_print_help_opt("-h", "--help",         "Show this help message");
 
   fprintf(stdout, "\nExamples:\n");
-  fprintf(stdout, "  %s test/fib.hvm4 -s\n", prog);
-  fprintf(stdout, "  %s test/fib.hvm4 --as-c\n", prog);
-  fprintf(stdout, "  %s test/enum_nat.hvm4 -C10\n", prog);
+  fprintf(stdout, "  %s test/fib.hvm -s\n", prog);
+  fprintf(stdout, "  %s test/fib.hvm --as-c\n", prog);
+  fprintf(stdout, "  %s test/enum_nat.hvm -C10\n", prog);
 }
 
 fn CliOpts parse_opts(int argc, char **argv) {
@@ -129,6 +132,7 @@ fn CliOpts parse_opts(int argc, char **argv) {
     .step_by_step = 0,
     .threads = 0,
     .help = 0,
+    .version = 0,
     .as_c = 0,
     .to_c = 0,
     .ffi_loads_len = 0,
@@ -138,6 +142,8 @@ fn CliOpts parse_opts(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       opts.help = 1;
+    } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+      opts.version = 1;
     } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--stats") == 0) {
       opts.stats = 1;
     } else if (strcmp(argv[i], "-S") == 0 || strcmp(argv[i], "--silent") == 0) {
@@ -260,6 +266,11 @@ int main(int argc, char **argv) {
 
   // Parse command line
   CliOpts opts = parse_opts(argc, argv);
+
+  if (opts.version) {
+    fprintf(stdout, "4.0\n");
+    return 0;
+  }
 
   if (opts.help) {
     cli_print_help(argv[0]);

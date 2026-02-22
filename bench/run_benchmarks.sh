@@ -8,8 +8,8 @@ threads=(1 2 4 8 12)
 run_with_timeout() {
   local out_var="$1" t="$2" marker cap_file pid status
   shift 2
-  marker="$(mktemp "${TMPDIR:-/tmp}/hvm4-timeout.XXXXXX")" || return 1
-  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm4-capture.XXXXXX")" || {
+  marker="$(mktemp "${TMPDIR:-/tmp}/hvm-timeout.XXXXXX")" || return 1
+  cap_file="$(mktemp "${TMPDIR:-/tmp}/hvm-capture.XXXXXX")" || {
     rm -f "$marker"
     return 1
   }
@@ -29,7 +29,7 @@ if [ ! -x "$MAIN" ]; then
 fi
 
 shopt -s nullglob
-bench_files=(bench/*.hvm4 bench/par/*.hvm4)
+bench_files=(bench/*.hvm bench/par/*.hvm)
 shopt -u nullglob
 
 if [ ${#bench_files[@]} -eq 0 ]; then
@@ -60,10 +60,10 @@ for file in "${bench_files[@]}"; do
   for t in "${threads[@]}"; do
     extra_args=()
     case "$(basename "$file")" in
-      gen_*.hvm4 )
+      gen_*.hvm )
         extra_args+=("-C1")
         ;;
-      collapse_*.hvm4 )
+      collapse_*.hvm )
         extra_args+=("-C")
         ;;
     esac

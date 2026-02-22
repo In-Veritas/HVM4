@@ -1,3 +1,0 @@
-#include "_book_.hvm4"
-@main = @cnot(@ctru)
-//λa.λb.b

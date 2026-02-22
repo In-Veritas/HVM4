@@ -3,7 +3,7 @@
 *.hi
 clang/main
 haskell/main
-hvm4_old/
+hvm_old/
 .DS_Store
 test/ffi/*.dylib
 test/ffi/*/*.dylib

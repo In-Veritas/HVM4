@@ -1,4 +1,4 @@
-#include "clang/hvm4_ffi.h"
+#include "clang/hvm_ffi.h"
 
 static const HvmApi *api;
 
@@ -11,7 +11,7 @@ static Term prim_ffi_double(Term *args) {
   return api->term_new_num(res);
 }
 
-void hvm4_ffi_init(const HvmApi *api_arg) {
+void hvm_ffi_init(const HvmApi *api_arg) {
   api = api_arg;
   if (api->abi_version != ABI_VERSION) {
     api->runtime_error("FFI ABI mismatch");

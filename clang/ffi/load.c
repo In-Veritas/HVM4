@@ -1,8 +1,8 @@
 #include <dlfcn.h>
 
-#define HVM4_RUNTIME
-#include "../hvm4_ffi.h"
-#undef HVM4_RUNTIME
+#define HVM_RUNTIME
+#include "../hvm_ffi.h"
+#undef HVM_RUNTIME
 
 typedef void (*HvmFfiInit)(const HvmApi *api);
 
@@ -34,10 +34,10 @@ fn void ffi_load(const char *path) {
   }
 
   dlerror();
-  HvmFfiInit init = (HvmFfiInit)dlsym(handle, "hvm4_ffi_init");
+  HvmFfiInit init = (HvmFfiInit)dlsym(handle, "hvm_ffi_init");
   const char *err = dlerror();
   if (err != NULL) {
-    fprintf(stderr, "ERROR: missing hvm4_ffi_init in '%s': %s\n", path, err);
+    fprintf(stderr, "ERROR: missing hvm_ffi_init in '%s': %s\n", path, err);
     exit(1);
   }
 
