@@ -25,11 +25,8 @@ cd clang && clang -O2 -o main main.c
 # Run a file
 ./clang/main test/file.hvm -s -C10
 
-# Run tests (interpreted)
-./scripts/test.sh --interpreted
-
-# Run tests (AOT compiled)
-./scripts/test.sh --compiled
+# Run tests (interpreted, then AOT compiled)
+./scripts/test.sh
 
 # Run benchmarks (interpreted)
 ./scripts/bench.sh --interpreted

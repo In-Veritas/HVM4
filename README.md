@@ -15,8 +15,7 @@ cd clang && clang -O2 -o main main.c
 ./clang/main test/file.hvm -s -C10
 
 # Run all tests
-./scripts/test.sh --interpreted
-./scripts/test.sh --compiled
+./scripts/test.sh
 ```
 
 Flags:

@@ -2,7 +2,7 @@
 # scripts/test.sh
 # ===============
 # Unified test runner for HVM4.
-# Supports both interpreted and AOT-compiled test modes.
+# Runs interpreted and AOT-compiled modes in sequence.
 #
 # Test format:
 #   @main = <expression>
@@ -21,55 +21,26 @@ C_BIN="$ROOT_DIR/clang/main"
 C_MAIN="${C_BIN}.c"
 FFI_DIR="$DIR/ffi"
 
-# Help
-# ----
+# Config
+# ------
 
-# Prints usage and exits
-show_help() {
-  echo "Usage: scripts/test.sh [--interpreted | --compiled]"
-  echo ""
-  echo "  --interpreted  Run tests via the C interpreter"
-  echo "  --compiled     Run AOT-compiled tests (--as-c)"
-  exit 0
-}
-
-# Args
-# ----
-
-# Parse mode from flags
-MODE=""
-for arg in "$@"; do
-  case "$arg" in
-    --interpreted ) MODE="interpreted" ;;
-    --compiled    ) MODE="compiled" ;;
-    --help | -h   ) show_help ;;
-    * )
-      echo "error: unknown flag '$arg'" >&2
-      show_help
-      ;;
-  esac
-done
-
-if [ -z "$MODE" ]; then
-  show_help
+# Accepts no CLI arguments; runs both modes unconditionally.
+if [ $# -ne 0 ]; then
+  echo "error: scripts/test.sh takes no arguments" >&2
+  exit 1
 fi
 
-# Configure mode-specific settings
-if [ "$MODE" = "compiled" ]; then
-  TEST_TIMEOUT_SECS=20
-  global_flags=("--as-c")
-else
-  TEST_TIMEOUT_SECS=2
-  global_flags=()
-fi
+TEST_TIMEOUT_INTERPRETED_SECS=2
+TEST_TIMEOUT_COMPILED_SECS=20
+shared_flags=()
 
 # Allow env overrides
 if [ -n "${HVM_TEST_TIMEOUT_SECS:-}" ]; then
-  TEST_TIMEOUT_SECS="$HVM_TEST_TIMEOUT_SECS"
+  TEST_TIMEOUT_INTERPRETED_SECS="$HVM_TEST_TIMEOUT_SECS"
+  TEST_TIMEOUT_COMPILED_SECS="$HVM_TEST_TIMEOUT_SECS"
 fi
 if [ -n "${HVM_TEST_FLAGS:-}" ]; then
-  read -r -a extra_global <<< "$HVM_TEST_FLAGS"
-  global_flags+=("${extra_global[@]}")
+  read -r -a shared_flags <<< "$HVM_TEST_FLAGS"
 fi
 
 # Timeout
@@ -107,16 +78,16 @@ fi
 # Collect
 # -------
 
-# Tracks temp files for cleanup
-tmp_files=()
+# Tracks generated artifact files for cleanup
+cleanup_files=()
 cleanup() {
-  if [ ${#tmp_files[@]} -gt 0 ]; then
-    rm -f "${tmp_files[@]}"
+  if [ ${#cleanup_files[@]} -gt 0 ]; then
+    rm -f "${cleanup_files[@]}"
   fi
 }
 trap cleanup EXIT
 
-# Collect test files based on mode
+# Collect test files
 shopt -s nullglob
 tests=()
 for f in "$DIR"/*.hvm "$FFI_DIR"/*.hvm; do
@@ -140,6 +111,8 @@ fi
 run_tests() {
   local bin="$1"
   local label="$2"
+  local timeout_secs="$3"
+  shift 3
   local status=0
 
   echo "=== Testing $label ==="
@@ -170,13 +143,11 @@ run_tests() {
     # Extract trailing // comment lines (consecutive from end of file)
     expected=""
     nlines_expected=0
-    nlines_total=0
     nocollapse=0
     expect_prefix=""
     expect_contains=""
     while IFS= read -r line; do
       if [[ "$line" == //* ]]; then
-        ((nlines_total++))
         if [[ "$line" == "//EXPECT_PREFIX:"* ]]; then
           expect_prefix="${line#//EXPECT_PREFIX:}"
           continue
@@ -210,13 +181,6 @@ run_tests() {
       status=1
       continue
     fi
-
-    # Create temp file without the trailing // comment lines
-    tmp="$(mktemp "${DIR}/.tmp.${name}.XXXXXX")"
-    tmp_files+=("$tmp")
-    total=$(wc -l < "$test_file")
-    keep=$((total - nlines_total))
-    head -n "$keep" "$test_file" > "$tmp"
 
     # Determine flags: all tests use -C by default unless //! is used
     flags=""
@@ -252,7 +216,7 @@ run_tests() {
             status=1
             continue 2
           fi
-          tmp_files+=("$out")
+          cleanup_files+=("$out")
         done
       else
         src="${base}.c"
@@ -267,16 +231,16 @@ run_tests() {
           status=1
           continue
         fi
-        tmp_files+=("$out")
+        cleanup_files+=("$out")
         ffi_flag="--ffi"
         ffi_target="$out"
       fi
     fi
 
     # Assemble the command
-    cmd=("$bin" "$tmp")
-    if [ ${#global_flags[@]} -gt 0 ]; then
-      cmd+=("${global_flags[@]}")
+    cmd=("$bin" "$test_file")
+    if [ $# -gt 0 ]; then
+      cmd+=("$@")
     fi
     if [ -n "$flags" ]; then
       cmd+=("$flags")
@@ -289,10 +253,10 @@ run_tests() {
     fi
 
     # Execute and compare
-    run_with_timeout actual "$TEST_TIMEOUT_SECS" "${cmd[@]}"
+    run_with_timeout actual "$timeout_secs" "${cmd[@]}"
     cmd_status=$?
     if [ $cmd_status -eq 124 ]; then
-      echo "[FAIL] $name (timeout after ${TEST_TIMEOUT_SECS}s)"
+      echo "[FAIL] $name (timeout after ${timeout_secs}s)"
       status=1
       continue
     fi
@@ -345,11 +309,28 @@ run_tests() {
 # Main
 # ----
 
-if [ "$MODE" = "compiled" ]; then
-  run_tests "$C_BIN" "HVM (AOT)" || exit 1
+status=0
+if [ -n "${HVM_TEST_FLAGS:-}" ]; then
+  run_tests "$C_BIN" "HVM (interpreted)" "$TEST_TIMEOUT_INTERPRETED_SECS" "${shared_flags[@]}"
 else
-  run_tests "$C_BIN" "HVM" || exit 1
+  run_tests "$C_BIN" "HVM (interpreted)" "$TEST_TIMEOUT_INTERPRETED_SECS"
+fi
+if [ $? -ne 0 ]; then
+  status=1
 fi
 
-echo "All tests passed!"
-exit 0
+if [ -n "${HVM_TEST_FLAGS:-}" ]; then
+  run_tests "$C_BIN" "HVM (AOT)" "$TEST_TIMEOUT_COMPILED_SECS" "${shared_flags[@]}" "--as-c"
+else
+  run_tests "$C_BIN" "HVM (AOT)" "$TEST_TIMEOUT_COMPILED_SECS" "--as-c"
+fi
+if [ $? -ne 0 ]; then
+  status=1
+fi
+
+if [ $status -eq 0 ]; then
+  echo "All tests passed!"
+  exit 0
+else
+  exit 1
+fi
