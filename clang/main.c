@@ -80,43 +80,43 @@ fn const char *cli_parse_opt_value(int argc, char **argv, int *idx, const char *
 
 // Prints one aligned row in the help options table.
 fn void cli_print_help_opt(const char *sht, const char *lng, const char *desc) {
-  char opt[64];
+  char col[64];
 
   if (sht == NULL || sht[0] == '\0') {
-    snprintf(opt, sizeof(opt), "%s", lng);
+    snprintf(col, sizeof(col), "      %s", lng);
   } else {
-    snprintf(opt, sizeof(opt), "%s, %s", sht, lng);
+    snprintf(col, sizeof(col), "  %s, %s", sht, lng);
   }
 
-  fprintf(stdout, "  %-30s %s\n", opt, desc);
+  fprintf(stdout, "%-26s %s\n", col, desc);
 }
 
 // Prints full command-line help.
 fn void cli_print_help(const char *argv0) {
   const char *prog = cli_prog_name(argv0);
 
-  fprintf(stdout, "HVM4 CLI\n");
-  fprintf(stdout, "========\n\n");
-  fprintf(stdout, "Usage:\n");
-  fprintf(stdout, "  %s [options] <file.hvm4>\n", prog);
-  fprintf(stdout, "  %s --help\n\n", prog);
+  fprintf(stdout, "Usage: %s <file.hvm4> [options]\n\n", prog);
+  fprintf(stdout, "A massively parallel Interaction Calculus runtime.\n\n");
 
   fprintf(stdout, "Options:\n");
-  cli_print_help_opt("-h", "--help", "Show this help message and exit");
-  cli_print_help_opt("-s", "--stats", "Show stats (interactions, time, perf)");
-  cli_print_help_opt("-S", "--silent", "Suppress term output");
-  cli_print_help_opt("-D", "--step-by-step", "Print each reduction step");
-  cli_print_help_opt("-d", "--debug", "Enable debug mode");
-  cli_print_help_opt("-C", "--collapse[=N]", "Collapse superpositions, optional limit N");
-  cli_print_help_opt("-T", "--threads <N>", "Use N threads");
-  cli_print_help_opt("", "--to-c", "Emit standalone AOT C to stdout");
-  cli_print_help_opt("", "--as-c", "Compile and run standalone AOT executable once");
-  cli_print_help_opt("", "--ffi <path>", "Load one FFI shared library before parsing");
-  cli_print_help_opt("", "--ffi-dir <path>", "Load all FFI shared libraries in a directory");
+  cli_print_help_opt("-s", "--stats",        "Show statistics after evaluation");
+  cli_print_help_opt("-S", "--silent",       "Suppress result output");
+  cli_print_help_opt("-C", "--collapse[=N]", "Collapse superpositions (limit N)");
+  cli_print_help_opt("-T", "--threads <N>",  "Set worker thread count");
+  cli_print_help_opt("-D", "--step-by-step", "Trace each reduction step");
+  cli_print_help_opt("-d", "--debug",        "Enable debug mode");
+  fprintf(stdout, "\n");
+  cli_print_help_opt(NULL, "--to-c",           "Emit AOT C source to stdout");
+  cli_print_help_opt(NULL, "--as-c",           "Compile and run as native C");
+  cli_print_help_opt(NULL, "--ffi <path>",     "Load an FFI shared library");
+  cli_print_help_opt(NULL, "--ffi-dir <path>", "Load all FFI libraries from a directory");
+  fprintf(stdout, "\n");
+  cli_print_help_opt("-h", "--help",         "Show this help message");
+
   fprintf(stdout, "\nExamples:\n");
   fprintf(stdout, "  %s test/fib.hvm4 -s\n", prog);
   fprintf(stdout, "  %s test/fib.hvm4 --as-c\n", prog);
-  fprintf(stdout, "  %s test/enum_nat.hvm4 --collapse=10\n", prog);
+  fprintf(stdout, "  %s test/enum_nat.hvm4 -C10\n", prog);
 }
 
 fn CliOpts parse_opts(int argc, char **argv) {
