@@ -1,4 +1,3 @@
 @foo = λx. λy. λz. y
 @main = !F&=@foo(1); F₀
 //λa.λb.a
-//FLAGS: --jit

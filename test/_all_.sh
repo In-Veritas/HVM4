@@ -7,6 +7,9 @@
 #
 # For multi-line expected output, use multiple // lines.
 # Tests starting with _ are skipped.
+# `as_c_*` tests are skipped here and run by `_all_as_c_.sh`.
+# Per-test CLI flags can be set with one leading directive line:
+#   //!--flag1 --flag2
 
 set -uo pipefail
 
@@ -16,6 +19,17 @@ C_MAIN="${C_BIN}.c"
 FFI_DIR="$DIR/ffi"
 ROOT_DIR="$DIR/.."
 TEST_TIMEOUT_SECS=2
+
+if [ -n "${HVM4_TEST_TIMEOUT_SECS:-}" ]; then
+  TEST_TIMEOUT_SECS="$HVM4_TEST_TIMEOUT_SECS"
+fi
+
+global_flags=()
+if [ -n "${HVM4_TEST_FLAGS:-}" ]; then
+  read -r -a global_flags <<< "$HVM4_TEST_FLAGS"
+fi
+
+as_c_only="${HVM4_TEST_AS_C_ONLY:-0}"
 
 run_with_timeout() {
   local out_var="$1" t="$2" marker cap_file pid status
@@ -54,15 +68,22 @@ shopt -s nullglob
 tests=()
 for f in "$DIR"/*.hvm4 "$FFI_DIR"/*.hvm4; do
   name="$(basename "$f")"
-  case "$name" in
-    _* ) continue ;;
-    *  ) tests+=("$f") ;;
-  esac
+  if [ "$as_c_only" = "1" ]; then
+    case "$name" in
+      as_c_* ) tests+=("$f") ;;
+      *      ) continue ;;
+    esac
+  else
+    case "$name" in
+      _* | as_c_* ) continue ;;
+      *           ) tests+=("$f") ;;
+    esac
+  fi
 done
 shopt -u nullglob
 
 if [ ${#tests[@]} -eq 0 ]; then
-  echo "no .hvm4 files found under $DIR" >&2
+  echo "no .hvm4 files found under $DIR for selected test class" >&2
   exit 1
 fi
 
@@ -75,23 +96,37 @@ run_tests() {
   for test_file in "${tests[@]}"; do
     name="$(basename "${test_file%.hvm4}")"
 
+    # Read leading //!... directive lines as CLI flags.
+    extra_flags=()
+    while IFS= read -r line; do
+      if [[ "$line" == "//! "* ]]; then
+        flag_line="${line#//! }"
+        read -r -a more_flags <<< "$flag_line"
+        extra_flags+=("${more_flags[@]}")
+        continue
+      fi
+      if [[ "$line" == "//!-"* ]]; then
+        flag_line="${line#//!}"
+        read -r -a more_flags <<< "$flag_line"
+        extra_flags+=("${more_flags[@]}")
+        continue
+      fi
+      if [[ -z "$line" ]]; then
+        continue
+      fi
+      break
+    done < "$test_file"
+
     # Extract trailing // comment lines (consecutive from end of file)
     expected=""
     nlines_expected=0
     nlines_total=0
     nocollapse=0
-    extra_flags=()
     expect_prefix=""
     expect_contains=""
     while IFS= read -r line; do
       if [[ "$line" == //* ]]; then
         ((nlines_total++))
-        if [[ "$line" == "//FLAGS:"* ]]; then
-          flag_line="${line#//FLAGS:}"
-          read -r -a more_flags <<< "$flag_line"
-          extra_flags+=("${more_flags[@]}")
-          continue
-        fi
         if [[ "$line" == "//EXPECT_PREFIX:"* ]]; then
           expect_prefix="${line#//EXPECT_PREFIX:}"
           continue
@@ -188,6 +223,9 @@ run_tests() {
     fi
 
     cmd=("$bin" "$tmp")
+    if [ ${#global_flags[@]} -gt 0 ]; then
+      cmd+=("${global_flags[@]}")
+    fi
     if [ -n "$flags" ]; then
       cmd+=("$flags")
     fi

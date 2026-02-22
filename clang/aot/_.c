@@ -6,8 +6,7 @@
 // Design overview:
 // - Trigger modes:
 //   - `--to-c` emits a standalone C program to stdout.
-//   - `--compile <exe>` emits + compiles with `clang -O2`.
-//   - `--jit` emits + compiles + runs once, then removes only the executable.
+//   - `--as-c` emits + compiles + runs once, then removes only the executable.
 // - Generated program model:
 //   - Includes the real runtime translation unit (`clang/hvm4.c`) directly.
 //   - Emits one native C function per top-level definition.

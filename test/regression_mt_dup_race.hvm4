@@ -1,3 +1,4 @@
+//!-T8 -S
 @Leaf = λl.λn.l
 @Node = λa.λb.λl.λn.n(a)(b)
 @Y = λ&f.(λ&x.f(x(x)))(λ&x.f(x(x)))
@@ -7,5 +8,4 @@
 }
 @main = @Y(@mkTree)(14n)
 //!
-//FLAGS: -T8 -S
 //EXPECT_PREFIX:- Itrs:

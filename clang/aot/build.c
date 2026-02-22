@@ -1,7 +1,6 @@
 // AOT Module: Build Orchestrator
 // ------------------------------
-// Emits standalone AOT C programs, optionally compiles executables, and
-// supports one-shot `--jit` execution mode.
+// Emits standalone AOT C programs and supports one-shot `--as-c` execution.
 
 #include <errno.h>
 #include <limits.h>
@@ -183,31 +182,20 @@ fn void aot_build_to_c(const char *argv0, const char *src_path, const char *src_
   aot_emit_stdout(runtime_path, src_path, src_text, cfg);
 }
 
-// Emits + compiles one standalone executable and keeps it.
-fn void aot_build_compile_out(const char *out_path, const char *argv0, const char *src_path, const char *src_text, const AotBuildCfg *cfg) {
-  aot_build_cache_dir();
-
-  char c_path[PATH_MAX];
-  aot_build_cache_c_path(c_path, sizeof(c_path), aot_build_basename(out_path), "aot");
-
-  aot_write_c_file(c_path, argv0, src_path, src_text, cfg);
-  aot_build_compile(c_path, out_path);
-}
-
 // Emits + compiles + runs once, then removes the temporary executable.
-fn int aot_build_jit_once(const char *argv0, const char *src_path, const char *src_text, const AotBuildCfg *cfg) {
+fn int aot_build_as_c_once(const char *argv0, const char *src_path, const char *src_text, const AotBuildCfg *cfg) {
   aot_build_cache_dir();
 
   char c_path[PATH_MAX];
   char x_path[PATH_MAX];
 
-  aot_build_cache_c_path(c_path, sizeof(c_path), aot_build_basename(src_path), "jit");
+  aot_build_cache_c_path(c_path, sizeof(c_path), aot_build_basename(src_path), "as_c");
 
   char *safe = aot_sanitize(aot_build_basename(src_path));
   if (safe == NULL) {
     sys_error("AOT name sanitization failed");
   }
-  int n = snprintf(x_path, sizeof(x_path), ".hvm/%s_jit.bin", safe);
+  int n = snprintf(x_path, sizeof(x_path), ".hvm/%s_as_c.bin", safe);
   free(safe);
   if (n < 0 || n >= (int)sizeof(x_path)) {
     sys_error("AOT executable path too long");
