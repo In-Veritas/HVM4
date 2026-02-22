@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Test runner for HVM
+# scripts/test.sh
+# ===============
+# Unified test runner for HVM4.
+# Supports both interpreted and AOT-compiled test modes.
 #
 # Test format:
 #   @main = <expression>
@@ -7,30 +10,75 @@
 #
 # For multi-line expected output, use multiple // lines.
 # Tests starting with _ are skipped.
-# `as_c_*` tests are skipped here and run by `_all_as_c_.sh`.
+# `as_c_*` tests are only run in --compiled mode.
 # Per-test CLI flags can be set with one leading directive line:
 #   //!--flag1 --flag2
 
 set -uo pipefail
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
-C_BIN="$DIR/../clang/main"
+DIR="$(cd "$(dirname "$0")/../test" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+C_BIN="$ROOT_DIR/clang/main"
 C_MAIN="${C_BIN}.c"
 FFI_DIR="$DIR/ffi"
-ROOT_DIR="$DIR/.."
-TEST_TIMEOUT_SECS=2
 
+# Help
+# ----
+
+# Prints usage and exits
+show_help() {
+  echo "Usage: scripts/test.sh [--interpreted | --compiled]"
+  echo ""
+  echo "  --interpreted  Run tests via the C interpreter"
+  echo "  --compiled     Run AOT-compiled tests (--as-c)"
+  exit 0
+}
+
+# Args
+# ----
+
+# Parse mode from flags
+MODE=""
+for arg in "$@"; do
+  case "$arg" in
+    --interpreted ) MODE="interpreted" ;;
+    --compiled    ) MODE="compiled" ;;
+    --help | -h   ) show_help ;;
+    * )
+      echo "error: unknown flag '$arg'" >&2
+      show_help
+      ;;
+  esac
+done
+
+if [ -z "$MODE" ]; then
+  show_help
+fi
+
+# Configure mode-specific settings
+if [ "$MODE" = "compiled" ]; then
+  as_c_only=1
+  TEST_TIMEOUT_SECS=20
+  global_flags=("--as-c")
+else
+  as_c_only=0
+  TEST_TIMEOUT_SECS=2
+  global_flags=()
+fi
+
+# Allow env overrides
 if [ -n "${HVM_TEST_TIMEOUT_SECS:-}" ]; then
   TEST_TIMEOUT_SECS="$HVM_TEST_TIMEOUT_SECS"
 fi
-
-global_flags=()
 if [ -n "${HVM_TEST_FLAGS:-}" ]; then
-  read -r -a global_flags <<< "$HVM_TEST_FLAGS"
+  read -r -a extra_global <<< "$HVM_TEST_FLAGS"
+  global_flags+=("${extra_global[@]}")
 fi
 
-as_c_only="${HVM_TEST_AS_C_ONLY:-0}"
+# Timeout
+# -------
 
+# Runs a command with a timeout; stores output in the named variable
 run_with_timeout() {
   local out_var="$1" t="$2" marker cap_file pid status
   shift 2
@@ -49,13 +97,20 @@ run_with_timeout() {
   return $status
 }
 
-# Build C
+# Build
+# -----
+
+# Compiles the C binary
 if [ ! -f "$C_MAIN" ]; then
   echo "error: expected C entrypoint at $C_MAIN" >&2
   exit 1
 fi
-(cd "$DIR/../clang" && clang -O2 -o main main.c)
+(cd "$ROOT_DIR/clang" && clang -O2 -o main main.c)
 
+# Collect
+# -------
+
+# Tracks temp files for cleanup
 tmp_files=()
 cleanup() {
   if [ ${#tmp_files[@]} -gt 0 ]; then
@@ -64,6 +119,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Collect test files based on mode
 shopt -s nullglob
 tests=()
 for f in "$DIR"/*.hvm "$FFI_DIR"/*.hvm; do
@@ -87,6 +143,10 @@ if [ ${#tests[@]} -eq 0 ]; then
   exit 1
 fi
 
+# Run
+# ---
+
+# Runs all collected tests against the given binary
 run_tests() {
   local bin="$1"
   local label="$2"
@@ -96,7 +156,7 @@ run_tests() {
   for test_file in "${tests[@]}"; do
     name="$(basename "${test_file%.hvm}")"
 
-    # Read leading //!... directive lines as CLI flags.
+    # Read leading //!... directive lines as CLI flags
     extra_flags=()
     while IFS= read -r line; do
       if [[ "$line" == "//! "* ]]; then
@@ -179,6 +239,7 @@ run_tests() {
       esac
     fi
 
+    # Build FFI flags if applicable
     ffi_flag=""
     ffi_target=""
     if [[ "$test_file" == "$FFI_DIR/"* ]]; then
@@ -222,6 +283,7 @@ run_tests() {
       fi
     fi
 
+    # Assemble the command
     cmd=("$bin" "$tmp")
     if [ ${#global_flags[@]} -gt 0 ]; then
       cmd+=("${global_flags[@]}")
@@ -236,6 +298,7 @@ run_tests() {
       cmd+=("$ffi_flag" "$ffi_target")
     fi
 
+    # Execute and compare
     run_with_timeout actual "$TEST_TIMEOUT_SECS" "${cmd[@]}"
     cmd_status=$?
     if [ $cmd_status -eq 124 ]; then
@@ -248,7 +311,7 @@ run_tests() {
     actual_clean="$(echo "$actual" | sed 's/\x1b\[[0-9;]*m//g')"
     expected_clean="$(echo "$expected" | sed 's/\x1b\[[0-9;]*m//g')"
 
-    # For PARSE_ERROR tests, just check if output starts with PARSE_ERROR
+    # Compare output
     if [ -n "$expect_prefix" ]; then
       if [[ "$actual_clean" == "$expect_prefix"* ]]; then
         echo "[PASS] $name"
@@ -289,7 +352,14 @@ run_tests() {
   return $status
 }
 
-run_tests "$C_BIN" "C" || exit 1
+# Main
+# ----
+
+if [ "$MODE" = "compiled" ]; then
+  run_tests "$C_BIN" "C (AOT)" || exit 1
+else
+  run_tests "$C_BIN" "C" || exit 1
+fi
 
 echo "All tests passed!"
 exit 0

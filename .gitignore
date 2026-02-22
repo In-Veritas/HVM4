@@ -10,3 +10,4 @@ test/ffi/*/*.dylib
 test/ffi/*.so
 test/ffi/*/*.so
 .hvm/
+.cache/

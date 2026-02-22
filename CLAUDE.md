@@ -25,8 +25,17 @@ cd clang && clang -O2 -o main main.c
 # Run a file
 ./clang/main test/file.hvm -s -C10
 
-# Run all tests
-./test/_all_.sh
+# Run tests (interpreted)
+./scripts/test.sh --interpreted
+
+# Run tests (AOT compiled)
+./scripts/test.sh --compiled
+
+# Run benchmarks (interpreted)
+./scripts/bench.sh --interpreted
+
+# Run benchmarks (AOT compiled)
+./scripts/bench.sh --compiled
 ```
 
 ## Docs Map

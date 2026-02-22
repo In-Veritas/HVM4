@@ -1,8 +1,0 @@
-// Generate a list of superpositions of different labels.
-// This generates a sup tree of depth 19, with most of the work on cnf.
-@list = λ{
-  0: [];
-  _: λ&d. &(d){0, 1} <> @list(d-1)
-}
-
-@main = @list(19)
