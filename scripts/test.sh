@@ -10,7 +10,6 @@
 #
 # For multi-line expected output, use multiple // lines.
 # Tests starting with _ are skipped.
-# `as_c_*` tests are only run in --compiled mode.
 # Per-test CLI flags can be set with one leading directive line:
 #   //!--flag1 --flag2
 
@@ -57,11 +56,9 @@ fi
 
 # Configure mode-specific settings
 if [ "$MODE" = "compiled" ]; then
-  as_c_only=1
   TEST_TIMEOUT_SECS=20
   global_flags=("--as-c")
 else
-  as_c_only=0
   TEST_TIMEOUT_SECS=2
   global_flags=()
 fi
@@ -124,22 +121,15 @@ shopt -s nullglob
 tests=()
 for f in "$DIR"/*.hvm "$FFI_DIR"/*.hvm; do
   name="$(basename "$f")"
-  if [ "$as_c_only" = "1" ]; then
-    case "$name" in
-      as_c_* ) tests+=("$f") ;;
-      *      ) continue ;;
-    esac
-  else
-    case "$name" in
-      _* | as_c_* ) continue ;;
-      *           ) tests+=("$f") ;;
-    esac
-  fi
+  case "$name" in
+    _* ) continue ;;
+    *  ) tests+=("$f") ;;
+  esac
 done
 shopt -u nullglob
 
 if [ ${#tests[@]} -eq 0 ]; then
-  echo "no .hvm files found under $DIR for selected test class" >&2
+  echo "no .hvm files found under $DIR" >&2
   exit 1
 fi
 
@@ -356,9 +346,9 @@ run_tests() {
 # ----
 
 if [ "$MODE" = "compiled" ]; then
-  run_tests "$C_BIN" "C (AOT)" || exit 1
+  run_tests "$C_BIN" "HVM (AOT)" || exit 1
 else
-  run_tests "$C_BIN" "C" || exit 1
+  run_tests "$C_BIN" "HVM" || exit 1
 fi
 
 echo "All tests passed!"
