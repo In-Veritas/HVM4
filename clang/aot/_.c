@@ -231,7 +231,9 @@ fn int aot_hot_lookup(const AotHotEnv *env, u16 lvl, u8 tag, Term *out) {
     return 0;
   }
 
-  u16 idx = env->len - lvl;
+  // AOT environments store binders in outermost-first order.
+  // De Bruijn levels are 1-based from the outermost binder.
+  u16 idx = lvl - 1;
   switch (tag) {
     case VAR:
     case BJV: {

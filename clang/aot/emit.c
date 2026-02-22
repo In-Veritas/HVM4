@@ -102,6 +102,21 @@ fn int aot_emit_find_eval(const AotPlan *plan, u64 loc) {
   return -1;
 }
 
+// Returns 1 when every planned location is covered by a state or eval node.
+fn int aot_emit_is_total(const AotPlan *plan) {
+  for (u32 i = 0; i < plan->loc_len; i++) {
+    u64 loc = plan->locs[i].loc;
+    if (aot_emit_find_state(plan, loc) >= 0) {
+      continue;
+    }
+    if (aot_emit_find_eval(plan, loc) >= 0) {
+      continue;
+    }
+    return 0;
+  }
+  return 1;
+}
+
 // Grows a dynamic array with a doubling strategy.
 fn void aot_emit_grow(void **buf, u32 *cap, size_t item_size, const char *what) {
   u32 new_cap  = *cap == 0 ? 16 : (*cap * 2);
@@ -275,7 +290,14 @@ fn void aot_emit_walk(AotPlan *plan, u64 loc, u32 dep) {
     case ERA:
     case NUM:
     case ANY:
-    case C00:
+    case C00: {
+      aot_emit_add_eval(plan, (AotEval){
+        .loc  = loc,
+        .kind = AOT_EVAL_LIT,
+        .lit  = t,
+      });
+      return;
+    }
     case C01:
     case C02:
     case C03:
@@ -292,11 +314,8 @@ fn void aot_emit_walk(AotPlan *plan, u64 loc, u32 dep) {
     case C14:
     case C15:
     case C16: {
-      aot_emit_add_eval(plan, (AotEval){
-        .loc  = loc,
-        .kind = AOT_EVAL_LIT,
-        .lit  = t,
-      });
+      // Non-nullary constructors may carry captured variables in fields.
+      // Keep them on the fallback path to preserve substitution semantics.
       return;
     }
     default: {
@@ -307,6 +326,10 @@ fn void aot_emit_walk(AotPlan *plan, u64 loc, u32 dep) {
 
 // Returns 1 when one definition can run on the pure u32 numeric lane.
 fn int aot_emit_can_num(const AotPlan *plan) {
+  if (!aot_emit_is_total(plan)) {
+    return 0;
+  }
+
   for (u32 i = 0; i < plan->st_len; i++) {
     if (plan->sts[i].tag != LAM && plan->sts[i].tag != SWI) {
       return 0;
@@ -795,7 +818,7 @@ fn void aot_emit_eval_node(FILE *f, u32 id, const AotPlan *plan, u32 width, u32 
       fprintf(f, "  if (%u == 0 || %u > env_len) {\n", ev.ext, ev.ext);
       fprintf(f, "    return aot_hot_fail_loc_env(%s, env_len, env);\n", loc_ref);
       fprintf(f, "  }\n");
-      fprintf(f, "  return aot_hot_ok(env[env_len - %u]);\n", ev.ext);
+      fprintf(f, "  return aot_hot_ok(env[%u - 1]);\n", ev.ext);
       break;
     }
     case AOT_EVAL_OP2: {
@@ -943,7 +966,7 @@ fn void aot_emit_num_node(FILE *f, u32 id, const AotPlan *plan, u32 idx, AotEval
         fprintf(f, "    return aot_num_fail();\n");
         fprintf(f, "  }\n");
       }
-      fprintf(f, "  return aot_num_ok(env[env_len - %u]);\n", ev.ext);
+      fprintf(f, "  return aot_num_ok(env[%u - 1]);\n", ev.ext);
       break;
     }
     case AOT_EVAL_OP2: {
@@ -1088,7 +1111,7 @@ fn void aot_emit_z_node(FILE *f, u32 id, const AotPlan *plan, u32 idx, AotEval e
       break;
     }
     case AOT_EVAL_BIND: {
-      fprintf(f, "  return env[env_len - %u];\n", ev.ext);
+      fprintf(f, "  return env[%u - 1];\n", ev.ext);
       break;
     }
     case AOT_EVAL_OP2: {
