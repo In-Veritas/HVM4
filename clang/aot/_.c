@@ -6,7 +6,7 @@
 // Design overview:
 // - Trigger modes:
 //   - `--to-c` emits a standalone C program to stdout.
-//   - `--as-c` emits + compiles + runs once, then removes only the executable.
+//   - `--as-c` emits + compiles + runs once using temp files and full cleanup.
 // - Generated program model:
 //   - Includes the real runtime translation unit (`clang/hvm.c`) directly.
 //   - Emits one native C function per top-level definition.
