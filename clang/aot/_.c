@@ -73,23 +73,6 @@ fn Term aot_fallback_alo(u64 tm_loc, u16 len, const Term *args) {
   return term_new(0, ALO, len, alo_loc);
 }
 
-// Pushes constructor fields as APP frames for downstream LAM states.
-fn void aot_push_ctr_apps(Term *stack, u32 *s_pos, Term ctr, u8 ctr_tag) {
-  u32 ari = (u32)(ctr_tag - C00);
-  if (ari == 0) {
-    return;
-  }
-
-  u64 ctr_loc = term_val(ctr);
-  for (u32 i = ari; i > 0; i--) {
-    u64 app_loc = heap_alloc(2);
-    heap_set(app_loc + 0, term_new_era());
-    heap_set(app_loc + 1, heap_read(ctr_loc + (u64)(i - 1)));
-    stack[*s_pos] = term_new(0, APP, 0, app_loc);
-    *s_pos = *s_pos + 1;
-  }
-}
-
 // Hot Eval
 // ========
 // Executes a larger compiled subset (DUP/OP2/REF recursion) before deopting.
@@ -200,16 +183,14 @@ fn AotHotRes aot_hot_fail_apply_env(u64 loc, u16 env_len, const Term *env, u16 a
   return aot_hot_fail(appd);
 }
 
-// Evaluates one location from a raw mutable environment vector.
+// Evaluates one static location from a raw lexical environment vector.
 fn AotHotRes aot_hot_eval_loc_env(u64 loc, Term *env_data, u16 env_len, u16 env_cap, u32 depth) {
-  if (env_len > env_cap) {
-    return aot_hot_fail_loc_env(loc, env_len, env_data);
-  }
   AotHotEnv env = {
     .data = env_data,
     .len  = env_len,
     .cap  = env_cap,
   };
+
   return aot_hot_eval_loc(loc, &env, depth);
 }
 
@@ -331,23 +312,12 @@ fn AotHotRes aot_hot_eval_app(u64 loc, AotHotEnv *env, u32 depth) {
     return aot_hot_fail_loc(loc, env);
   }
 
+  // Preserve laziness: pass arguments as residual ALO terms.
+  // Strict argument forcing remains delegated to the callee path.
   Term args[AOT_HOT_ARG_CAP];
   for (u16 i = 0; i < arg_len; i++) {
     u64 arg_loc = arg_locs[arg_len - 1 - i];
-    AotHotRes arg = aot_hot_eval_loc(arg_loc, env, depth);
-    if (!arg.ok) {
-      Term call = term_new_ref(term_ext(head));
-      for (u16 j = 0; j < i; j++) {
-        call = term_new_app(call, args[j]);
-      }
-      call = term_new_app(call, arg.term);
-      for (u16 j = i + 1; j < arg_len; j++) {
-        u64 rem_loc = arg_locs[arg_len - 1 - j];
-        call = term_new_app(call, aot_hot_env_alo(rem_loc, env));
-      }
-      return aot_hot_fail(call);
-    }
-    args[i] = arg.term;
+    args[i] = aot_hot_env_alo(arg_loc, env);
   }
 
   return aot_hot_apply_ref(term_ext(head), arg_len, args, depth + 1);
@@ -462,68 +432,4 @@ fn AotHotRes aot_hot_eval_loc(u64 loc, AotHotEnv *env, u32 depth) {
       return aot_hot_fail_loc(loc, env);
     }
   }
-}
-
-// Continues execution from `loc` with captured environment and current WNF stack.
-fn Term aot_exec_loc(u64 loc, const Term *env0, u16 env0_len, Term *stack, u32 *s_pos, u32 base) {
-  if (env0_len > AOT_HOT_ENV_CAP) {
-    return aot_fallback_alo(loc, env0_len, env0);
-  }
-
-  Term env_data[AOT_HOT_ENV_CAP];
-  AotHotEnv env = {
-    .data = env_data,
-    .len  = env0_len,
-    .cap  = AOT_HOT_ENV_CAP,
-  };
-  for (u16 i = 0; i < env0_len; i++) {
-    env.data[i] = env0[i];
-  }
-
-  u64 at = loc;
-  while (*s_pos > base) {
-    Term frame = stack[*s_pos - 1];
-    if (term_tag(frame) != APP) {
-      break;
-    }
-
-    Term cur = heap_read(at);
-    switch (term_tag(cur)) {
-      case LAM: {
-        if (env.len >= env.cap) {
-          return aot_hot_env_alo(at, &env);
-        }
-        (*s_pos)--;
-        u64 app_loc = term_val(frame);
-        Term arg    = heap_read(app_loc + 1);
-        env.data[env.len++] = arg;
-        aot_itrs_inc();
-        at = term_val(cur);
-        continue;
-      }
-      case SWI: {
-        u64 app_loc = term_val(frame);
-        Term arg    = heap_read(app_loc + 1);
-        if (term_tag(arg) != NUM) {
-          return aot_hot_env_alo(at, &env);
-        }
-        u64 mat_loc = term_val(cur);
-        if (term_val(arg) == term_ext(cur)) {
-          (*s_pos)--;
-          aot_itrs_inc();
-          at = mat_loc + 0;
-        } else {
-          aot_itrs_inc();
-          at = mat_loc + 1;
-        }
-        continue;
-      }
-      default: {
-        return aot_hot_env_alo(at, &env);
-      }
-    }
-  }
-
-  AotHotRes out = aot_hot_eval_loc(at, &env, 0);
-  return out.term;
 }
