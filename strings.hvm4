@@ -1,0 +1,68 @@
+@id = λ{
+  #CHR: λn. n;
+  _: λh. #NONE 
+}
+
+@first = λ{
+  []: &{};
+  <>: λh. λt. h ;
+}
+
+@id_first = λ{
+  []: &{};
+  <>: λ{
+    #CHR: λn. λt. n;
+    _: λh. λt. #NONE 
+  }
+}
+
+@smaller_letter = λ{
+  []: #CHR{0 - 1};
+  <>: λh. λt. @min_chr(h, @smaller_letter(t))
+}
+
+@min_chr = λ{
+  #CHR: λ&x. λ{
+    #CHR: λ&y.
+      ! lt = x < y;
+      (λ{
+        0: #CHR{y};
+        1: #CHR{x}
+      })(lt)
+  }
+}
+
+@append_list = λ{
+  []: λb.b;
+  <>: λh,t,b. h <> @append_list(t, b);
+}
+
+
+@pop = λ{
+  []: λx.[];
+  <>: λ&h,&t,&x.
+  ! eq = x == h;
+  (λ{
+    0: h <> @pop(t, x)
+    1: t
+  })(eq)
+}
+
+@list_min = λ{
+  []: 0-1;
+  <>: λ&h,&t. 
+  ! lt = h <= @list_min(t);
+  (λ{
+    0: @list_min(t)
+    1: h
+  })(lt)
+}
+
+@select_sort = λ{
+  []: [];
+  <>: λ&h,&t. ! &x = @list_min(h <> t); 
+    x <> (@select_sort(@pop(h <> t,x)))
+}
+
+
+@main = @select_sort([3,4,6,2,1,5,2,2,3,4,5])

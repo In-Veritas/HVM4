@@ -1,0 +1,14 @@
+cnf não está puxando INCs dos nós filhos de nao-lambdas.
+ex:
+
+#T{↑1,2,3}
+
+não está reduzindo pra
+↑#T{1,2,3}
+no cnf
+
+Por outro lado, para LAM, fazemos isso:
+λx.↑A
+reduz para
+↑(λx.A)
+no cnf

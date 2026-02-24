@@ -1,0 +1,17 @@
+@list_min = λ{
+[]: #NONE;
+<>: λ&h. λt.
+    ! rec = @list_min(t);
+    ! &min = (λ{
+      #NONE: (0 - 1)
+      #SOME: λm. m
+    })(rec);
+    ! lt = h <= min;
+    (λ{
+      0: #SOME{min}
+      1: #SOME{h}
+    })(lt)
+}
+
+
+@main = @list_min([3,2,3,4,5])

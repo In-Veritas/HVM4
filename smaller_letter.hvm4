@@ -1,0 +1,35 @@
+@id = λ{
+  #CHR: λn. n;
+  _: λh. #NONE 
+}
+
+@first = λ{
+  []: &{};
+  <>: λh. λt. h ;
+}
+
+@id_first = λ{
+  []: &{};
+  <>: λ{
+    #CHR: λn. λt. n;
+    _: λh. λt. #NONE 
+  }
+}
+
+@smaller_letter = λ{
+  []: #CHR{0 - 1};
+  <>: λh. λt. @min_chr(h, @smaller_letter(t))
+}
+
+@min_chr = λ{
+  #CHR: λ&x. λ{
+    #CHR: λ&y.
+      ! lt = x < y;
+      (λ{
+        0: #CHR{y};
+        1: #CHR{x}
+      })(lt)
+  }
+}
+
+@main = @smaller_letter("pato")
