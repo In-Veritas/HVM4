@@ -1,9 +1,0 @@
-@id_first = λ{
-  []: &{};
-  <>: λ{
-    #CHR: λn. λt. n;
-    _: λh. λt. #NONE 
-  }
-}
-
-@main = @id_first("abc")

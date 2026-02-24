@@ -1,0 +1,27 @@
+@rand = λseed. ((seed * 1103515245 + 12345) % 2147483648)
+@rand_mod = λseed. λmax.
+  !next&A = @rand(seed);
+  #Pair{next₀, (next₁ % max)}
+@cons_rand = λ{
+  #Pair: λnext_seed. λval. λn. λmax. (val <> @rand_list(n, max, next_seed))
+}
+@rand_list = λ{
+  0: λmax. λseed. []
+  λn. λ&max. λseed. @cons_rand(@rand_mod(seed, max), (n - 1), max)
+}
+
+//This generates a list of 10 random elements between 0 and 99, using 42 as the seed.
+//@rand_list(10, 100, 42)
+
+
+@pop = λ{
+  []: λx.[];
+  <>: λ&h,&t,&x.
+  ! eq = x == h;
+  (λ{
+    0: h <> @pop(t, x)
+    1: t
+  })(eq)
+}
+
+@main = @pop(@rand_list(10, 100, 42), 6)

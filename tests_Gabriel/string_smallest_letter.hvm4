@@ -1,0 +1,78 @@
+// Generate a random char in [min_char, min_char + range).
+// Returns #Pair{next_seed, #CHR{codepoint}}
+@rand_char = λ{
+  #Pair: λnext_seed. λval. λmin_char. #Pair{next_seed, #CHR{(val + min_char)}}
+}
+
+// Unpack a #Pair{seed, char} and cons char onto the rest of the random string.
+@cons_rand_char = λ{
+  #Pair: λnext_seed. λch. λn. λmin_char. λrange. (ch <> @rand_str(n, min_char, range, next_seed))
+}
+
+// Generate a random string of `size` chars, each with codepoint in [min_char, min_char + range).
+// Usage: @rand_str(size, min_char, range, seed)
+//   e.g. @rand_str(10, 97, 26, 42) for 10 lowercase letters (a-z)
+//   e.g. @rand_str(10, 65, 26, 42) for 10 uppercase letters (A-Z)
+//   e.g. @rand_str(10, 33, 94, 42) for 10 printable ASCII chars
+@rand_str = λ{
+  0: λmin_char. λrange. λseed. []
+  λn. λ&min_char. λ&range. λseed.
+    @cons_rand_char(@rand_char(@rand_mod(seed, range), min_char), (n - 1), min_char, range)
+}
+// Generates a list of pseudo-random numbers using a Linear Congruential Generator.
+// Usage: @rand_list(size, max, seed)
+//   size -- number of elements to generate
+//   max  -- upper bound (exclusive) for each element
+//   seed -- initial PRNG seed
+
+// Returns the next seed: (seed * 1103515245 + 12345) % 2147483648
+@rand = λseed. ((seed * 1103515245 + 12345) % 2147483648)
+
+// Generate a bounded random value from a seed.
+// Returns #Pair{next_seed, value_in_0_to_max}
+@rand_mod = λseed. λmax.
+  !next&A = @rand(seed);
+  #Pair{next₀, (next₁ % max)}
+
+
+
+@id = λ{
+  #CHR: λn. n;
+  _: λh. #NONE 
+}
+
+@first = λ{
+  []: &{};
+  <>: λh. λt. h ;
+}
+
+@id_first = λ{
+  []: &{};
+  <>: λ{
+    #CHR: λn. λt. n;
+    _: λh. λt. #NONE 
+  }
+}
+
+@smaller_letter = λ{
+  []: #CHR{0 - 1};
+  <>: λh. λt. @min_chr(h, @smaller_letter(t))
+}
+
+@min_chr = λ{
+  #CHR: λ&x. λ{
+    #CHR: λ&y.
+      ! lt = x < y;
+      (λ{
+        0: #CHR{y};
+        1: #CHR{x}
+      })(lt)
+  }
+}
+
+
+// Generate a 20-char random lowercase string with seed 42
+//@main = @rand_str(20, 97, 26, 42)
+
+
+@main = @smaller_letter(@rand_str(20, 97, 26, 98))
